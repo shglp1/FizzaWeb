@@ -45,6 +45,22 @@ enum SafetyStatus {
   REJECTED
 }
 
+enum VehicleType {
+  ECONOMY
+  COMFORT
+  FAMILY
+  VAN
+  BUS
+  PREMIUM
+}
+
+enum DriverApplicationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  NEEDS_CHANGES
+}
+
 model User {
   id           String   @id @default(uuid())
   email        String   @unique
@@ -74,8 +90,10 @@ model Profile {
   loyaltyAccount        LoyaltyAccount?
   safetyReports         SafetyReport[]     @relation("UserSafetyReports")
   reviewedSafetyReports SafetyReport[]     @relation("ReviewedBy")
-  notifications         Notification[]
-  auditLogs             AuditLog[]
+  notifications            Notification[]
+  auditLogs                AuditLog[]
+  driverApplications       DriverApplication[] @relation("ApplicationApplicant")
+  reviewedApplications     DriverApplication[] @relation("ApplicationReviewer")
 
   @@map("profiles")
 }
@@ -384,4 +402,37 @@ model AuditLog {
   user      Profile? @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@map("audit_logs")
+}
+
+model DriverApplication {
+  id                     String                  @id @default(uuid())
+  userId                 String                  @map("user_id")
+  vehicleType            VehicleType             @map("vehicle_type")
+  vehicleCategory        String                  @map("vehicle_category")
+  vehicleBrand           String                  @map("vehicle_brand")
+  vehicleModel           String                  @map("vehicle_model")
+  vehicleYear            Int                     @map("vehicle_year")
+  plateNumber            String                  @map("plate_number")
+  vehicleColor           String                  @map("vehicle_color")
+  vehicleCapacity        Int                     @map("vehicle_capacity")
+  licenseNumber          String                  @map("license_number")
+  driverLicenseUrl       String?                 @map("driver_license_url") @db.Text
+  vehicleRegistrationUrl String?                 @map("vehicle_registration_url") @db.Text
+  nationalIdUrl          String?                 @map("national_id_url") @db.Text
+  driverNotes            String?                 @map("driver_notes") @db.Text
+  city                   String
+  serviceArea            String                  @map("service_area")
+  femaleDriver           Boolean                 @default(false) @map("female_driver")
+  status                 DriverApplicationStatus @default(PENDING)
+  adminResponse          String?                 @map("admin_response") @db.Text
+  reviewedBy             String?                 @map("reviewed_by")
+  reviewedAt             DateTime?               @map("reviewed_at")
+  submittedAt            DateTime                @default(now()) @map("submitted_at")
+  resubmittedAt          DateTime?               @map("resubmitted_at")
+  createdAt              DateTime                @default(now()) @map("created_at")
+  updatedAt              DateTime                @updatedAt @map("updated_at")
+  applicant              Profile                 @relation("ApplicationApplicant", fields: [userId], references: [id], onDelete: Cascade)
+  reviewer               Profile?                @relation("ApplicationReviewer", fields: [reviewedBy], references: [id], onDelete: SetNull)
+
+  @@map("driver_applications")
 }
