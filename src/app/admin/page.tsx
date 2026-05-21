@@ -3,6 +3,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { AppShell } from '@/components/layout/AppShell';
 import { driverApplicationService } from '@/services/driverApplicationService';
 import { tripService } from '@/services/tripService';
+import { safetyService } from '@/services/safetyService';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -95,7 +96,7 @@ function fmtTime(dt: string | null): string {
 
 // ─── Main page ────────────────────────────────────────────────────────────────
 
-type Section = 'applications' | 'trips';
+type Section = 'applications' | 'trips' | 'safety';
 
 export default function AdminPage() {
   const [section, setSection] = useState<Section>('applications');
@@ -105,7 +106,7 @@ export default function AdminPage() {
       <h1 className="text-2xl font-semibold mb-6">Admin Dashboard</h1>
 
       {/* Section switcher */}
-      <div className="flex gap-1 bg-gray-100 rounded-xl p-1 mb-8 w-fit">
+      <div className="flex flex-wrap gap-1 bg-gray-100 rounded-xl p-1 mb-8 w-fit">
         <button
           onClick={() => setSection('applications')}
           className={`px-5 py-2 rounded-lg text-sm font-medium transition-all ${
@@ -122,9 +123,23 @@ export default function AdminPage() {
         >
           Trip Operations
         </button>
+        <button
+          onClick={() => setSection('safety')}
+          className={`px-5 py-2 rounded-lg text-sm font-medium transition-all ${
+            section === 'safety' ? 'bg-white shadow text-emerald-700' : 'text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          Safety Reports
+        </button>
       </div>
 
-      {section === 'applications' ? <ApplicationsSection /> : <TripsSection />}
+      {section === 'applications' ? (
+        <ApplicationsSection />
+      ) : section === 'trips' ? (
+        <TripsSection />
+      ) : (
+        <SafetySection />
+      )}
     </AppShell>
   );
 }
@@ -656,6 +671,279 @@ function TripsSection() {
           <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1} className="btn-outline text-sm px-4 py-2 disabled:opacity-40">← Prev</button>
           <span className="text-sm text-gray-500">Page {meta.page} of {meta.totalPages}</span>
           <button onClick={() => setPage((p) => Math.min(meta.totalPages, p + 1))} disabled={page === meta.totalPages} className="btn-outline text-sm px-4 py-2 disabled:opacity-40">Next →</button>
+        </div>
+      )}
+    </>
+  );
+}
+
+// ─── Safety Reports section ───────────────────────────────────────────────────
+
+const SAFETY_STATUS_CFG: Record<string, { label: string; color: string; bg: string; border: string }> = {
+  PENDING:  { label: 'Pending',  color: 'text-amber-700',   bg: 'bg-amber-50',   border: 'border-amber-200' },
+  APPROVED: { label: 'Approved', color: 'text-emerald-700', bg: 'bg-emerald-50', border: 'border-emerald-200' },
+  REJECTED: { label: 'Rejected', color: 'text-red-700',     bg: 'bg-red-50',     border: 'border-red-200' },
+  RESOLVED: { label: 'Resolved', color: 'text-blue-700',    bg: 'bg-blue-50',    border: 'border-blue-200' },
+};
+
+const SAFETY_CAT_LABELS: Record<string, string> = {
+  UNSAFE_DRIVING:    'Unsafe Driving',
+  HARASSMENT:        'Harassment',
+  VEHICLE_CONDITION: 'Vehicle Condition',
+  ROUTE_DEVIATION:   'Route Deviation',
+  LATE_PICKUP:       'Late Pickup',
+  BEHAVIOUR:         'Behaviour Issue',
+  OTHER:             'Other',
+};
+
+type SafetyReport = {
+  id: string;
+  category: string;
+  description: string;
+  status: string;
+  adminResponse: string | null;
+  createdAt: string;
+  user: { fullName: string; phone: string | null; user: { email: string } } | null;
+  trip: {
+    id: string;
+    scheduledDate: string;
+    pickupLocation: string;
+    rider: { name: string } | null;
+    driver: { profile: { fullName: string } | null } | null;
+  } | null;
+  attachments: { id: string; filePath: string }[];
+  reviewer: { fullName: string } | null;
+};
+
+function SafetySection() {
+  const [reports, setReports] = useState<SafetyReport[]>([]);
+  const [safetyMeta, setSafetyMeta] = useState<PaginationMeta | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [pageError, setPageError] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [safetyPage, setSafetyPage] = useState(1);
+
+  const [reviewingId, setReviewingId] = useState<string | null>(null);
+  const [reviewAction, setReviewAction] = useState<'APPROVE' | 'REJECT' | 'RESOLVE' | null>(null);
+  const [reviewResponse, setReviewResponse] = useState('');
+  const [reviewSubmitting, setReviewSubmitting] = useState(false);
+  const [reviewMsg, setReviewMsg] = useState('');
+
+  const loadReports = useCallback(
+    (status: string, category: string, from: string, to: string, p: number) => {
+      setLoading(true);
+      setPageError('');
+      safetyService
+        .adminListReports({
+          status: status || undefined,
+          category: category || undefined,
+          dateFrom: from || undefined,
+          dateTo: to || undefined,
+          page: p,
+        })
+        .then((res: { data?: { reports: SafetyReport[]; meta: PaginationMeta }; error?: { message: string } }) => {
+          if (res.data) {
+            setReports(res.data.reports ?? []);
+            setSafetyMeta(res.data.meta ?? null);
+          } else {
+            setPageError(res.error?.message ?? 'Failed to load safety reports.');
+          }
+          setLoading(false);
+        });
+    },
+    [],
+  );
+
+  useEffect(() => {
+    loadReports(statusFilter, categoryFilter, dateFrom, dateTo, safetyPage);
+  }, [statusFilter, categoryFilter, dateFrom, dateTo, safetyPage, loadReports]);
+
+  const openReview = (reportId: string) => {
+    if (reviewingId === reportId) { setReviewingId(null); return; }
+    setReviewingId(reportId);
+    setReviewAction(null);
+    setReviewResponse('');
+    setReviewMsg('');
+  };
+
+  const submitReview = async (reportId: string) => {
+    if (!reviewAction) { setReviewMsg('Select an action.'); return; }
+    if ((reviewAction === 'REJECT' || reviewAction === 'RESOLVE') && !reviewResponse.trim()) {
+      setReviewMsg('Response required for Reject/Resolve.'); return;
+    }
+    setReviewSubmitting(true);
+    setReviewMsg('');
+    const res = await safetyService.adminReviewReport(reportId, {
+      action: reviewAction,
+      adminResponse: reviewResponse.trim() || undefined,
+    });
+    setReviewSubmitting(false);
+    if (res.data) {
+      setReviewMsg('Review submitted.');
+      setReviewingId(null);
+      loadReports(statusFilter, categoryFilter, dateFrom, dateTo, safetyPage);
+    } else {
+      setReviewMsg(res.error?.message ?? 'Review failed.');
+    }
+  };
+
+  return (
+    <>
+      <h2 className="text-lg font-semibold mb-4">Safety Reports</h2>
+
+      <div className="flex flex-wrap gap-3 mb-4 items-end">
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">Status</label>
+          <select className="input text-sm" value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setSafetyPage(1); }}>
+            <option value="">All Statuses</option>
+            {['PENDING', 'APPROVED', 'REJECTED', 'RESOLVED'].map((s) => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">Category</label>
+          <select className="input text-sm" value={categoryFilter} onChange={(e) => { setCategoryFilter(e.target.value); setSafetyPage(1); }}>
+            <option value="">All Categories</option>
+            {Object.entries(SAFETY_CAT_LABELS).map(([v, l]) => (
+              <option key={v} value={v}>{l}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">From</label>
+          <input type="date" className="input text-sm" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setSafetyPage(1); }} />
+        </div>
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">To</label>
+          <input type="date" className="input text-sm" value={dateTo} onChange={(e) => { setDateTo(e.target.value); setSafetyPage(1); }} />
+        </div>
+      </div>
+
+      {reviewMsg && !reviewingId && (
+        <p className={`rounded-xl px-4 py-3 text-sm mb-4 ${
+          reviewMsg.includes('fail') || reviewMsg.includes('Select') || reviewMsg.includes('required')
+            ? 'text-red-700 bg-red-50' : 'text-emerald-700 bg-emerald-50'
+        }`}>
+          {reviewMsg}
+        </p>
+      )}
+
+      {loading ? (
+        <div className="flex items-center justify-center h-32 text-gray-400">Loading safety reports...</div>
+      ) : pageError ? (
+        <div className="card text-red-600 text-sm">{pageError}</div>
+      ) : reports.length === 0 ? (
+        <div className="card text-center py-12 text-gray-400">No safety reports found.</div>
+      ) : (
+        <div className="space-y-4">
+          {reports.map((report) => {
+            const cfg = SAFETY_STATUS_CFG[report.status] ?? SAFETY_STATUS_CFG.PENDING;
+            const isReviewing = reviewingId === report.id;
+            return (
+              <div key={report.id} className="card">
+                <div className="flex items-start justify-between gap-3 mb-3">
+                  <div>
+                    <p className="font-semibold text-base">{SAFETY_CAT_LABELS[report.category] ?? report.category}</p>
+                    {report.user && (
+                      <p className="text-xs text-gray-500">{report.user.fullName} · {report.user.user.email}</p>
+                    )}
+                    <p className="text-xs text-gray-400">{new Date(report.createdAt).toLocaleDateString()}</p>
+                  </div>
+                  <span className={`px-2 py-0.5 rounded-full text-xs font-semibold border whitespace-nowrap ${cfg.bg} ${cfg.color} ${cfg.border}`}>
+                    {cfg.label}
+                  </span>
+                </div>
+
+                <p className="text-sm text-gray-700 mb-3">{report.description}</p>
+
+                {report.trip && (
+                  <div className="bg-gray-50 rounded-xl p-3 text-sm mb-3 space-y-1">
+                    <p className="text-xs font-semibold text-gray-500 mb-1">Linked Trip</p>
+                    <p>{new Date(report.trip.scheduledDate).toLocaleDateString()} · {report.trip.pickupLocation}</p>
+                    {report.trip.rider && <p>Rider: {report.trip.rider.name}</p>}
+                    {report.trip.driver?.profile && <p>Driver: {report.trip.driver.profile.fullName}</p>}
+                  </div>
+                )}
+
+                {report.attachments.length > 0 && (
+                  <div className="flex gap-2 mb-3">
+                    {report.attachments.map((a) => (
+                      <a key={a.id} href={a.filePath} target="_blank" rel="noopener noreferrer"
+                        className="text-xs text-blue-600 underline">Attachment</a>
+                    ))}
+                  </div>
+                )}
+
+                {report.adminResponse && (
+                  <div className="bg-blue-50 border border-blue-100 rounded-xl px-3 py-2 text-sm text-blue-800 mb-3">
+                    <span className="text-xs font-semibold text-blue-600 block mb-0.5">Admin Response:</span>
+                    {report.adminResponse}
+                  </div>
+                )}
+
+                {report.status !== 'RESOLVED' && (
+                  <div>
+                    <button
+                      onClick={() => openReview(report.id)}
+                      className={`text-sm px-4 py-2 rounded-xl font-semibold border transition-all ${
+                        isReviewing ? 'bg-gray-600 text-white border-gray-600' : 'border-blue-300 text-blue-700 hover:bg-blue-50'
+                      }`}
+                    >
+                      {isReviewing ? 'Cancel' : 'Review Report'}
+                    </button>
+                    {isReviewing && (
+                      <div className="mt-3 space-y-3 border-t border-gray-100 pt-3">
+                        <div className="flex flex-wrap gap-2">
+                          {(['APPROVE', 'REJECT', 'RESOLVE'] as const).map((a) => (
+                            <button
+                              key={a}
+                              onClick={() => setReviewAction(a)}
+                              className={`text-sm px-3 py-1.5 rounded-lg border font-medium transition-colors ${
+                                reviewAction === a
+                                  ? a === 'APPROVE' ? 'bg-emerald-600 text-white border-emerald-600'
+                                  : a === 'REJECT'  ? 'bg-red-600 text-white border-red-600'
+                                  : 'bg-blue-600 text-white border-blue-600'
+                                  : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+                              }`}
+                            >
+                              {a}
+                            </button>
+                          ))}
+                        </div>
+                        <textarea
+                          rows={2}
+                          placeholder={reviewAction === 'APPROVE' ? 'Optional response...' : 'Response required for Reject/Resolve...'}
+                          value={reviewResponse}
+                          onChange={(e) => setReviewResponse(e.target.value)}
+                          className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-400"
+                        />
+                        {reviewMsg && <p className="text-xs text-red-600">{reviewMsg}</p>}
+                        <button
+                          onClick={() => submitReview(report.id)}
+                          disabled={reviewSubmitting || !reviewAction}
+                          className="btn-primary text-sm px-4 py-2 disabled:opacity-50"
+                        >
+                          {reviewSubmitting ? 'Submitting...' : 'Submit Review'}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {safetyMeta && safetyMeta.totalPages > 1 && (
+        <div className="flex items-center justify-center gap-3 mt-6">
+          <button onClick={() => setSafetyPage((p) => Math.max(1, p - 1))} disabled={safetyPage === 1} className="btn-outline text-sm px-4 py-2 disabled:opacity-40">Prev</button>
+          <span className="text-sm text-gray-500">Page {safetyMeta.page} of {safetyMeta.totalPages}</span>
+          <button onClick={() => setSafetyPage((p) => Math.min(safetyMeta.totalPages, p + 1))} disabled={safetyPage === safetyMeta.totalPages} className="btn-outline text-sm px-4 py-2 disabled:opacity-40">Next</button>
         </div>
       )}
     </>

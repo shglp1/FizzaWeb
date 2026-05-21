@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "test": "node --experimental-strip-types --test src/tests/auth.smoke.ts src/tests/validation.smoke.ts src/tests/subscription.smoke.ts src/tests/trip.smoke.ts src/tests/payment.smoke.ts"
+    "test": "node --experimental-strip-types --test src/tests/auth.smoke.ts src/tests/validation.smoke.ts src/tests/subscription.smoke.ts src/tests/trip.smoke.ts src/tests/payment.smoke.ts src/tests/safety.smoke.ts src/tests/notification.smoke.ts"
   },
   "prisma": {
     "seed": "node --experimental-strip-types prisma/seed.ts"
