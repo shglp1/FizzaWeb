@@ -8,12 +8,12 @@ export function middleware(req: NextRequest) {
   const isProtected = protectedRoutes.some((r) => path.startsWith(r));
   if (!isProtected) return NextResponse.next();
 
-  const hasSession = req.cookies.get('sb-access-token') ?? req.cookies.get('sb-access-token.0');
+  const hasSession = req.cookies.get('fizza-session');
   if (!hasSession) return NextResponse.redirect(new URL('/login', req.url));
 
   if (path.startsWith('/admin')) {
     const role = req.cookies.get('fizza-role')?.value;
-    if (role !== 'admin') return NextResponse.redirect(new URL('/dashboard', req.url));
+    if (role !== 'ADMIN' && role !== 'admin') return NextResponse.redirect(new URL('/dashboard', req.url));
   }
 
   return NextResponse.next();
