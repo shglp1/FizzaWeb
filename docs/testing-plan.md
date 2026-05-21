@@ -1,0 +1,11 @@
+# Testing Plan
+- Unit tests: Vitest + React Testing Library for services, validators, and critical UI components.
+- Integration tests: Next route handlers + Supabase test project for auth, riders CRUD, wallet operations.
+- E2E tests: Playwright for route smoke tests and core flows.
+- Route smoke tests: `/`, `/login`, `/register`, `/dashboard`, `/riders`, `/subscriptions/new`, `/trips`, `/tracking/demo-trip`, `/wallet`, `/safety`, `/notifications`, `/profile`, `/admin`.
+- Auth flow tests: register, login, logout, reset password, protected route redirect.
+- Subscription flow tests: step validation, package/rider selection, schedule persistence.
+- Wallet negative balance test: attempt debit > balance must fail at DB constraint and service layer.
+- Safety report test: submit report with attachment metadata and admin status transition.
+- Admin access restriction test: parent attempts `/admin` redirect.
+- Load plan: k6/Artillery scripts for 1,000 concurrent users; scenarios for dashboard, trips list, notifications polling.

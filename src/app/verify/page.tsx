@@ -1,0 +1,1 @@
+export default function Page(){return <main className='max-w-md mx-auto p-4'><div className='card'><h1 className='text-xl font-semibold'>Phone Verification</h1><input className='input mt-3' placeholder='Enter OTP code'/><button className='btn-primary mt-3 w-full'>Verify</button></div></main>}
