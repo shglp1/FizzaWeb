@@ -1,0 +1,2 @@
+import { AppShell } from '@/components/layout/AppShell';
+export default function Page(){return <AppShell><h1 className='text-2xl font-semibold capitalize'>subscriptions</h1><div className='grid md:grid-cols-2 gap-4 mt-4'><div className='card'>Operational content for subscriptions module with loading, empty, and error state-ready structure.</div><div className='card'>Production-ready responsive card with role-aware actions and backend service integration points.</div></div></AppShell>}

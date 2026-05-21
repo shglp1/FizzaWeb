@@ -1,0 +1,1 @@
+export default function Page(){return <main className='max-w-md mx-auto p-4'><div className='card'><h1 className='text-xl font-semibold'>Reset Password</h1><input className='input mt-3' placeholder='New password' type='password'/><button className='btn-primary mt-3 w-full'>Save</button></div></main>}

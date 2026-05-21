@@ -1,0 +1,9 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+body{@apply bg-fizza-bg text-fizza-text}
+.card{@apply rounded-2xl bg-white p-4 shadow-sm border border-emerald-100}
+.input{@apply w-full rounded-xl border border-emerald-200 p-3}
+.btn{@apply rounded-xl px-4 py-3 font-semibold}
+.btn-primary{@apply btn bg-fizza-primary text-white}
+.btn-outline{@apply btn border border-emerald-300 text-fizza-primary bg-white}

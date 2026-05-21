@@ -1,0 +1,1 @@
+export function Logo(){return <div className='flex items-center gap-2 font-bold text-2xl text-fizza-primary'><div className='h-10 w-10 rounded-2xl bg-gradient-to-br from-fizza-secondary to-fizza-primary relative'><span className='absolute inset-2 rounded-full border-2 border-white/90 border-t-0' /></div><div>FIZZA</div></div>}

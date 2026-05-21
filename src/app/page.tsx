@@ -1,0 +1,3 @@
+import Link from 'next/link';
+import { Logo } from '@/components/layout/Logo';
+export default function Home(){return <main className='max-w-6xl mx-auto p-4'><section className='grid md:grid-cols-2 gap-4 items-center py-8'><div><Logo/><h1 className='text-5xl font-bold mt-4'>Safe Rides. Every Schedule.</h1><p className='mt-3 text-gray-600'>Scheduled family transportation with safety-first operations.</p><div className='mt-4 flex gap-3'><Link href='/register' className='btn-primary'>Get Started</Link><Link href='/subscriptions' className='btn-outline'>View Plans</Link></div></div><div className='card h-80 bg-gradient-to-br from-emerald-700 to-emerald-900 text-white'>Live dashboard preview</div></section></main>}
