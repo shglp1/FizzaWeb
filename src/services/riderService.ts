@@ -1,6 +1,22 @@
-import { supabase } from '@/lib/supabase/client';
 export const riderService = {
- list: async()=> supabase.from('riders').select('*').order('created_at',{ascending:false}),
- create: async(payload:Record<string,unknown>)=>supabase.from('riders').insert(payload).select().single(),
- update: async(id:string,payload:Record<string,unknown>)=>supabase.from('riders').update(payload).eq('id',id).select().single()
+  list: async () => {
+    const res = await fetch('/api/php/riders.php');
+    return res.json();
+  },
+  create: async (payload: Record<string, unknown>) => {
+    const res = await fetch('/api/php/riders.php', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    return res.json();
+  },
+  update: async (id: string, payload: Record<string, unknown>) => {
+    const res = await fetch('/api/php/riders.php', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, ...payload, action: 'update' })
+    });
+    return res.json();
+  }
 };
