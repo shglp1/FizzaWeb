@@ -3,6 +3,8 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { AppShell } from '@/components/layout/AppShell';
 import { subscriptionService } from '@/services/subscriptionService';
+import { walletService } from '@/services/walletService';
+import { paymentService } from '@/services/paymentService';
 
 type SubscriptionStatus = 'PENDING' | 'ACTIVE' | 'PAUSED' | 'EXPIRED' | 'CANCELLED';
 type PaymentStatus = 'PENDING' | 'PAID' | 'FAILED' | 'REFUNDED';
@@ -42,11 +44,12 @@ export default function SubscriptionsPage() {
   const [loading, setLoading] = useState(true);
   const [pageError, setPageError] = useState('');
   const [cancelling, setCancelling] = useState<string | null>(null);
+  const [paying, setPaying] = useState<string | null>(null);
   const [actionMsg, setActionMsg] = useState('');
 
   const loadSubscriptions = () => {
     setLoading(true);
-    subscriptionService.list().then((res) => {
+    subscriptionService.list().then((res: { data?: Subscription[]; error?: { message: string } }) => {
       if (res.data) setSubscriptions(res.data);
       else setPageError(res.error?.message ?? 'Failed to load subscriptions.');
       setLoading(false);
@@ -66,6 +69,34 @@ export default function SubscriptionsPage() {
       loadSubscriptions();
     } else {
       setActionMsg(res.error?.message ?? 'Cancel failed.');
+    }
+  };
+
+  const handlePayWithWallet = async (sub: Subscription) => {
+    if (!confirm(`Pay for your ${sub.subscriptionType} subscription using wallet balance?`)) return;
+    setPaying(sub.id);
+    setActionMsg('');
+    const res = await walletService.paySubscription(sub.id);
+    setPaying(null);
+    if (res.data) {
+      setActionMsg('Subscription paid successfully. It is now active.');
+      loadSubscriptions();
+    } else {
+      setActionMsg(res.error?.message ?? 'Payment failed. Please try again.');
+    }
+  };
+
+  const handlePayOnline = async (sub: Subscription) => {
+    setPaying(sub.id);
+    setActionMsg('');
+    const res = await paymentService.createPayment({ purpose: 'SUBSCRIPTION_PAYMENT', subscriptionId: sub.id });
+    setPaying(null);
+    if (res.data?.invoiceUrl) {
+      window.location.href = res.data.invoiceUrl;
+    } else if (res.data?.message === 'Payment already initiated' && res.data?.invoiceId) {
+      setActionMsg('A payment is already in progress. Please check your email or contact support.');
+    } else {
+      setActionMsg(res.error?.message ?? 'Failed to initiate online payment. Please try again.');
     }
   };
 
@@ -167,10 +198,28 @@ export default function SubscriptionsPage() {
                 </p>
 
                 {(sub.status === 'PENDING' || sub.status === 'ACTIVE' || sub.status === 'PAUSED') && (
-                  <div className="border-t border-gray-100 pt-3 flex gap-2">
+                  <div className="border-t border-gray-100 pt-3 flex flex-wrap gap-2">
+                    {sub.paymentStatus === 'PENDING' && (
+                      <>
+                        <button
+                          onClick={() => handlePayWithWallet(sub)}
+                          disabled={paying === sub.id || cancelling === sub.id}
+                          className="text-sm px-4 py-2 rounded-xl font-semibold bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
+                        >
+                          {paying === sub.id ? 'Processing…' : 'Pay with Wallet'}
+                        </button>
+                        <button
+                          onClick={() => handlePayOnline(sub)}
+                          disabled={paying === sub.id || cancelling === sub.id}
+                          className="text-sm px-4 py-2 rounded-xl font-semibold border border-blue-300 text-blue-700 hover:bg-blue-50 disabled:opacity-50"
+                        >
+                          {paying === sub.id ? 'Redirecting…' : 'Pay Online'}
+                        </button>
+                      </>
+                    )}
                     <button
                       onClick={() => handleCancel(sub)}
-                      disabled={cancelling === sub.id}
+                      disabled={cancelling === sub.id || paying === sub.id}
                       className="text-sm px-4 py-2 rounded-xl font-semibold border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-50"
                     >
                       {cancelling === sub.id ? 'Cancelling…' : 'Cancel Subscription'}
