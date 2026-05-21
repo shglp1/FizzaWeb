@@ -61,6 +61,19 @@ enum DriverApplicationStatus {
   NEEDS_CHANGES
 }
 
+enum PaymentPurpose {
+  WALLET_TOP_UP
+  SUBSCRIPTION_PAYMENT
+}
+
+enum WalletTransactionType {
+  CREDIT
+  DEBIT
+  REFUND
+  TOP_UP
+  SUBSCRIPTION_PAYMENT
+}
+
 model User {
   id           String   @id @default(uuid())
   email        String   @unique
@@ -73,27 +86,27 @@ model User {
 }
 
 model Profile {
-  id                    String             @id
-  role                  UserRole           @default(PARENT)
-  fullName              String             @map("full_name")
+  id                    String              @id
+  role                  UserRole            @default(PARENT)
+  fullName              String              @map("full_name")
   phone                 String?
-  avatarUrl             String?            @map("avatar_url") @db.Text
-  createdAt             DateTime           @default(now()) @map("created_at")
-  updatedAt             DateTime           @updatedAt @map("updated_at")
-  user                  User               @relation(fields: [id], references: [id], onDelete: Cascade)
+  avatarUrl             String?             @map("avatar_url") @db.Text
+  createdAt             DateTime            @default(now()) @map("created_at")
+  updatedAt             DateTime            @updatedAt @map("updated_at")
+  user                  User                @relation(fields: [id], references: [id], onDelete: Cascade)
   riders                Rider[]
   userSubscriptions     UserSubscription[]
-  cancelledTrips        Trip[]             @relation("CancelledBy")
+  cancelledTrips        Trip[]              @relation("CancelledBy")
   drivers               Driver[]
   wallet                Wallet?
   payments              Payment[]
   loyaltyAccount        LoyaltyAccount?
-  safetyReports         SafetyReport[]     @relation("UserSafetyReports")
-  reviewedSafetyReports SafetyReport[]     @relation("ReviewedBy")
-  notifications            Notification[]
-  auditLogs                AuditLog[]
-  driverApplications       DriverApplication[] @relation("ApplicationApplicant")
-  reviewedApplications     DriverApplication[] @relation("ApplicationReviewer")
+  safetyReports         SafetyReport[]      @relation("UserSafetyReports")
+  reviewedSafetyReports SafetyReport[]      @relation("ReviewedBy")
+  notifications         Notification[]
+  auditLogs             AuditLog[]
+  driverApplications    DriverApplication[] @relation("ApplicationApplicant")
+  reviewedApplications  DriverApplication[] @relation("ApplicationReviewer")
 
   @@map("profiles")
 }
@@ -282,30 +295,45 @@ model Wallet {
 }
 
 model WalletTransaction {
-  id        String   @id @default(uuid())
-  walletId  String   @map("wallet_id")
-  tripId    String?  @map("trip_id")
-  amountSar Decimal  @map("amount_sar") @db.Decimal(10, 2)
-  txType    String   @map("tx_type")
-  createdAt DateTime @default(now()) @map("created_at")
-  wallet    Wallet   @relation(fields: [walletId], references: [id], onDelete: Cascade)
-  trip      Trip?    @relation(fields: [tripId], references: [id], onDelete: SetNull)
+  id          String                @id @default(uuid())
+  walletId    String                @map("wallet_id")
+  tripId      String?               @map("trip_id")
+  paymentId   String?               @map("payment_id")
+  amountSar   Decimal               @map("amount_sar") @db.Decimal(10, 2)
+  txType      WalletTransactionType @map("tx_type")
+  description String?               @db.Text
+  createdAt   DateTime              @default(now()) @map("created_at")
+  wallet      Wallet                @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  trip        Trip?                 @relation(fields: [tripId], references: [id], onDelete: SetNull)
+  payment     Payment?              @relation(fields: [paymentId], references: [id], onDelete: SetNull)
 
+  @@index([walletId])
+  @@index([createdAt])
   @@map("wallet_transactions")
 }
 
 model Payment {
-  id             String            @id @default(uuid())
-  userId         String            @map("user_id")
-  subscriptionId String?           @map("subscription_id")
-  amountSar      Decimal           @map("amount_sar") @db.Decimal(10, 2)
-  status         PaymentStatus     @default(PENDING)
-  gateway        String?           @default("myfatoorah")
-  externalRef    String?           @map("external_ref")
-  createdAt      DateTime          @default(now()) @map("created_at")
-  user           Profile           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  subscription   UserSubscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+  id                 String              @id @default(uuid())
+  userId             String              @map("user_id")
+  subscriptionId     String?             @map("subscription_id")
+  amountSar          Decimal             @map("amount_sar") @db.Decimal(10, 2)
+  status             PaymentStatus       @default(PENDING)
+  purpose            PaymentPurpose      @default(SUBSCRIPTION_PAYMENT) @map("purpose")
+  gateway            String?             @default("myfatoorah")
+  externalRef        String?             @map("external_ref")
+  invoiceId          String?             @map("invoice_id")
+  paymentId          String?             @map("payment_id")
+  idempotencyKey     String?             @unique @map("idempotency_key")
+  createdAt          DateTime            @default(now()) @map("created_at")
+  updatedAt          DateTime            @updatedAt @map("updated_at")
+  user               Profile             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subscription       UserSubscription?   @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+  walletTransactions WalletTransaction[]
 
+  @@index([userId])
+  @@index([subscriptionId])
+  @@index([status])
+  @@index([externalRef])
   @@map("payments")
 }
 
