@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { AppShell } from '@/components/layout/AppShell';
+import { DriverGpsPanel } from '@/components/DriverGpsPanel';
 import { tripService } from '@/services/tripService';
 
 type TripStatus = 'SCHEDULED' | 'DRIVER_ASSIGNED' | 'ON_THE_WAY' | 'PICKED_UP' | 'COMPLETED' | 'CANCELLED';
@@ -57,6 +58,15 @@ export default function TripsPage() {
   const [pageError, setPageError] = useState('');
   const [cancelling, setCancelling] = useState<string | null>(null);
   const [actionMsg, setActionMsg] = useState('');
+  const [userRole, setUserRole] = useState<string | null>(null);
+
+  // Fetch role once on mount — reads from JWT, no DB query
+  useEffect(() => {
+    fetch('/api/me')
+      .then((r) => r.json())
+      .then((res) => { if (res.data?.role) setUserRole(res.data.role); })
+      .catch(() => {/* role stays null, GPS panel simply won't show */});
+  }, []);
 
   const loadTrips = (filter: string) => {
     setLoading(true);
@@ -85,9 +95,22 @@ export default function TripsPage() {
     }
   };
 
+  const isDriver = userRole === 'DRIVER';
+
   return (
     <AppShell>
       <h1 className="text-2xl font-semibold mb-6">My Trips</h1>
+
+      {/* Driver callout — shown only to drivers */}
+      {isDriver && (
+        <div className="mb-5 flex items-center gap-3 px-4 py-3 bg-blue-50 border border-blue-200 rounded-xl text-sm text-blue-800">
+          <span className="text-base">🚗</span>
+          <span>
+            <span className="font-semibold">Driver mode:</span> tap{' '}
+            <span className="font-medium">Start Sharing Location</span> on an active trip to send live GPS updates to parents.
+          </span>
+        </div>
+      )}
 
       <div className="flex gap-1 bg-gray-100 rounded-xl p-1 mb-6 overflow-x-auto">
         {TABS.map((tab) => (
@@ -121,7 +144,9 @@ export default function TripsPage() {
           <p className="text-gray-400 text-lg mb-1">No {activeTab} trips</p>
           <p className="text-gray-400 text-sm">
             {activeTab === 'upcoming'
-              ? 'Trips are generated from your active subscriptions by the admin team.'
+              ? isDriver
+                ? 'No trips assigned to you yet.'
+                : 'Trips are generated from your active subscriptions by the admin team.'
               : `No ${activeTab} trips found.`}
           </p>
         </div>
@@ -129,6 +154,10 @@ export default function TripsPage() {
         <div className="space-y-4">
           {trips.map((trip) => {
             const cfg = STATUS_CFG[trip.status];
+            const showGps = isDriver && TRACKABLE.includes(trip.status);
+            const showTracking = !isDriver && TRACKABLE.includes(trip.status);
+            const showCancel = !isDriver && CANCELLABLE.includes(trip.status);
+
             return (
               <div key={trip.id} className="card">
                 <div className="flex items-start justify-between gap-4 mb-3">
@@ -184,25 +213,31 @@ export default function TripsPage() {
                   </div>
                 )}
 
-                <div className="flex gap-2 flex-wrap">
-                  {TRACKABLE.includes(trip.status) && (
-                    <Link
-                      href={`/tracking/${trip.id}`}
-                      className="text-sm px-4 py-2 rounded-xl font-semibold border border-emerald-300 text-emerald-700 hover:bg-emerald-50"
-                    >
-                      View Tracking →
-                    </Link>
-                  )}
-                  {CANCELLABLE.includes(trip.status) && (
-                    <button
-                      onClick={() => handleCancel(trip)}
-                      disabled={cancelling === trip.id}
-                      className="text-sm px-4 py-2 rounded-xl font-semibold border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-50"
-                    >
-                      {cancelling === trip.id ? 'Cancelling…' : 'Cancel Trip'}
-                    </button>
-                  )}
-                </div>
+                {/* Parent actions */}
+                {(showTracking || showCancel) && (
+                  <div className="flex gap-2 flex-wrap">
+                    {showTracking && (
+                      <Link
+                        href={`/tracking/${trip.id}`}
+                        className="text-sm px-4 py-2 rounded-xl font-semibold border border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+                      >
+                        View Tracking →
+                      </Link>
+                    )}
+                    {showCancel && (
+                      <button
+                        onClick={() => handleCancel(trip)}
+                        disabled={cancelling === trip.id}
+                        className="text-sm px-4 py-2 rounded-xl font-semibold border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-50"
+                      >
+                        {cancelling === trip.id ? 'Cancelling…' : 'Cancel Trip'}
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {/* Driver GPS controls — only for assigned driver on active trips */}
+                {showGps && <DriverGpsPanel tripId={trip.id} />}
               </div>
             );
           })}
