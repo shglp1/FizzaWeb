@@ -361,20 +361,24 @@ model LoyaltyTransaction {
 }
 
 model SafetyReport {
-  id          String                   @id @default(uuid())
-  userId      String?                  @map("user_id")
-  tripId      String?                  @map("trip_id")
-  category    String
-  description String                   @db.Text
-  status      SafetyStatus             @default(PENDING)
-  reviewedBy  String?                  @map("reviewed_by")
-  createdAt   DateTime                 @default(now()) @map("created_at")
-  updatedAt   DateTime                 @updatedAt @map("updated_at")
-  user        Profile?                 @relation("UserSafetyReports", fields: [userId], references: [id], onDelete: SetNull)
-  trip        Trip?                    @relation(fields: [tripId], references: [id], onDelete: SetNull)
-  reviewer    Profile?                 @relation("ReviewedBy", fields: [reviewedBy], references: [id], onDelete: SetNull)
-  attachments SafetyReportAttachment[]
+  id            String                   @id @default(uuid())
+  userId        String?                  @map("user_id")
+  tripId        String?                  @map("trip_id")
+  category      String
+  description   String                   @db.Text
+  status        SafetyStatus             @default(PENDING)
+  adminResponse String?                  @map("admin_response") @db.Text
+  reviewedBy    String?                  @map("reviewed_by")
+  reviewedAt    DateTime?                @map("reviewed_at")
+  createdAt     DateTime                 @default(now()) @map("created_at")
+  updatedAt     DateTime                 @updatedAt @map("updated_at")
+  user          Profile?                 @relation("UserSafetyReports", fields: [userId], references: [id], onDelete: SetNull)
+  trip          Trip?                    @relation(fields: [tripId], references: [id], onDelete: SetNull)
+  reviewer      Profile?                 @relation("ReviewedBy", fields: [reviewedBy], references: [id], onDelete: SetNull)
+  attachments   SafetyReportAttachment[]
 
+  @@index([userId])
+  @@index([status])
   @@map("safety_reports")
 }
 
