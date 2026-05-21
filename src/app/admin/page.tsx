@@ -1,7 +1,10 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { AppShell } from '@/components/layout/AppShell';
 import { driverApplicationService } from '@/services/driverApplicationService';
+import { tripService } from '@/services/tripService';
+
+// ─── Types ───────────────────────────────────────────────────────────────────
 
 type AppStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'NEEDS_CHANGES';
 
@@ -28,9 +31,38 @@ type Application = {
   reviewer: { fullName: string } | null;
 };
 
+type TripStatus = 'SCHEDULED' | 'DRIVER_ASSIGNED' | 'ON_THE_WAY' | 'PICKED_UP' | 'COMPLETED' | 'CANCELLED';
+
+type AdminTrip = {
+  id: string;
+  status: TripStatus;
+  scheduledDate: string;
+  scheduledPickupTime: string | null;
+  scheduledDropoffTime: string | null;
+  pickupLocation: string;
+  dropoffLocation: string;
+  rider: { id: string; name: string; relationship: string } | null;
+  driver: {
+    id: string;
+    rating: string | null;
+    profile: { fullName: string; phone: string | null } | null;
+  } | null;
+  vehicle: { model: string; plateNumber: string; color: string | null } | null;
+  subscription: { id: string; subscriptionType: string } | null;
+};
+
+type Driver = {
+  id: string;
+  rating: string | null;
+  profile: { fullName: string; phone: string | null } | null;
+  vehicle: { model: string; plateNumber: string; color: string | null } | null;
+};
+
 type PaginationMeta = { page: number; limit: number; total: number; totalPages: number };
 
-const TABS: { label: string; value: string }[] = [
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const APP_TABS: { label: string; value: string }[] = [
   { label: 'All', value: '' },
   { label: 'Pending', value: 'PENDING' },
   { label: 'Approved', value: 'APPROVED' },
@@ -38,14 +70,68 @@ const TABS: { label: string; value: string }[] = [
   { label: 'Needs Changes', value: 'NEEDS_CHANGES' },
 ];
 
-const STATUS_CONFIG: Record<AppStatus, { label: string; color: string; bg: string; border: string }> = {
-  PENDING: { label: 'Pending', color: 'text-amber-700', bg: 'bg-amber-50', border: 'border-amber-200' },
-  APPROVED: { label: 'Approved', color: 'text-emerald-700', bg: 'bg-emerald-50', border: 'border-emerald-200' },
-  REJECTED: { label: 'Rejected', color: 'text-red-700', bg: 'bg-red-50', border: 'border-red-200' },
-  NEEDS_CHANGES: { label: 'Needs Changes', color: 'text-orange-700', bg: 'bg-orange-50', border: 'border-orange-200' },
+const APP_STATUS_CFG: Record<AppStatus, { label: string; color: string; bg: string; border: string }> = {
+  PENDING:       { label: 'Pending',        color: 'text-amber-700',   bg: 'bg-amber-50',   border: 'border-amber-200' },
+  APPROVED:      { label: 'Approved',       color: 'text-emerald-700', bg: 'bg-emerald-50', border: 'border-emerald-200' },
+  REJECTED:      { label: 'Rejected',       color: 'text-red-700',     bg: 'bg-red-50',     border: 'border-red-200' },
+  NEEDS_CHANGES: { label: 'Needs Changes',  color: 'text-orange-700',  bg: 'bg-orange-50',  border: 'border-orange-200' },
 };
 
+const TRIP_STATUS_CFG: Record<TripStatus, { label: string; color: string; bg: string; border: string }> = {
+  SCHEDULED:       { label: 'Scheduled',      color: 'text-amber-700',   bg: 'bg-amber-50',   border: 'border-amber-200' },
+  DRIVER_ASSIGNED: { label: 'Driver Assigned', color: 'text-blue-700',    bg: 'bg-blue-50',    border: 'border-blue-200' },
+  ON_THE_WAY:      { label: 'On the Way',      color: 'text-indigo-700',  bg: 'bg-indigo-50',  border: 'border-indigo-200' },
+  PICKED_UP:       { label: 'Picked Up',       color: 'text-purple-700',  bg: 'bg-purple-50',  border: 'border-purple-200' },
+  COMPLETED:       { label: 'Completed',       color: 'text-emerald-700', bg: 'bg-emerald-50', border: 'border-emerald-200' },
+  CANCELLED:       { label: 'Cancelled',       color: 'text-red-700',     bg: 'bg-red-50',     border: 'border-red-200' },
+};
+
+const TRIP_STATUS_FILTERS = ['', 'SCHEDULED', 'DRIVER_ASSIGNED', 'ON_THE_WAY', 'PICKED_UP', 'COMPLETED', 'CANCELLED'];
+
+function fmtTime(dt: string | null): string {
+  if (!dt) return '—';
+  return new Date(dt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+// ─── Main page ────────────────────────────────────────────────────────────────
+
+type Section = 'applications' | 'trips';
+
 export default function AdminPage() {
+  const [section, setSection] = useState<Section>('applications');
+
+  return (
+    <AppShell>
+      <h1 className="text-2xl font-semibold mb-6">Admin Dashboard</h1>
+
+      {/* Section switcher */}
+      <div className="flex gap-1 bg-gray-100 rounded-xl p-1 mb-8 w-fit">
+        <button
+          onClick={() => setSection('applications')}
+          className={`px-5 py-2 rounded-lg text-sm font-medium transition-all ${
+            section === 'applications' ? 'bg-white shadow text-emerald-700' : 'text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          Driver Applications
+        </button>
+        <button
+          onClick={() => setSection('trips')}
+          className={`px-5 py-2 rounded-lg text-sm font-medium transition-all ${
+            section === 'trips' ? 'bg-white shadow text-emerald-700' : 'text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          Trip Operations
+        </button>
+      </div>
+
+      {section === 'applications' ? <ApplicationsSection /> : <TripsSection />}
+    </AppShell>
+  );
+}
+
+// ─── Driver Applications section ──────────────────────────────────────────────
+
+function ApplicationsSection() {
   const [applications, setApplications] = useState<Application[]>([]);
   const [meta, setMeta] = useState<PaginationMeta | null>(null);
   const [loading, setLoading] = useState(true);
@@ -60,7 +146,7 @@ export default function AdminPage() {
   const [reviewError, setReviewError] = useState('');
   const [reviewSuccess, setReviewSuccess] = useState('');
 
-  const loadApplications = (status: string, p: number) => {
+  const loadApplications = useCallback((status: string, p: number) => {
     setLoading(true);
     setPageError('');
     driverApplicationService.adminList(status || undefined, p).then((res) => {
@@ -72,11 +158,11 @@ export default function AdminPage() {
       }
       setLoading(false);
     });
-  };
+  }, []);
 
   useEffect(() => {
     loadApplications(activeTab, page);
-  }, [activeTab, page]);
+  }, [activeTab, page, loadApplications]);
 
   const handleTabChange = (value: string) => {
     setActiveTab(value);
@@ -129,12 +215,11 @@ export default function AdminPage() {
   };
 
   return (
-    <AppShell>
-      <h1 className="text-2xl font-semibold mb-6">Admin — Driver Applications</h1>
+    <>
+      <h2 className="text-lg font-semibold mb-4">Driver Applications</h2>
 
-      {/* Filter tabs */}
       <div className="flex gap-1 bg-gray-100 rounded-xl p-1 mb-6 overflow-x-auto">
-        {TABS.map((tab) => (
+        {APP_TABS.map((tab) => (
           <button
             key={tab.value}
             onClick={() => handleTabChange(tab.value)}
@@ -150,9 +235,7 @@ export default function AdminPage() {
       </div>
 
       {reviewSuccess && (
-        <p className="text-emerald-700 bg-emerald-50 rounded-xl px-4 py-3 text-sm mb-4">
-          {reviewSuccess}
-        </p>
+        <p className="text-emerald-700 bg-emerald-50 rounded-xl px-4 py-3 text-sm mb-4">{reviewSuccess}</p>
       )}
 
       {loading ? (
@@ -164,28 +247,22 @@ export default function AdminPage() {
       ) : (
         <div className="space-y-4">
           {applications.map((app) => {
-            const cfg = STATUS_CONFIG[app.status];
+            const cfg = APP_STATUS_CFG[app.status];
             const isReviewing = reviewingId === app.id;
 
             return (
               <div key={app.id} className="card">
-                {/* Header */}
                 <div className="flex items-start justify-between gap-4 mb-4">
                   <div>
                     <h2 className="font-semibold text-base">{app.applicant.fullName}</h2>
                     <p className="text-sm text-gray-500">{app.applicant.user.email}</p>
-                    {app.applicant.phone && (
-                      <p className="text-sm text-gray-500">{app.applicant.phone}</p>
-                    )}
+                    {app.applicant.phone && <p className="text-sm text-gray-500">{app.applicant.phone}</p>}
                   </div>
-                  <span
-                    className={`px-2 py-0.5 rounded-full text-xs font-semibold shrink-0 ${cfg.bg} ${cfg.color} border ${cfg.border}`}
-                  >
+                  <span className={`px-2 py-0.5 rounded-full text-xs font-semibold shrink-0 ${cfg.bg} ${cfg.color} border ${cfg.border}`}>
                     {cfg.label}
                   </span>
                 </div>
 
-                {/* Vehicle & Driver info */}
                 <div className="grid sm:grid-cols-2 gap-x-6 gap-y-1.5 text-sm text-gray-700 mb-4">
                   <p><span className="text-gray-400">Type:</span> {app.vehicleCategory}</p>
                   <p><span className="text-gray-400">Vehicle:</span> {app.vehicleBrand} {app.vehicleModel} ({app.vehicleYear})</p>
@@ -195,17 +272,12 @@ export default function AdminPage() {
                   <p><span className="text-gray-400">License:</span> {app.licenseNumber}</p>
                   <p><span className="text-gray-400">City:</span> {app.city}</p>
                   <p><span className="text-gray-400">Area:</span> {app.serviceArea}</p>
-                  {app.femaleDriver && (
-                    <p className="text-emerald-600 font-medium">Female driver ✓</p>
-                  )}
+                  {app.femaleDriver && <p className="text-emerald-600 font-medium">Female driver ✓</p>}
                 </div>
 
                 {app.driverNotes && (
-                  <div className="mb-3 p-2 bg-gray-50 rounded-lg text-sm text-gray-600 italic">
-                    {app.driverNotes}
-                  </div>
+                  <div className="mb-3 p-2 bg-gray-50 rounded-lg text-sm text-gray-600 italic">{app.driverNotes}</div>
                 )}
-
                 {app.adminResponse && (
                   <div className="mb-3 p-2 bg-orange-50 border border-orange-100 rounded-lg text-sm text-orange-800">
                     <span className="font-medium">Previous note: </span>{app.adminResponse}
@@ -218,40 +290,27 @@ export default function AdminPage() {
                   {app.reviewer && ` · Reviewed by ${app.reviewer.fullName}`}
                 </p>
 
-                {/* Action buttons — only for PENDING or NEEDS_CHANGES */}
                 {(app.status === 'PENDING' || app.status === 'NEEDS_CHANGES') && (
                   <div className="border-t border-gray-100 pt-4">
                     <div className="flex gap-2 flex-wrap mb-3">
-                      <button
-                        onClick={() => startReview(app.id, 'APPROVE')}
-                        className={`text-sm px-4 py-2 rounded-xl font-semibold border transition-all ${
-                          isReviewing && reviewAction === 'APPROVE'
-                            ? 'bg-emerald-600 text-white border-emerald-600'
-                            : 'border-emerald-300 text-emerald-700 hover:bg-emerald-50'
-                        }`}
-                      >
-                        Approve
-                      </button>
-                      <button
-                        onClick={() => startReview(app.id, 'NEEDS_CHANGES')}
-                        className={`text-sm px-4 py-2 rounded-xl font-semibold border transition-all ${
-                          isReviewing && reviewAction === 'NEEDS_CHANGES'
-                            ? 'bg-orange-500 text-white border-orange-500'
-                            : 'border-orange-300 text-orange-600 hover:bg-orange-50'
-                        }`}
-                      >
-                        Request Changes
-                      </button>
-                      <button
-                        onClick={() => startReview(app.id, 'REJECT')}
-                        className={`text-sm px-4 py-2 rounded-xl font-semibold border transition-all ${
-                          isReviewing && reviewAction === 'REJECT'
-                            ? 'bg-red-600 text-white border-red-600'
-                            : 'border-red-300 text-red-600 hover:bg-red-50'
-                        }`}
-                      >
-                        Reject
-                      </button>
+                      {(['APPROVE', 'NEEDS_CHANGES', 'REJECT'] as const).map((action) => {
+                        const colors = {
+                          APPROVE: { active: 'bg-emerald-600 text-white border-emerald-600', idle: 'border-emerald-300 text-emerald-700 hover:bg-emerald-50' },
+                          NEEDS_CHANGES: { active: 'bg-orange-500 text-white border-orange-500', idle: 'border-orange-300 text-orange-600 hover:bg-orange-50' },
+                          REJECT: { active: 'bg-red-600 text-white border-red-600', idle: 'border-red-300 text-red-600 hover:bg-red-50' },
+                        };
+                        const labels = { APPROVE: 'Approve', NEEDS_CHANGES: 'Request Changes', REJECT: 'Reject' };
+                        const active = isReviewing && reviewAction === action;
+                        return (
+                          <button
+                            key={action}
+                            onClick={() => startReview(app.id, action)}
+                            className={`text-sm px-4 py-2 rounded-xl font-semibold border transition-all ${active ? colors[action].active : colors[action].idle}`}
+                          >
+                            {labels[action]}
+                          </button>
+                        );
+                      })}
                     </div>
 
                     {isReviewing && (
@@ -259,11 +318,7 @@ export default function AdminPage() {
                         {reviewAction !== 'APPROVE' && (
                           <textarea
                             className="input h-20 resize-none w-full"
-                            placeholder={
-                              reviewAction === 'REJECT'
-                                ? 'Reason for rejection (required)…'
-                                : 'Describe the changes needed (required)…'
-                            }
+                            placeholder={reviewAction === 'REJECT' ? 'Reason for rejection (required)…' : 'Describe the changes needed (required)…'}
                             value={reasonText}
                             onChange={(e) => setReasonText(e.target.value)}
                           />
@@ -273,21 +328,12 @@ export default function AdminPage() {
                             This will approve the application, create a Driver record, and upgrade the user role to Driver.
                           </p>
                         )}
-                        {reviewError && (
-                          <p className="text-red-600 text-sm">{reviewError}</p>
-                        )}
+                        {reviewError && <p className="text-red-600 text-sm">{reviewError}</p>}
                         <div className="flex gap-2">
-                          <button
-                            onClick={() => submitReview(app.id)}
-                            disabled={reviewSubmitting}
-                            className="btn-primary text-sm px-4 py-2"
-                          >
+                          <button onClick={() => submitReview(app.id)} disabled={reviewSubmitting} className="btn-primary text-sm px-4 py-2">
                             {reviewSubmitting ? 'Submitting…' : 'Confirm'}
                           </button>
-                          <button
-                            onClick={() => { setReviewingId(null); setReviewAction(null); }}
-                            className="btn-outline text-sm px-4 py-2"
-                          >
+                          <button onClick={() => { setReviewingId(null); setReviewAction(null); }} className="btn-outline text-sm px-4 py-2">
                             Cancel
                           </button>
                         </div>
@@ -301,28 +347,317 @@ export default function AdminPage() {
         </div>
       )}
 
-      {/* Pagination */}
       {meta && meta.totalPages > 1 && (
         <div className="flex items-center justify-center gap-3 mt-6">
-          <button
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
-            disabled={page === 1}
-            className="btn-outline text-sm px-4 py-2 disabled:opacity-40"
-          >
-            ← Prev
-          </button>
-          <span className="text-sm text-gray-500">
-            Page {meta.page} of {meta.totalPages}
-          </span>
-          <button
-            onClick={() => setPage((p) => Math.min(meta.totalPages, p + 1))}
-            disabled={page === meta.totalPages}
-            className="btn-outline text-sm px-4 py-2 disabled:opacity-40"
-          >
-            Next →
-          </button>
+          <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1} className="btn-outline text-sm px-4 py-2 disabled:opacity-40">← Prev</button>
+          <span className="text-sm text-gray-500">Page {meta.page} of {meta.totalPages}</span>
+          <button onClick={() => setPage((p) => Math.min(meta.totalPages, p + 1))} disabled={page === meta.totalPages} className="btn-outline text-sm px-4 py-2 disabled:opacity-40">Next →</button>
         </div>
       )}
-    </AppShell>
+    </>
+  );
+}
+
+// ─── Trip Operations section ──────────────────────────────────────────────────
+
+function TripsSection() {
+  const [trips, setTrips] = useState<AdminTrip[]>([]);
+  const [meta, setMeta] = useState<PaginationMeta | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [pageError, setPageError] = useState('');
+  const [statusFilter, setStatusFilter] = useState('SCHEDULED');
+  const [dateFilter, setDateFilter] = useState('');
+  const [page, setPage] = useState(1);
+
+  const [drivers, setDrivers] = useState<Driver[]>([]);
+  const [assigningTripId, setAssigningTripId] = useState<string | null>(null);
+  const [selectedDriverId, setSelectedDriverId] = useState('');
+  const [assigning, setAssigning] = useState(false);
+  const [assignMsg, setAssignMsg] = useState('');
+
+  const [generating, setGenerating] = useState(false);
+  const [genStartDate, setGenStartDate] = useState('');
+  const [genEndDate, setGenEndDate] = useState('');
+  const [genMsg, setGenMsg] = useState('');
+  const [genResult, setGenResult] = useState<{ generated: number; skipped: number } | null>(null);
+
+  const loadTrips = useCallback((status: string, date: string, p: number) => {
+    setLoading(true);
+    setPageError('');
+    tripService.adminList({
+      status: status || undefined,
+      date: date || undefined,
+      page: p,
+    }).then((res) => {
+      if (res.data) {
+        setTrips(res.data.trips ?? []);
+        setMeta(res.data.meta ?? null);
+      } else {
+        setPageError(res.error?.message ?? 'Failed to load trips.');
+      }
+      setLoading(false);
+    });
+  }, []);
+
+  const loadDrivers = useCallback(() => {
+    tripService.adminListDrivers().then((res) => {
+      if (res.data) setDrivers(res.data.drivers ?? []);
+    });
+  }, []);
+
+  useEffect(() => {
+    loadTrips(statusFilter, dateFilter, page);
+  }, [statusFilter, dateFilter, page, loadTrips]);
+
+  useEffect(() => {
+    loadDrivers();
+  }, [loadDrivers]);
+
+  const openAssign = (tripId: string) => {
+    if (assigningTripId === tripId) {
+      setAssigningTripId(null);
+      return;
+    }
+    setAssigningTripId(tripId);
+    setSelectedDriverId('');
+    setAssignMsg('');
+  };
+
+  const submitAssign = async (tripId: string) => {
+    if (!selectedDriverId) { setAssignMsg('Select a driver.'); return; }
+    setAssigning(true);
+    setAssignMsg('');
+    const res = await tripService.adminAssignDriver(tripId, selectedDriverId);
+    setAssigning(false);
+    if (res.data) {
+      setAssignMsg('Driver assigned successfully.');
+      setAssigningTripId(null);
+      loadTrips(statusFilter, dateFilter, page);
+    } else {
+      setAssignMsg(res.error?.message ?? 'Assignment failed.');
+    }
+  };
+
+  const handleGenerate = async () => {
+    setGenerating(true);
+    setGenMsg('');
+    setGenResult(null);
+    const res = await tripService.adminGenerateTrips(genStartDate || undefined, genEndDate || undefined);
+    setGenerating(false);
+    if (res.data) {
+      setGenResult({ generated: res.data.generated ?? 0, skipped: res.data.skipped ?? 0 });
+      setGenMsg('Trip generation complete.');
+      loadTrips(statusFilter, dateFilter, page);
+    } else {
+      setGenMsg(res.error?.message ?? 'Generation failed.');
+    }
+  };
+
+  return (
+    <>
+      <h2 className="text-lg font-semibold mb-4">Trip Operations</h2>
+
+      {/* Generate trips panel */}
+      <div className="card mb-6 border border-emerald-100">
+        <h3 className="text-sm font-semibold text-gray-700 mb-3">Generate Trips</h3>
+        <p className="text-xs text-gray-500 mb-3">
+          Creates trips from all active subscriptions for the specified date range (defaults to today + 7 days). Idempotent — safe to run multiple times.
+        </p>
+        <div className="flex flex-wrap gap-3 items-end">
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Start date</label>
+            <input
+              type="date"
+              className="input text-sm"
+              value={genStartDate}
+              onChange={(e) => setGenStartDate(e.target.value)}
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">End date</label>
+            <input
+              type="date"
+              className="input text-sm"
+              value={genEndDate}
+              onChange={(e) => setGenEndDate(e.target.value)}
+            />
+          </div>
+          <button
+            onClick={handleGenerate}
+            disabled={generating}
+            className="btn-primary text-sm px-5 py-2.5"
+          >
+            {generating ? 'Generating…' : '⚡ Generate Trips'}
+          </button>
+        </div>
+        {genMsg && (
+          <div className={`mt-3 text-sm px-4 py-2.5 rounded-xl ${
+            genMsg.includes('fail') || genMsg.includes('Fail')
+              ? 'text-red-700 bg-red-50'
+              : 'text-emerald-700 bg-emerald-50'
+          }`}>
+            {genMsg}
+            {genResult && (
+              <span className="ml-2 font-semibold">
+                {genResult.generated} created · {genResult.skipped} skipped
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Filters */}
+      <div className="flex flex-wrap gap-3 mb-4 items-end">
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">Status</label>
+          <select
+            className="input text-sm"
+            value={statusFilter}
+            onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
+          >
+            {TRIP_STATUS_FILTERS.map((s) => (
+              <option key={s} value={s}>{s || 'All Statuses'}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">Date</label>
+          <input
+            type="date"
+            className="input text-sm"
+            value={dateFilter}
+            onChange={(e) => { setDateFilter(e.target.value); setPage(1); }}
+          />
+        </div>
+        {dateFilter && (
+          <button onClick={() => { setDateFilter(''); setPage(1); }} className="text-xs text-gray-500 hover:text-gray-700 underline self-end pb-2">
+            Clear date
+          </button>
+        )}
+      </div>
+
+      {assignMsg && (
+        <p className={`rounded-xl px-4 py-3 text-sm mb-4 ${
+          assignMsg.includes('fail') || assignMsg.includes('Select')
+            ? 'text-red-700 bg-red-50' : 'text-emerald-700 bg-emerald-50'
+        }`}>
+          {assignMsg}
+        </p>
+      )}
+
+      {loading ? (
+        <div className="flex items-center justify-center h-32 text-gray-400">Loading trips…</div>
+      ) : pageError ? (
+        <div className="card text-red-600 text-sm">{pageError}</div>
+      ) : trips.length === 0 ? (
+        <div className="card text-center py-12 text-gray-400">No trips found for the selected filters.</div>
+      ) : (
+        <div className="space-y-4">
+          {trips.map((trip) => {
+            const cfg = TRIP_STATUS_CFG[trip.status];
+            const isAssigning = assigningTripId === trip.id;
+
+            return (
+              <div key={trip.id} className="card">
+                <div className="flex items-start justify-between gap-4 mb-3">
+                  <div>
+                    <p className="font-semibold text-base">
+                      {new Date(trip.scheduledDate).toLocaleDateString('en-US', {
+                        weekday: 'short', year: 'numeric', month: 'short', day: 'numeric',
+                      })}
+                    </p>
+                    {trip.subscription && (
+                      <p className="text-xs text-gray-500 capitalize">{trip.subscription.subscriptionType}</p>
+                    )}
+                  </div>
+                  <span className={`px-2 py-0.5 rounded-full text-xs font-semibold shrink-0 border ${cfg.bg} ${cfg.color} ${cfg.border}`}>
+                    {cfg.label}
+                  </span>
+                </div>
+
+                <div className="grid sm:grid-cols-2 gap-x-6 gap-y-1.5 text-sm text-gray-700 mb-3">
+                  {trip.rider && (
+                    <p><span className="text-gray-400">Rider:</span> {trip.rider.name} ({trip.rider.relationship})</p>
+                  )}
+                  <p><span className="text-gray-400">Pickup:</span> {fmtTime(trip.scheduledPickupTime)} — {trip.pickupLocation}</p>
+                  <p><span className="text-gray-400">Dropoff:</span> {fmtTime(trip.scheduledDropoffTime)} — {trip.dropoffLocation}</p>
+                </div>
+
+                {trip.driver ? (
+                  <div className="flex items-center gap-3 mb-3 p-2.5 bg-gray-50 rounded-xl">
+                    <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-700 font-bold text-xs shrink-0">
+                      {trip.driver.profile?.fullName?.[0] ?? 'D'}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">{trip.driver.profile?.fullName ?? 'Driver'}</p>
+                      {trip.driver.rating && <p className="text-xs text-amber-600">★ {Number(trip.driver.rating).toFixed(1)}</p>}
+                    </div>
+                    {trip.vehicle && (
+                      <p className="text-xs text-gray-500 shrink-0 text-right">
+                        {trip.vehicle.model}<br />
+                        <span className="font-mono">{trip.vehicle.plateNumber}</span>
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-xs text-amber-600 mb-3 bg-amber-50 px-3 py-1.5 rounded-lg border border-amber-100">
+                    No driver assigned
+                  </p>
+                )}
+
+                {trip.status === 'SCHEDULED' && (
+                  <div>
+                    <button
+                      onClick={() => openAssign(trip.id)}
+                      className={`text-sm px-4 py-2 rounded-xl font-semibold border transition-all ${
+                        isAssigning
+                          ? 'bg-blue-600 text-white border-blue-600'
+                          : 'border-blue-300 text-blue-700 hover:bg-blue-50'
+                      }`}
+                    >
+                      {isAssigning ? 'Cancel' : 'Assign Driver'}
+                    </button>
+
+                    {isAssigning && (
+                      <div className="mt-3 space-y-2">
+                        <select
+                          className="input text-sm w-full"
+                          value={selectedDriverId}
+                          onChange={(e) => setSelectedDriverId(e.target.value)}
+                        >
+                          <option value="">Select a driver…</option>
+                          {drivers.map((d) => (
+                            <option key={d.id} value={d.id}>
+                              {d.profile?.fullName ?? 'Driver'}
+                              {d.vehicle ? ` — ${d.vehicle.model} (${d.vehicle.plateNumber})` : ''}
+                              {d.rating ? ` ★ ${Number(d.rating).toFixed(1)}` : ''}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          onClick={() => submitAssign(trip.id)}
+                          disabled={assigning}
+                          className="btn-primary text-sm px-4 py-2"
+                        >
+                          {assigning ? 'Assigning…' : 'Confirm Assignment'}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {meta && meta.totalPages > 1 && (
+        <div className="flex items-center justify-center gap-3 mt-6">
+          <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1} className="btn-outline text-sm px-4 py-2 disabled:opacity-40">← Prev</button>
+          <span className="text-sm text-gray-500">Page {meta.page} of {meta.totalPages}</span>
+          <button onClick={() => setPage((p) => Math.min(meta.totalPages, p + 1))} disabled={page === meta.totalPages} className="btn-outline text-sm px-4 py-2 disabled:opacity-40">Next →</button>
+        </div>
+      )}
+    </>
   );
 }
