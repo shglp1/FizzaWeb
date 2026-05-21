@@ -10,6 +10,9 @@
     "typecheck": "tsc --noEmit",
     "test": "node --experimental-strip-types --test src/tests/auth.smoke.ts"
   },
+  "prisma": {
+    "seed": "node --experimental-strip-types prisma/seed.ts"
+  },
   "dependencies": {
     "@prisma/client": "^5.22.0",
     "@tanstack/react-query": "^5.52.1",
