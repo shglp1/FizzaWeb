@@ -12,21 +12,14 @@ enum UserRole {
   RIDER
   DRIVER
   ADMIN
-  parent
-  rider
-  driver
-  admin
 }
 
 enum SubscriptionStatus {
   PENDING
   ACTIVE
+  PAUSED
   EXPIRED
   CANCELLED
-  pending
-  active
-  expired
-  cancelled
 }
 
 enum TripStatus {
@@ -36,12 +29,6 @@ enum TripStatus {
   PICKED_UP
   COMPLETED
   CANCELLED
-  scheduled
-  driver_assigned
-  on_the_way
-  picked_up
-  completed
-  cancelled
 }
 
 enum PaymentStatus {
@@ -49,10 +36,6 @@ enum PaymentStatus {
   PAID
   FAILED
   REFUNDED
-  pending
-  paid
-  failed
-  refunded
 }
 
 enum SafetyStatus {
@@ -60,10 +43,6 @@ enum SafetyStatus {
   APPROVED
   RESOLVED
   REJECTED
-  pending
-  approved
-  resolved
-  rejected
 }
 
 model User {
@@ -78,23 +57,23 @@ model User {
 }
 
 model Profile {
-  id                    String         @id
-  role                  UserRole       @default(PARENT)
-  fullName              String         @map("full_name")
+  id                    String             @id
+  role                  UserRole           @default(PARENT)
+  fullName              String             @map("full_name")
   phone                 String?
-  avatarUrl             String?        @map("avatar_url") @db.Text
-  createdAt             DateTime       @default(now()) @map("created_at")
-  updatedAt             DateTime       @updatedAt @map("updated_at")
-  user                  User           @relation(fields: [id], references: [id], onDelete: Cascade)
+  avatarUrl             String?            @map("avatar_url") @db.Text
+  createdAt             DateTime           @default(now()) @map("created_at")
+  updatedAt             DateTime           @updatedAt @map("updated_at")
+  user                  User               @relation(fields: [id], references: [id], onDelete: Cascade)
   riders                Rider[]
   userSubscriptions     UserSubscription[]
-  cancelledTrips        Trip[]         @relation("CancelledBy")
+  cancelledTrips        Trip[]             @relation("CancelledBy")
   drivers               Driver[]
   wallet                Wallet?
   payments              Payment[]
   loyaltyAccount        LoyaltyAccount?
-  safetyReports         SafetyReport[] @relation("UserSafetyReports")
-  reviewedSafetyReports SafetyReport[] @relation("ReviewedBy")
+  safetyReports         SafetyReport[]     @relation("UserSafetyReports")
+  reviewedSafetyReports SafetyReport[]     @relation("ReviewedBy")
   notifications         Notification[]
   auditLogs             AuditLog[]
 
@@ -102,72 +81,72 @@ model Profile {
 }
 
 model Rider {
-  id           String             @id @default(uuid())
-  parentId     String             @map("parent_id")
-  name         String
-  relationship String
-  school       String?
-  grade        String?
-  phone        String?
-  specialNeeds Boolean            @default(false) @map("special_needs")
-  notes        String?            @db.Text
-  isActive     Boolean            @default(true) @map("is_active")
-  createdAt    DateTime           @default(now()) @map("created_at")
-  updatedAt    DateTime           @updatedAt @map("updated_at")
-  parent       Profile            @relation(fields: [parentId], references: [id], onDelete: Cascade)
+  id            String             @id @default(uuid())
+  parentId      String             @map("parent_id")
+  name          String
+  relationship  String
+  school        String?
+  grade         String?
+  phone         String?
+  specialNeeds  Boolean            @default(false) @map("special_needs")
+  notes         String?            @db.Text
+  isActive      Boolean            @default(true) @map("is_active")
+  createdAt     DateTime           @default(now()) @map("created_at")
+  updatedAt     DateTime           @updatedAt @map("updated_at")
+  parent        Profile            @relation(fields: [parentId], references: [id], onDelete: Cascade)
   subscriptions UserSubscription[]
-  trips        Trip[]
+  trips         Trip[]
 
   @@map("riders")
 }
 
 model SubscriptionPackage {
-  id               String             @id @default(uuid())
-  name             String
-  billingCycle     String             @map("billing_cycle")
-  priceSar         Decimal            @map("price_sar") @db.Decimal(10, 2)
-  description      String?            @db.Text
-  isActive         Boolean            @default(true) @map("is_active")
-  createdAt        DateTime           @default(now()) @map("created_at")
-  updatedAt        DateTime           @updatedAt @map("updated_at")
+  id                String             @id @default(uuid())
+  name              String
+  billingCycle      String             @map("billing_cycle")
+  priceSar          Decimal            @map("price_sar") @db.Decimal(10, 2)
+  description       String?            @db.Text
+  isActive          Boolean            @default(true) @map("is_active")
+  createdAt         DateTime           @default(now()) @map("created_at")
+  updatedAt         DateTime           @updatedAt @map("updated_at")
   userSubscriptions UserSubscription[]
 
   @@map("subscription_packages")
 }
 
 model AddOn {
-  id                 String               @id @default(uuid())
+  id                 String              @id @default(uuid())
   name               String
-  priceSar           Decimal              @map("price_sar") @db.Decimal(10, 2)
-  isActive           Boolean              @default(true) @map("is_active")
-  createdAt          DateTime             @default(now()) @map("created_at")
-  updatedAt          DateTime             @updatedAt @map("updated_at")
+  priceSar           Decimal             @map("price_sar") @db.Decimal(10, 2)
+  isActive           Boolean             @default(true) @map("is_active")
+  createdAt          DateTime            @default(now()) @map("created_at")
+  updatedAt          DateTime            @updatedAt @map("updated_at")
   subscriptionAddOns SubscriptionAddOn[]
 
   @@map("add_ons")
 }
 
 model UserSubscription {
-  id                     String             @id @default(uuid())
-  userId                 String             @map("user_id")
-  riderId                String?            @map("rider_id")
-  packageId              String?            @map("package_id")
-  subscriptionType       String             @map("subscription_type")
-  pickupLocation         String             @map("pickup_location") @db.Text
-  dropoffLocation        String             @map("dropoff_location") @db.Text
-  pickupTime             String             @map("pickup_time")
-  returnTime             String             @map("return_time")
-  femaleDriverPreference Boolean            @default(false) @map("female_driver_preference")
-  autoRenewal            Boolean            @default(true) @map("auto_renewal")
-  paymentStatus          PaymentStatus      @default(PENDING) @map("payment_status")
-  status                 SubscriptionStatus @default(PENDING)
-  startsOn               DateTime?          @map("starts_on") @db.Date
-  endsOn                 DateTime?          @map("ends_on") @db.Date
-  createdAt              DateTime           @default(now()) @map("created_at")
-  updatedAt              DateTime           @updatedAt @map("updated_at")
-  user                   Profile            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  rider                  Rider?             @relation(fields: [riderId], references: [id], onDelete: SetNull)
-  package                SubscriptionPackage? @relation(fields: [packageId], references: [id], onDelete: SetNull)
+  id                     String                 @id @default(uuid())
+  userId                 String                 @map("user_id")
+  riderId                String?                @map("rider_id")
+  packageId              String?                @map("package_id")
+  subscriptionType       String                 @map("subscription_type")
+  pickupLocation         String                 @map("pickup_location") @db.Text
+  dropoffLocation        String                 @map("dropoff_location") @db.Text
+  pickupTime             String                 @map("pickup_time")
+  returnTime             String                 @map("return_time")
+  femaleDriverPreference Boolean                @default(false) @map("female_driver_preference")
+  autoRenewal            Boolean                @default(true) @map("auto_renewal")
+  paymentStatus          PaymentStatus          @default(PENDING) @map("payment_status")
+  status                 SubscriptionStatus     @default(PENDING)
+  startsOn               DateTime?              @map("starts_on") @db.Date
+  endsOn                 DateTime?              @map("ends_on") @db.Date
+  createdAt              DateTime               @default(now()) @map("created_at")
+  updatedAt              DateTime               @updatedAt @map("updated_at")
+  user                   Profile                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rider                  Rider?                 @relation(fields: [riderId], references: [id], onDelete: SetNull)
+  package                SubscriptionPackage?   @relation(fields: [packageId], references: [id], onDelete: SetNull)
   schedules              SubscriptionSchedule[]
   trips                  Trip[]
   payments               Payment[]
@@ -231,27 +210,27 @@ model Driver {
 }
 
 model Trip {
-  id                   String            @id @default(uuid())
-  subscriptionId       String?           @map("subscription_id")
-  riderId              String?           @map("rider_id")
-  driverId             String?           @map("driver_id")
-  vehicleId            String?           @map("vehicle_id")
-  scheduledDate        DateTime          @map("scheduled_date") @db.Date
-  scheduledPickupTime  DateTime?         @map("scheduled_pickup_time")
-  scheduledDropoffTime DateTime?         @map("scheduled_dropoff_time")
-  actualPickupTime     DateTime?         @map("actual_pickup_time")
-  actualDropoffTime    DateTime?         @map("actual_dropoff_time")
-  pickupLocation       String            @map("pickup_location") @db.Text
-  dropoffLocation      String            @map("dropoff_location") @db.Text
-  status               TripStatus        @default(SCHEDULED)
-  cancelledBy          String?           @map("cancelled_by")
-  createdAt            DateTime          @default(now()) @map("created_at")
-  updatedAt            DateTime          @updatedAt @map("updated_at")
-  subscription         UserSubscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
-  rider                Rider?            @relation(fields: [riderId], references: [id], onDelete: SetNull)
-  driver               Driver?           @relation(fields: [driverId], references: [id], onDelete: SetNull)
-  vehicle              Vehicle?          @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
-  canceller            Profile?          @relation("CancelledBy", fields: [cancelledBy], references: [id], onDelete: SetNull)
+  id                   String              @id @default(uuid())
+  subscriptionId       String?             @map("subscription_id")
+  riderId              String?             @map("rider_id")
+  driverId             String?             @map("driver_id")
+  vehicleId            String?             @map("vehicle_id")
+  scheduledDate        DateTime            @map("scheduled_date") @db.Date
+  scheduledPickupTime  DateTime?           @map("scheduled_pickup_time")
+  scheduledDropoffTime DateTime?           @map("scheduled_dropoff_time")
+  actualPickupTime     DateTime?           @map("actual_pickup_time")
+  actualDropoffTime    DateTime?           @map("actual_dropoff_time")
+  pickupLocation       String              @map("pickup_location") @db.Text
+  dropoffLocation      String              @map("dropoff_location") @db.Text
+  status               TripStatus          @default(SCHEDULED)
+  cancelledBy          String?             @map("cancelled_by")
+  createdAt            DateTime            @default(now()) @map("created_at")
+  updatedAt            DateTime            @updatedAt @map("updated_at")
+  subscription         UserSubscription?   @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+  rider                Rider?              @relation(fields: [riderId], references: [id], onDelete: SetNull)
+  driver               Driver?             @relation(fields: [driverId], references: [id], onDelete: SetNull)
+  vehicle              Vehicle?            @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
+  canceller            Profile?            @relation("CancelledBy", fields: [cancelledBy], references: [id], onDelete: SetNull)
   locations            DriverLocation[]
   walletTransactions   WalletTransaction[]
   safetyReports        SafetyReport[]
