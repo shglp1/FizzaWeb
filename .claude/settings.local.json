@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install *)",
+      "Bash(npx prisma *)",
+      "Bash(npm run *)",
+      "Bash(npm audit *)",
+      "Bash(npm test *)",
+      "Bash(Get-Service -Name \"MySQL*\",\"MariaDB*\" -ErrorAction SilentlyContinue)",
+      "Bash(Select-Object Name,Status)",
+      "Bash(findstr \":3306\")",
+      "PowerShell(Get-Service | Where-Object { $_.Name -match 'mysql|mariadb|wamp|xampp' } | Select-Object Name, Status, DisplayName)",
+      "PowerShell(Test-NetConnection -ComputerName localhost -Port 3306 -InformationLevel Quiet -WarningAction SilentlyContinue)",
+      "Bash(git fetch *)",
+      "Bash(git rebase *)",
+      "Bash(git push *)",
+      "Bash(git add *)",
+      "Bash(gh pr create --base main --head claude/silly-leakey-1dabe2 --title 'feat\\(task4\\): profile, riders CRUD, driver application & admin review' --body ' *)",
+      "Bash(xargs -I {} basename {})"
+    ]
+  }
+}
