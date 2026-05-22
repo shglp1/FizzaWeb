@@ -69,11 +69,14 @@ export async function POST(req: Request) {
       );
     }
 
-    // Fetch ACTIVE subscriptions with their schedules and rider
+    // Fetch ACTIVE subscriptions with schedules and all riders
     const subscriptions = await prisma.userSubscription.findMany({
       where: { status: 'ACTIVE' },
       include: {
         schedules: { where: { isOffDay: false } },
+        subscriptionRiders: {
+          select: { riderId: true, isPrimary: true },
+        },
       },
     });
 
@@ -86,38 +89,72 @@ export async function POST(req: Request) {
       const activeWeekdays = new Set(sub.schedules.map((s) => s.weekday));
       if (activeWeekdays.size === 0) continue;
 
+      // Determine rider list: use subscriptionRiders if available, else fall back to sub.riderId
+      const riderIds: string[] =
+        sub.subscriptionRiders.length > 0
+          ? sub.subscriptionRiders.map((sr) => sr.riderId)
+          : sub.riderId
+          ? [sub.riderId]
+          : [];
+
+      // Determine legs based on tripDirection
+      const isRoundTrip = sub.tripDirection === 'ROUND_TRIP';
+      type LegDef = { legType: 'OUTBOUND' | 'RETURN'; pickup: string; dropoff: string; time: string };
+      const legs: LegDef[] = [
+        {
+          legType: 'OUTBOUND',
+          pickup: sub.pickupLocation,
+          dropoff: sub.dropoffLocation,
+          time: sub.pickupTime,
+        },
+        ...(isRoundTrip
+          ? [{
+              legType: 'RETURN' as const,
+              pickup: sub.dropoffLocation,
+              dropoff: sub.pickupLocation,
+              time: sub.returnTime,
+            }]
+          : []),
+      ];
+
       for (const date of dates) {
-        const weekday = date.getDay(); // 0=Sun, 1=Mon... 6=Sat
+        const weekday = date.getDay(); // 0=Sun … 6=Sat
         if (!activeWeekdays.has(weekday)) continue;
 
-        try {
-          // Idempotent check — skip if trip already exists for this subscription + date
-          const existing = await prisma.trip.findFirst({
-            where: {
-              subscriptionId: sub.id,
-              scheduledDate: date,
-            },
-            select: { id: true },
-          });
+        for (const riderId of riderIds) {
+          for (const leg of legs) {
+            try {
+              // Idempotent check — skip if trip already exists for this combo
+              const existing = await prisma.trip.findFirst({
+                where: {
+                  subscriptionId: sub.id,
+                  riderId,
+                  scheduledDate: date,
+                  legType: leg.legType,
+                },
+                select: { id: true },
+              });
 
-          if (existing) continue;
+              if (existing) continue;
 
-          await prisma.trip.create({
-            data: {
-              subscriptionId: sub.id,
-              riderId: sub.riderId ?? null,
-              scheduledDate: date,
-              scheduledPickupTime: parseTime(sub.pickupTime, date),
-              scheduledDropoffTime: parseTime(sub.returnTime, date),
-              pickupLocation: sub.pickupLocation,
-              dropoffLocation: sub.dropoffLocation,
-              status: 'SCHEDULED',
-            },
-          });
+              await prisma.trip.create({
+                data: {
+                  subscriptionId: sub.id,
+                  riderId,
+                  scheduledDate: date,
+                  scheduledPickupTime: parseTime(leg.time, date),
+                  pickupLocation: leg.pickup,
+                  dropoffLocation: leg.dropoff,
+                  legType: leg.legType,
+                  status: 'SCHEDULED',
+                },
+              });
 
-          generatedCount++;
-        } catch {
-          failedCount++;
+              generatedCount++;
+            } catch {
+              failedCount++;
+            }
+          }
         }
       }
     }
@@ -147,7 +184,12 @@ export async function POST(req: Request) {
     });
 
     return NextResponse.json({
-      data: { generatedCount, failedCount, startDate: startDate.toISOString().slice(0, 10), endDate: endDate.toISOString().slice(0, 10) },
+      data: {
+        generatedCount,
+        failedCount,
+        startDate: startDate.toISOString().slice(0, 10),
+        endDate: endDate.toISOString().slice(0, 10),
+      },
       error: null,
     });
   } catch {

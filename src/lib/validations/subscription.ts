@@ -12,12 +12,9 @@ export const subscriptionCreateSchema = z.object({
   }),
   pickupLocation: z.string().min(3, 'Pickup location must be at least 3 characters'),
   dropoffLocation: z.string().min(3, 'Dropoff location must be at least 3 characters'),
-  pickupTime: z
-    .string()
-    .regex(TIME_REGEX, 'Pickup time must be in HH:MM format'),
-  returnTime: z
-    .string()
-    .regex(TIME_REGEX, 'Return time must be in HH:MM format'),
+  tripDirection: z.enum(['ONE_WAY', 'ROUND_TRIP']).default('ROUND_TRIP'),
+  pickupTime: z.string().regex(TIME_REGEX, 'Pickup time must be in HH:MM format'),
+  returnTime: z.string().regex(TIME_REGEX, 'Return time must be in HH:MM format'),
   weekdays: z
     .array(z.number().int().min(0).max(6))
     .min(1, 'Select at least one weekday')
@@ -27,7 +24,6 @@ export const subscriptionCreateSchema = z.object({
   femaleDriverPreference: z.boolean().optional().default(false),
   autoRenewal: z.boolean().optional().default(true),
   startsOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Start date must be YYYY-MM-DD').optional(),
-  estimatedDistanceKm: z.number().positive('Distance must be positive').max(500, 'Distance too large').optional(),
 });
 
 export const subscriptionUpdateSchema = z.object({
@@ -40,13 +36,19 @@ export const subscriptionUpdateSchema = z.object({
   startsOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
 });
 
+/** Quote schema — no distance input; server calculates from ORS */
 export const subscriptionQuoteSchema = z.object({
   packageId: z.string().uuid().optional(),
   addOnIds: z.array(z.string().uuid()).optional().default([]),
-  estimatedDistanceKm: z
-    .number({ required_error: 'Estimated distance in KM is required' })
-    .positive('Distance must be positive')
-    .max(500, 'Distance too large'),
+  pickupLocation: z
+    .string()
+    .min(5, 'Pickup location must be at least 5 characters')
+    .max(500),
+  dropoffLocation: z
+    .string()
+    .min(5, 'Dropoff location must be at least 5 characters')
+    .max(500),
+  tripDirection: z.enum(['ONE_WAY', 'ROUND_TRIP']).default('ROUND_TRIP'),
   riderIds: z.array(z.string().uuid()).min(1, 'At least one rider is required').max(10),
 });
 

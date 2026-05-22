@@ -7,9 +7,12 @@ import { tripService } from '@/services/tripService';
 
 type TripStatus = 'SCHEDULED' | 'DRIVER_ASSIGNED' | 'ON_THE_WAY' | 'PICKED_UP' | 'COMPLETED' | 'CANCELLED';
 
+type TripLegType = 'OUTBOUND' | 'RETURN';
+
 type Trip = {
   id: string;
   status: TripStatus;
+  legType: TripLegType;
   scheduledDate: string;
   scheduledPickupTime: string | null;
   scheduledDropoffTime: string | null;
@@ -174,9 +177,20 @@ export default function TripsPage() {
                       </p>
                     )}
                   </div>
-                  <span className={`px-2 py-0.5 rounded-full text-xs font-semibold shrink-0 border ${cfg.bg} ${cfg.color} ${cfg.border}`}>
-                    {cfg.label}
-                  </span>
+                  <div className="flex flex-col items-end gap-1 shrink-0">
+                    <span className={`px-2 py-0.5 rounded-full text-xs font-semibold border ${cfg.bg} ${cfg.color} ${cfg.border}`}>
+                      {cfg.label}
+                    </span>
+                    {trip.legType === 'RETURN' ? (
+                      <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-violet-50 text-violet-700 border border-violet-200">
+                        ← Return
+                      </span>
+                    ) : (
+                      <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-sky-50 text-sky-700 border border-sky-200">
+                        → Outbound
+                      </span>
+                    )}
+                  </div>
                 </div>
 
                 <div className="grid sm:grid-cols-2 gap-x-6 gap-y-1.5 text-sm text-gray-700 mb-3">

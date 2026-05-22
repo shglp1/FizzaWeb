@@ -150,11 +150,23 @@ export function SystemConfigSection() {
         {saving ? 'Saving…' : 'Save Configuration'}
       </button>
 
-      <div className="mt-8 p-4 bg-amber-50 border border-amber-100 rounded-xl text-xs text-amber-700 max-w-xl">
-        <p className="font-semibold mb-1">Pricing note</p>
-        <p>Distance charges: <code>finalPrice = packagePrice + addOns + (distanceKm × pricePerKmSar)</code></p>
-        <p className="mt-1">Extra riders: <code>+ (numExtraRiders × primaryPrice × extraRiderMultiplier)</code></p>
-        <p className="mt-1 text-amber-600">Distance is entered manually by the user. Geocoding API integration is pending.</p>
+      <div className="mt-8 p-4 bg-amber-50 border border-amber-100 rounded-xl text-xs text-amber-700 max-w-xl space-y-1.5">
+        <p className="font-semibold mb-1">Pricing formula</p>
+        <p><code>chargeableKm = oneWayKm × 2 (ROUND_TRIP) or × 1 (ONE_WAY)</code></p>
+        <p><code>primaryPrice = packagePrice + addOns + (chargeableKm × pricePerKmSar)</code></p>
+        <p><code>finalPrice = primaryPrice + (numExtraRiders × primaryPrice × extraRiderMultiplier)</code></p>
+        <p className="mt-1 text-amber-600 font-medium">Distance is calculated automatically using real road routing (OpenRouteService). The user does not enter distance manually.</p>
+      </div>
+
+      <div className="mt-4 p-4 bg-blue-50 border border-blue-100 rounded-xl text-xs text-blue-700 max-w-xl space-y-1">
+        <p className="font-semibold mb-1">Distance provider</p>
+        <p>
+          Active provider:{' '}
+          <span className="font-mono font-semibold">
+            {typeof process !== 'undefined' ? (process.env.NEXT_PUBLIC_DISTANCE_PROVIDER ?? 'OPENROUTESERVICE') : 'OPENROUTESERVICE'}
+          </span>
+        </p>
+        <p className="text-blue-600">The API key is configured via server environment variables and is never exposed in the UI. To switch providers, update <code>DISTANCE_PROVIDER</code> and the corresponding API key in the server environment.</p>
       </div>
     </>
   );
