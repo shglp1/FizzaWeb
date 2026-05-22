@@ -3,6 +3,7 @@ import { randomUUID } from 'crypto';
 import { prisma } from '@/lib/prisma';
 import { requireAuth } from '@/lib/session';
 import { safetyReportCreateSchema, safetyListQuerySchema } from '@/lib/validations/safety';
+import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rateLimit';
 
 export async function GET(request: NextRequest) {
   try {
@@ -83,6 +84,9 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const rl = checkRateLimit(request, 'safety-reports:create', RATE_LIMITS.safetyReport);
+  if (!rl.allowed) return rateLimitResponse(rl);
+
   try {
     const auth = await requireAuth();
     if (auth instanceof NextResponse) return auth;

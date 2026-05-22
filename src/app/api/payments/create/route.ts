@@ -4,8 +4,12 @@ import { prisma } from '@/lib/prisma';
 import { requireAuth } from '@/lib/session';
 import { createPaymentSchema } from '@/lib/validations/payment';
 import { isConfigured, createInvoice } from '@/lib/payments/myfatoorah';
+import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rateLimit';
 
 export async function POST(request: NextRequest) {
+  const rl = checkRateLimit(request, 'payments:create', RATE_LIMITS.paymentCreate);
+  if (!rl.allowed) return rateLimitResponse(rl);
+
   try {
     const auth = await requireAuth();
     if (auth instanceof NextResponse) return auth;

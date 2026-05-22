@@ -8,8 +8,12 @@ import {
   calculateChargeableDistanceKm,
   DistanceError,
 } from '@/lib/maps/distance';
+import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rateLimit';
 
 export async function POST(req: Request) {
+  const rl = checkRateLimit(req, 'subscriptions:quote', RATE_LIMITS.subscriptionQuote);
+  if (!rl.allowed) return rateLimitResponse(rl);
+
   try {
     const auth = await requireAuth();
     if (auth instanceof NextResponse) return auth;

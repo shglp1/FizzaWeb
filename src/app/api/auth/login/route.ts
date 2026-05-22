@@ -3,11 +3,15 @@ import { cookies } from 'next/headers';
 import { prisma } from '@/lib/prisma';
 import { signToken, SESSION_COOKIE, SESSION_MAX_AGE } from '@/lib/auth';
 import { loginSchema } from '@/lib/validations/auth';
+import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rateLimit';
 import bcrypt from 'bcryptjs';
 
 const INVALID_CREDENTIALS = 'Invalid email or password';
 
 export async function POST(req: Request) {
+  const rl = checkRateLimit(req, 'auth:login', RATE_LIMITS.login);
+  if (!rl.allowed) return rateLimitResponse(rl);
+
   try {
     const body = await req.json();
     const parsed = loginSchema.safeParse(body);
