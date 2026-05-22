@@ -142,6 +142,93 @@ export const adminFinancialService = {
     }),
 };
 
+// ─── Subscription Packages ────────────────────────────────────────────────────
+
+export const adminPackageService = {
+  list: (includeInactive = false) =>
+    apiFetch<unknown[]>(
+      `/api/admin/subscription-packages?includeInactive=${includeInactive}`,
+    ),
+  create: (data: {
+    name: string;
+    billingCycle: string;
+    priceSar: number;
+    description?: string;
+    sortOrder?: number;
+    isActive?: boolean;
+  }) =>
+    apiFetch<unknown>('/api/admin/subscription-packages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    }),
+  update: (
+    id: string,
+    data: {
+      name?: string;
+      billingCycle?: string;
+      priceSar?: number;
+      description?: string | null;
+      sortOrder?: number | null;
+      isActive?: boolean;
+    },
+  ) =>
+    apiFetch<unknown>(`/api/admin/subscription-packages/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    }),
+  remove: (id: string) =>
+    apiFetch<unknown>(`/api/admin/subscription-packages/${id}`, { method: 'DELETE' }),
+};
+
+// ─── Add-ons ──────────────────────────────────────────────────────────────────
+
+export const adminAddOnService = {
+  list: (includeInactive = false) =>
+    apiFetch<unknown[]>(`/api/admin/add-ons?includeInactive=${includeInactive}`),
+  create: (data: {
+    name: string;
+    priceSar: number;
+    description?: string;
+    sortOrder?: number;
+    isActive?: boolean;
+  }) =>
+    apiFetch<unknown>('/api/admin/add-ons', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    }),
+  update: (
+    id: string,
+    data: {
+      name?: string;
+      priceSar?: number;
+      description?: string | null;
+      sortOrder?: number | null;
+      isActive?: boolean;
+    },
+  ) =>
+    apiFetch<unknown>(`/api/admin/add-ons/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    }),
+  remove: (id: string) =>
+    apiFetch<unknown>(`/api/admin/add-ons/${id}`, { method: 'DELETE' }),
+};
+
+// ─── Admin-created subscriptions ──────────────────────────────────────────────
+
+export const adminSubscriptionCreateService = {
+  create: (data: Record<string, unknown>) =>
+    apiFetch<unknown>('/api/admin/subscriptions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    }),
+};
+
 // ─── Audit Logs ───────────────────────────────────────────────────────────────
 
 export const adminAuditService = {

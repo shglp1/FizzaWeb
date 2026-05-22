@@ -148,6 +148,7 @@ model SubscriptionPackage {
   billingCycle      String             @map("billing_cycle")
   priceSar          Decimal            @map("price_sar") @db.Decimal(10, 2)
   description       String?            @db.Text
+  sortOrder         Int?               @map("sort_order")
   isActive          Boolean            @default(true) @map("is_active")
   createdAt         DateTime           @default(now()) @map("created_at")
   updatedAt         DateTime           @updatedAt @map("updated_at")
@@ -160,6 +161,8 @@ model AddOn {
   id                 String              @id @default(uuid())
   name               String
   priceSar           Decimal             @map("price_sar") @db.Decimal(10, 2)
+  description        String?             @db.Text
+  sortOrder          Int?                @map("sort_order")
   isActive           Boolean             @default(true) @map("is_active")
   createdAt          DateTime            @default(now()) @map("created_at")
   updatedAt          DateTime            @updatedAt @map("updated_at")

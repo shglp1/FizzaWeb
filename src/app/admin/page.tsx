@@ -11,6 +11,7 @@ import { DriversSection } from './sections/DriversSection';
 import { SubscriptionsSection } from './sections/SubscriptionsSection';
 import { FinancialsSection } from './sections/FinancialsSection';
 import { SystemConfigSection } from './sections/SystemConfigSection';
+import { PackagesSection } from './sections/PackagesSection';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -105,7 +106,7 @@ function fmtTime(dt: string | null): string {
 
 // ─── Section tabs ─────────────────────────────────────────────────────────────
 
-type Section = 'overview' | 'users' | 'riders' | 'drivers' | 'applications' | 'subscriptions' | 'trips' | 'financials' | 'safety' | 'sysconfig';
+type Section = 'overview' | 'users' | 'riders' | 'drivers' | 'applications' | 'subscriptions' | 'trips' | 'financials' | 'safety' | 'packages' | 'sysconfig';
 
 const SECTION_TABS: { label: string; value: Section }[] = [
   { label: 'Overview', value: 'overview' },
@@ -117,6 +118,7 @@ const SECTION_TABS: { label: string; value: Section }[] = [
   { label: 'Trips', value: 'trips' },
   { label: 'Financials', value: 'financials' },
   { label: 'Safety', value: 'safety' },
+  { label: 'Packages & Add-ons', value: 'packages' },
   { label: 'Config', value: 'sysconfig' },
 ];
 
@@ -152,6 +154,7 @@ export default function AdminPage() {
       {section === 'trips' && <TripsSection />}
       {section === 'financials' && <FinancialsSection />}
       {section === 'safety' && <SafetySection />}
+      {section === 'packages' && <PackagesSection />}
       {section === 'sysconfig' && <SystemConfigSection />}
     </AppShell>
   );
