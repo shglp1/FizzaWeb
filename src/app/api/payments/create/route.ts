@@ -121,10 +121,7 @@ export async function POST(request: NextRequest) {
 
     const subscription = await prisma.userSubscription.findFirst({
       where: { userId, id: subscriptionId, NOT: { paymentStatus: 'PAID' } },
-      include: {
-        package: { select: { priceSar: true } },
-        addOns: { select: { addOn: { select: { priceSar: true } } } },
-      },
+      select: { id: true, finalPriceSar: true },
     });
 
     if (!subscription) {
@@ -134,12 +131,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const packagePrice = Number(subscription.package?.priceSar ?? 0);
-    const addOnTotal = (subscription.addOns ?? []).reduce(
-      (sum: number, a: { addOn: { priceSar: unknown } }) => sum + Number(a.addOn.priceSar),
-      0,
-    );
-    const total = packagePrice + addOnTotal;
+    // Use the price snapshot recorded at subscription creation — never recalculate
+    // from current package/add-on prices, which may have changed since then.
+    const total = Number(subscription.finalPriceSar);
 
     if (total <= 0) {
       return NextResponse.json(

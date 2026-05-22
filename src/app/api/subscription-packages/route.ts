@@ -5,7 +5,7 @@ export async function GET() {
   try {
     const packages = await prisma.subscriptionPackage.findMany({
       where: { isActive: true },
-      orderBy: { priceSar: 'asc' },
+      orderBy: [{ sortOrder: 'asc' }, { priceSar: 'asc' }],
     });
     return NextResponse.json({ data: packages, error: null });
   } catch {
