@@ -56,6 +56,17 @@ export async function PATCH(
     const newStatus = STATUS_MAP[action];
     const now = new Date();
 
+    // Fetch loyalty points config before transaction
+    let loyaltyPointsOnApproval = 0;
+    if (action === 'APPROVE' && report.userId) {
+      const loyaltyRow = await prisma.systemConfiguration.findUnique({
+        where: { key: 'loyaltyPointsOnSafetyApproval' },
+      });
+      if (typeof loyaltyRow?.value === 'number' && loyaltyRow.value > 0) {
+        loyaltyPointsOnApproval = loyaltyRow.value;
+      }
+    }
+
     await prisma.$transaction(async (tx) => {
       await tx.safetyReport.update({
         where: { id },
@@ -67,11 +78,30 @@ export async function PATCH(
         },
       });
 
+      // Award loyalty points on approval if configured
+      if (action === 'APPROVE' && report.userId && loyaltyPointsOnApproval > 0) {
+        const account = await tx.loyaltyAccount.upsert({
+          where: { userId: report.userId },
+          create: { userId: report.userId, pointsBalance: loyaltyPointsOnApproval },
+          update: { pointsBalance: { increment: loyaltyPointsOnApproval } },
+          select: { id: true },
+        });
+        await tx.loyaltyTransaction.create({
+          data: {
+            accountId: account.id,
+            points: loyaltyPointsOnApproval,
+            reason: `Safety report approved (report ID: ${id})`,
+          },
+        });
+      }
+
       if (report.userId) {
         const notifMessages: Record<typeof action, { title: string; message: string }> = {
           APPROVE: {
             title: 'Safety Report Approved',
-            message: 'Your safety report has been reviewed and approved. Thank you for helping keep our community safe.',
+            message: loyaltyPointsOnApproval > 0
+              ? `Your safety report has been approved. You earned ${loyaltyPointsOnApproval} loyalty points. Thank you for helping keep our community safe.`
+              : 'Your safety report has been reviewed and approved. Thank you for helping keep our community safe.',
           },
           REJECT: {
             title: 'Safety Report Update',

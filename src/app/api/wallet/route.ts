@@ -37,7 +37,12 @@ export async function GET(request: NextRequest) {
       },
     });
 
-    return NextResponse.json({ data: { wallet }, error: null });
+    const loyalty = await prisma.loyaltyAccount.findUnique({
+      where: { userId },
+      select: { pointsBalance: true },
+    });
+
+    return NextResponse.json({ data: { wallet, loyaltyPoints: loyalty?.pointsBalance ?? 0 }, error: null });
   } catch (error) {
     console.error('[GET /api/wallet]', error);
     return NextResponse.json(

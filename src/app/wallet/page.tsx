@@ -35,6 +35,7 @@ const TX_CFG: Record<TxType, { label: string; sign: string; color: string }> = {
 
 export default function WalletPage() {
   const [wallet, setWallet] = useState<Wallet | null>(null);
+  const [loyaltyPoints, setLoyaltyPoints] = useState<number>(0);
   const [loading, setLoading] = useState(true);
   const [pageError, setPageError] = useState('');
 
@@ -44,9 +45,13 @@ export default function WalletPage() {
 
   const loadWallet = () => {
     setLoading(true);
-    walletService.getWallet().then((res: { data?: { wallet: Wallet }; error?: { message: string } }) => {
-      if (res.data) setWallet(res.data.wallet);
-      else setPageError(res.error?.message ?? 'Failed to load wallet.');
+    walletService.getWallet().then((res: { data?: { wallet: Wallet; loyaltyPoints?: number }; error?: { message: string } }) => {
+      if (res.data) {
+        setWallet(res.data.wallet);
+        setLoyaltyPoints(res.data.loyaltyPoints ?? 0);
+      } else {
+        setPageError(res.error?.message ?? 'Failed to load wallet.');
+      }
       setLoading(false);
     });
   };
@@ -101,6 +106,13 @@ export default function WalletPage() {
                 Last updated {new Date(wallet.updatedAt).toLocaleDateString()}
               </p>
             )}
+          </div>
+
+          {/* Loyalty points card */}
+          <div className="card bg-gradient-to-br from-amber-50 to-yellow-50 border-amber-200">
+            <p className="text-sm text-amber-700 font-medium mb-1">Loyalty Points</p>
+            <p className="text-3xl font-bold text-amber-800">{loyaltyPoints.toLocaleString()} pts</p>
+            <p className="text-xs text-amber-600 mt-1">Earned by completing subscriptions and approved safety reports.</p>
           </div>
 
           {/* Top-up section */}
