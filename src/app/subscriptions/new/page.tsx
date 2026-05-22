@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { AppShell } from '@/components/layout/AppShell';
@@ -11,6 +11,25 @@ import { riderService } from '@/services/riderService';
 type Package = { id: string; name: string; billingCycle: string; priceSar: string; description: string | null };
 type AddOn = { id: string; name: string; priceSar: string };
 type Rider = { id: string; name: string; relationship: string; school: string | null; isActive: boolean };
+type TripDirection = 'ONE_WAY' | 'ROUND_TRIP';
+
+type PriceQuote = {
+  packagePriceSar: number;
+  addOnsPriceSar: number;
+  oneWayDistanceKm: number;
+  chargeableDistanceKm: number;
+  tripDirection: TripDirection;
+  pricePerKmSar: number;
+  distanceChargeSar: number;
+  primaryFinalSar: number;
+  extraRiderCount: number;
+  extraRiderSameDropoffMultiplier: number;
+  extraRiderChargeSar: number;
+  finalPriceSar: number;
+  distanceProvider: string;
+  normalizedPickupLabel: string;
+  normalizedDropoffLabel: string;
+};
 
 // 0=Sun 1=Mon 2=Tue 3=Wed 4=Thu 5=Fri 6=Sat
 const WEEKDAYS = [
@@ -43,6 +62,58 @@ function StepDots({ step, total }: { step: number; total: number }) {
   );
 }
 
+// ─── Quote breakdown card ─────────────────────────────────────────────────────
+
+function QuoteBreakdown({ quote }: { quote: PriceQuote }) {
+  return (
+    <div className="rounded-2xl bg-emerald-50 border border-emerald-200 p-4 space-y-2 text-sm">
+      <p className="font-semibold text-emerald-800 text-base mb-3">Price Breakdown</p>
+
+      <div className="flex justify-between">
+        <span className="text-gray-600">Package</span>
+        <span className="font-medium">SAR {quote.packagePriceSar.toFixed(2)}</span>
+      </div>
+      {quote.addOnsPriceSar > 0 && (
+        <div className="flex justify-between">
+          <span className="text-gray-600">Add-ons</span>
+          <span className="font-medium">SAR {quote.addOnsPriceSar.toFixed(2)}</span>
+        </div>
+      )}
+      <div className="flex justify-between">
+        <span className="text-gray-600">
+          Distance ({quote.oneWayDistanceKm} km one-way
+          {quote.tripDirection === 'ROUND_TRIP' ? `, ${quote.chargeableDistanceKm} km chargeable` : ''})
+        </span>
+        <span className="font-medium">SAR {quote.distanceChargeSar.toFixed(2)}</span>
+      </div>
+      <div className="flex justify-between text-gray-500 text-xs pl-2">
+        <span>@ SAR {quote.pricePerKmSar}/km × {quote.chargeableDistanceKm} km</span>
+      </div>
+      {quote.extraRiderChargeSar > 0 && (
+        <div className="flex justify-between">
+          <span className="text-gray-600">
+            Extra rider{quote.extraRiderCount > 1 ? 's' : ''} ({quote.extraRiderCount} ×{' '}
+            {(quote.extraRiderSameDropoffMultiplier * 100).toFixed(0)}%)
+          </span>
+          <span className="font-medium">SAR {quote.extraRiderChargeSar.toFixed(2)}</span>
+        </div>
+      )}
+
+      <div className="border-t border-emerald-200 pt-2 flex justify-between font-bold text-base">
+        <span className="text-emerald-800">Total</span>
+        <span className="text-emerald-700">SAR {quote.finalPriceSar.toFixed(2)}</span>
+      </div>
+
+      <p className="text-xs text-gray-400 pt-1">
+        Route: {quote.normalizedPickupLabel} → {quote.normalizedDropoffLabel}
+        <br />
+        Distance via {quote.distanceProvider.replace('_', ' ').toLowerCase()}.
+        {quote.tripDirection === 'ROUND_TRIP' && ' Round-trip counts both ways.'}
+      </p>
+    </div>
+  );
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function NewSubscriptionPage() {
@@ -60,7 +131,8 @@ export default function NewSubscriptionPage() {
   // ── Form state ──
   const [selectedPackageId, setSelectedPackageId] = useState<string | null>(null);
   const [subscriptionType, setSubscriptionType] = useState<'school' | 'university'>('school');
-  const [selectedRiderId, setSelectedRiderId] = useState<string | null>(null);
+  const [selectedRiderIds, setSelectedRiderIds] = useState<string[]>([]);
+  const [tripDirection, setTripDirection] = useState<TripDirection>('ROUND_TRIP');
   const [weekdays, setWeekdays] = useState<number[]>([0, 1, 2, 3, 4]); // Sun-Thu default
   const [offDays, setOffDays] = useState<number[]>([]);
   const [startsOn, setStartsOn] = useState('');
@@ -71,6 +143,13 @@ export default function NewSubscriptionPage() {
   const [returnTime, setReturnTime] = useState('15:00');
   const [femaleDriver, setFemaleDriver] = useState(false);
   const [selectedAddOnIds, setSelectedAddOnIds] = useState<string[]>([]);
+
+  // ── Quote state ──
+  const [quote, setQuote] = useState<PriceQuote | null>(null);
+  const [quoteLoading, setQuoteLoading] = useState(false);
+  const [quoteError, setQuoteError] = useState('');
+  /** Tracks inputs at quote-time so changes invalidate it */
+  const [quoteKey, setQuoteKey] = useState('');
 
   useEffect(() => {
     Promise.all([
@@ -85,11 +164,78 @@ export default function NewSubscriptionPage() {
     });
   }, []);
 
+  // Invalidate quote whenever any pricing-relevant input changes
+  const currentQuoteKey = [
+    selectedPackageId ?? '',
+    selectedAddOnIds.join(','),
+    selectedRiderIds.join(','),
+    pickupLocation.trim(),
+    dropoffLocation.trim(),
+    tripDirection,
+  ].join('|');
+
+  useEffect(() => {
+    if (quoteKey && currentQuoteKey !== quoteKey) {
+      setQuote(null);
+      setQuoteError('');
+    }
+  }, [currentQuoteKey, quoteKey]);
+
+  const handleCalculatePrice = useCallback(async () => {
+    setQuoteError('');
+    if (pickupLocation.trim().length < 5) {
+      setQuoteError('Please enter a more detailed pickup location.');
+      return;
+    }
+    if (dropoffLocation.trim().length < 5) {
+      setQuoteError('Please enter a more detailed drop-off location.');
+      return;
+    }
+    if (selectedRiderIds.length === 0) {
+      setQuoteError('Please select at least one rider before calculating price.');
+      return;
+    }
+
+    setQuoteLoading(true);
+    setQuote(null);
+
+    const res = await fetch('/api/subscriptions/quote', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        packageId: selectedPackageId ?? undefined,
+        addOnIds: selectedAddOnIds,
+        pickupLocation: pickupLocation.trim(),
+        dropoffLocation: dropoffLocation.trim(),
+        tripDirection,
+        riderIds: selectedRiderIds,
+      }),
+    });
+
+    const json = await res.json();
+    setQuoteLoading(false);
+
+    if (json.data?.quote) {
+      setQuote(json.data.quote as PriceQuote);
+      setQuoteKey(currentQuoteKey);
+    } else {
+      setQuoteError(json.error?.message ?? 'Could not calculate price. Please try again.');
+    }
+  }, [
+    pickupLocation, dropoffLocation, selectedRiderIds, selectedPackageId,
+    selectedAddOnIds, tripDirection, currentQuoteKey,
+  ]);
+
+  const toggleRider = (id: string) => {
+    setSelectedRiderIds((prev) =>
+      prev.includes(id) ? prev.filter((r) => r !== id) : [...prev, id],
+    );
+  };
+
   const toggleWeekday = (day: number) => {
     setWeekdays((prev) =>
       prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day],
     );
-    // If removing from weekdays, also remove from offDays
     setOffDays((prev) => prev.filter((d) => d !== day));
   };
 
@@ -110,12 +256,16 @@ export default function NewSubscriptionPage() {
     setStepError('');
     if (step === 1) {
       if (weekdays.length === 0) { setStepError('Select at least one day.'); return false; }
+      if (selectedRiderIds.length === 0) { setStepError('Please select at least one rider.'); return false; }
     }
     if (step === 2) {
-      if (pickupLocation.trim().length < 3) { setStepError('Pickup location must be at least 3 characters.'); return false; }
-      if (dropoffLocation.trim().length < 3) { setStepError('Dropoff location must be at least 3 characters.'); return false; }
+      if (pickupLocation.trim().length < 5) { setStepError('Pickup location must be at least 5 characters.'); return false; }
+      if (dropoffLocation.trim().length < 5) { setStepError('Dropoff location must be at least 5 characters.'); return false; }
       if (!pickupTime) { setStepError('Pickup time is required.'); return false; }
       if (!returnTime) { setStepError('Return time is required.'); return false; }
+    }
+    if (step === 3) {
+      if (!quote) { setStepError('Please calculate the price before confirming.'); return false; }
     }
     return true;
   };
@@ -129,15 +279,20 @@ export default function NewSubscriptionPage() {
 
   const handleSubmit = async () => {
     if (!validateStep()) return;
+    if (!quote) {
+      setSubmitError('Please calculate the price first.');
+      return;
+    }
     setSubmitting(true);
     setSubmitError('');
 
     const payload = {
       packageId: selectedPackageId ?? undefined,
-      riderId: selectedRiderId ?? undefined,
+      riderIds: selectedRiderIds.length > 0 ? selectedRiderIds : undefined,
       subscriptionType,
       pickupLocation: pickupLocation.trim(),
       dropoffLocation: dropoffLocation.trim(),
+      tripDirection,
       pickupTime,
       returnTime,
       weekdays,
@@ -209,7 +364,7 @@ export default function NewSubscriptionPage() {
     </div>
   );
 
-  // ── Step 1: Rider & Schedule ──
+  // ── Step 1: Rider, type & schedule ──
   const renderStep1 = () => (
     <div className="space-y-5">
       <div>
@@ -234,21 +389,26 @@ export default function NewSubscriptionPage() {
 
       {riders.length > 0 && (
         <div>
-          <h2 className="font-semibold text-lg mb-3">Select Rider</h2>
+          <h2 className="font-semibold text-lg mb-1">Select Rider(s)</h2>
+          <p className="text-xs text-gray-400 mb-3">
+            You can select multiple riders for the same subscription. Extra riders are charged at 50% of the base price each.
+          </p>
           <div className="grid sm:grid-cols-2 gap-2">
             {riders.map((rider) => (
               <button
                 key={rider.id}
                 type="button"
-                onClick={() => setSelectedRiderId(selectedRiderId === rider.id ? null : rider.id)}
+                onClick={() => toggleRider(rider.id)}
                 className={`p-3 rounded-xl border-2 text-left transition-all ${
-                  selectedRiderId === rider.id
+                  selectedRiderIds.includes(rider.id)
                     ? 'border-emerald-500 bg-emerald-50'
                     : 'border-gray-200 hover:border-emerald-300'
                 }`}
               >
                 <p className="font-semibold text-sm">{rider.name}</p>
-                <p className="text-xs text-gray-400">{rider.relationship}{rider.school ? ` · ${rider.school}` : ''}</p>
+                <p className="text-xs text-gray-400">
+                  {rider.relationship}{rider.school ? ` · ${rider.school}` : ''}
+                </p>
               </button>
             ))}
           </div>
@@ -322,29 +482,57 @@ export default function NewSubscriptionPage() {
     </div>
   );
 
-  // ── Step 2: Route ──
+  // ── Step 2: Route + trip direction + price calculator ──
   const renderStep2 = () => (
     <div className="space-y-4">
-      <h2 className="font-semibold text-lg mb-1">Route Details</h2>
+      <h2 className="font-semibold text-lg mb-1">Route & Pricing</h2>
+      <p className="text-sm text-gray-400">
+        Enter your pickup and drop-off locations. The system will calculate the real road distance automatically.
+      </p>
 
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1">Pickup Location *</label>
         <input
           className="input"
-          placeholder="e.g. Home — Al-Nakheel District, Riyadh"
+          placeholder="e.g. Al-Nakheel District, Riyadh, Saudi Arabia"
           value={pickupLocation}
           onChange={(e) => setPickupLocation(e.target.value)}
         />
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Dropoff Location *</label>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Drop-off Location *</label>
         <input
           className="input"
-          placeholder="e.g. King Faisal School"
+          placeholder="e.g. King Faisal School, Riyadh, Saudi Arabia"
           value={dropoffLocation}
           onChange={(e) => setDropoffLocation(e.target.value)}
         />
+      </div>
+
+      {/* Trip direction */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">Trip Direction</label>
+        <div className="flex gap-3">
+          {([
+            { value: 'ROUND_TRIP', label: '↔ Round Trip', hint: 'Distance counted both ways (recommended for school)' },
+            { value: 'ONE_WAY', label: '→ One Way', hint: 'Distance counted once' },
+          ] as { value: TripDirection; label: string; hint: string }[]).map(({ value, label, hint }) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => setTripDirection(value)}
+              className={`flex-1 p-3 rounded-xl border-2 text-left transition-all ${
+                tripDirection === value
+                  ? 'border-emerald-500 bg-emerald-50'
+                  : 'border-gray-200 hover:border-emerald-300'
+              }`}
+            >
+              <p className="font-semibold text-sm">{label}</p>
+              <p className="text-xs text-gray-400 mt-0.5">{hint}</p>
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="grid sm:grid-cols-2 gap-3">
@@ -367,10 +555,26 @@ export default function NewSubscriptionPage() {
           />
         </div>
       </div>
+
+      {/* Calculate Price button */}
+      <button
+        type="button"
+        onClick={handleCalculatePrice}
+        disabled={quoteLoading}
+        className="w-full py-3 rounded-xl font-semibold text-sm border-2 border-emerald-500 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 disabled:opacity-60 transition-all"
+      >
+        {quoteLoading ? 'Calculating…' : quote ? '↻ Recalculate Price' : '⚡ Calculate Price'}
+      </button>
+
+      {quoteError && (
+        <p className="text-red-600 bg-red-50 rounded-xl px-4 py-3 text-sm">{quoteError}</p>
+      )}
+
+      {quote && <QuoteBreakdown quote={quote} />}
     </div>
   );
 
-  // ── Step 3: Preferences & Add-ons ──
+  // ── Step 3: Preferences, Add-ons & confirmation ──
   const renderStep3 = () => (
     <div className="space-y-5">
       <div>
@@ -418,6 +622,11 @@ export default function NewSubscriptionPage() {
               </label>
             ))}
           </div>
+          {selectedAddOnIds.length > 0 && !quote && (
+            <p className="text-xs text-amber-600 mt-2">
+              You changed add-ons. Go back to Step 3 to recalculate the price.
+            </p>
+          )}
         </div>
       )}
 
@@ -428,10 +637,16 @@ export default function NewSubscriptionPage() {
           <p><span className="text-gray-400">Package:</span> {packages.find((p) => p.id === selectedPackageId)?.name}</p>
         )}
         <p><span className="text-gray-400">Type:</span> <span className="capitalize">{subscriptionType}</span></p>
-        {selectedRiderId && (
-          <p><span className="text-gray-400">Rider:</span> {riders.find((r) => r.id === selectedRiderId)?.name}</p>
+        {selectedRiderIds.length > 0 && (
+          <p>
+            <span className="text-gray-400">Rider(s):</span>{' '}
+            {selectedRiderIds.map((id) => riders.find((r) => r.id === id)?.name).join(', ')}
+          </p>
         )}
-        <p><span className="text-gray-400">Route:</span> {pickupLocation} → {dropoffLocation}</p>
+        <p>
+          <span className="text-gray-400">Route:</span> {pickupLocation} → {dropoffLocation}
+          {' '}({tripDirection === 'ROUND_TRIP' ? 'Round-trip' : 'One-way'})
+        </p>
         <p><span className="text-gray-400">Times:</span> {pickupTime} pickup · {returnTime} return</p>
         <p>
           <span className="text-gray-400">Days:</span>{' '}
@@ -445,6 +660,15 @@ export default function NewSubscriptionPage() {
         )}
       </div>
 
+      {quote ? (
+        <QuoteBreakdown quote={quote} />
+      ) : (
+        <div className="rounded-xl bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-700">
+          Price not yet calculated. Please go back and click{' '}
+          <strong>Calculate Price</strong> before confirming.
+        </div>
+      )}
+
       {submitError && (
         <p className="text-red-600 bg-red-50 rounded-xl px-4 py-3 text-sm">{submitError}</p>
       )}
@@ -453,6 +677,7 @@ export default function NewSubscriptionPage() {
 
   const steps = [renderStep0, renderStep1, renderStep2, renderStep3];
   const isLastStep = step === TOTAL_STEPS - 1;
+  const canConfirm = isLastStep && !!quote;
 
   return (
     <AppShell>
@@ -482,8 +707,9 @@ export default function NewSubscriptionPage() {
             <button
               type="button"
               onClick={handleSubmit}
-              disabled={submitting}
-              className="btn-primary flex-1 py-3"
+              disabled={submitting || !canConfirm}
+              className="btn-primary flex-1 py-3 disabled:opacity-50"
+              title={!quote ? 'Calculate price first' : undefined}
             >
               {submitting ? 'Submitting…' : 'Confirm Subscription'}
             </button>

@@ -15,76 +15,88 @@ import {
 } from '../lib/validations/safety.ts';
 
 // ─── subscriptionQuoteSchema ──────────────────────────────────────────────────
+// Distance is no longer user-entered — ORS calculates it server-side.
+// Schema now uses pickupLocation / dropoffLocation / tripDirection.
 
 describe('subscriptionQuoteSchema', () => {
-  it('accepts valid quote request with single rider', () => {
+  const RIDER_A = '22222222-2222-2222-2222-222222222222';
+  const RIDER_B = '11111111-1111-1111-1111-111111111111';
+
+  it('accepts valid quote with pickup/dropoff and single rider', () => {
     const r = subscriptionQuoteSchema.safeParse({
-      packageId: '11111111-1111-1111-1111-111111111111',
+      packageId: RIDER_B,
       addOnIds: [],
-      estimatedDistanceKm: 10,
-      riderIds: ['22222222-2222-2222-2222-222222222222'],
+      pickupLocation: 'Al-Nakheel District, Riyadh',
+      dropoffLocation: 'King Faisal School, Riyadh',
+      tripDirection: 'ROUND_TRIP',
+      riderIds: [RIDER_A],
     });
     assert.ok(r.success);
-    assert.equal(r.data?.estimatedDistanceKm, 10);
+    assert.equal(r.data?.tripDirection, 'ROUND_TRIP');
   });
 
   it('accepts valid quote with multiple riders', () => {
     const r = subscriptionQuoteSchema.safeParse({
-      estimatedDistanceKm: 15.5,
-      riderIds: [
-        '11111111-1111-1111-1111-111111111111',
-        '22222222-2222-2222-2222-222222222222',
-      ],
+      pickupLocation: 'Al-Nakheel District, Riyadh',
+      dropoffLocation: 'King Faisal School, Riyadh',
+      riderIds: [RIDER_B, RIDER_A],
     });
     assert.ok(r.success);
     assert.equal(r.data?.riderIds.length, 2);
   });
 
-  it('rejects missing estimatedDistanceKm', () => {
+  it('defaults tripDirection to ROUND_TRIP when omitted', () => {
     const r = subscriptionQuoteSchema.safeParse({
-      riderIds: ['11111111-1111-1111-1111-111111111111'],
+      pickupLocation: 'Al-Nakheel District, Riyadh',
+      dropoffLocation: 'King Faisal School, Riyadh',
+      riderIds: [RIDER_A],
+    });
+    assert.ok(r.success);
+    assert.equal(r.data?.tripDirection, 'ROUND_TRIP');
+  });
+
+  it('rejects missing pickupLocation', () => {
+    const r = subscriptionQuoteSchema.safeParse({
+      dropoffLocation: 'King Faisal School, Riyadh',
+      riderIds: [RIDER_A],
+    });
+    assert.ok(!r.success);
+  });
+
+  it('rejects missing dropoffLocation', () => {
+    const r = subscriptionQuoteSchema.safeParse({
+      pickupLocation: 'Al-Nakheel District, Riyadh',
+      riderIds: [RIDER_A],
     });
     assert.ok(!r.success);
   });
 
   it('rejects empty riderIds', () => {
     const r = subscriptionQuoteSchema.safeParse({
-      estimatedDistanceKm: 5,
+      pickupLocation: 'Al-Nakheel District, Riyadh',
+      dropoffLocation: 'King Faisal School, Riyadh',
       riderIds: [],
-    });
-    assert.ok(!r.success);
-  });
-
-  it('rejects negative distance', () => {
-    const r = subscriptionQuoteSchema.safeParse({
-      estimatedDistanceKm: -1,
-      riderIds: ['11111111-1111-1111-1111-111111111111'],
-    });
-    assert.ok(!r.success);
-  });
-
-  it('rejects distance above 500', () => {
-    const r = subscriptionQuoteSchema.safeParse({
-      estimatedDistanceKm: 501,
-      riderIds: ['11111111-1111-1111-1111-111111111111'],
     });
     assert.ok(!r.success);
   });
 
   it('rejects non-UUID riderIds', () => {
     const r = subscriptionQuoteSchema.safeParse({
-      estimatedDistanceKm: 10,
+      pickupLocation: 'Al-Nakheel District, Riyadh',
+      dropoffLocation: 'King Faisal School, Riyadh',
       riderIds: ['not-a-uuid'],
     });
     assert.ok(!r.success);
   });
 
-  it('accepts distance of exactly 500', () => {
+  it('rejects invalid tripDirection', () => {
     const r = subscriptionQuoteSchema.safeParse({
-      estimatedDistanceKm: 500,
-      riderIds: ['11111111-1111-1111-1111-111111111111'],
+      pickupLocation: 'Al-Nakheel District, Riyadh',
+      dropoffLocation: 'King Faisal School, Riyadh',
+      tripDirection: 'BOTH',
+      riderIds: [RIDER_A],
     });
-    assert.ok(r.success);
+    assert.ok(!r.success);
   });
 });
 

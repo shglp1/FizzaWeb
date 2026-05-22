@@ -3,6 +3,11 @@ import { prisma } from '@/lib/prisma';
 import { requireAuth } from '@/lib/session';
 import { subscriptionCreateSchema } from '@/lib/validations/subscription';
 import { getPricingConfig, calculateSubscriptionQuote } from '@/lib/pricing/subscriptionPricing';
+import {
+  calculateRouteDistanceKm,
+  calculateChargeableDistanceKm,
+  DistanceError,
+} from '@/lib/maps/distance';
 
 function getIp(req: Request): string | null {
   return (
@@ -20,6 +25,7 @@ const SUBSCRIPTION_SELECT = {
   subscriptionType: true,
   pickupLocation: true,
   dropoffLocation: true,
+  tripDirection: true,
   pickupTime: true,
   returnTime: true,
   femaleDriverPreference: true,
@@ -28,7 +34,12 @@ const SUBSCRIPTION_SELECT = {
   status: true,
   startsOn: true,
   endsOn: true,
-  estimatedDistanceKm: true,
+  oneWayDistanceKm: true,
+  chargeableDistanceKm: true,
+  distanceProvider: true,
+  pricePerKmSarSnapshot: true,
+  normalizedPickupLabel: true,
+  normalizedDropoffLabel: true,
   packagePriceSar: true,
   addOnsPriceSar: true,
   distancePriceSar: true,
@@ -98,6 +109,7 @@ export async function POST(req: Request) {
       subscriptionType,
       pickupLocation,
       dropoffLocation,
+      tripDirection,
       pickupTime,
       returnTime,
       weekdays,
@@ -106,13 +118,11 @@ export async function POST(req: Request) {
       femaleDriverPreference,
       autoRenewal,
       startsOn,
-      estimatedDistanceKm,
     } = parsed.data;
 
     // Resolve which rider IDs to use: prefer riderIds array, fall back to single riderId
-    const resolvedRiderIds: string[] = riderIds && riderIds.length > 0
-      ? riderIds
-      : riderId ? [riderId] : [];
+    const resolvedRiderIds: string[] =
+      riderIds && riderIds.length > 0 ? riderIds : riderId ? [riderId] : [];
 
     // Validate all rider ownerships
     if (resolvedRiderIds.length > 0) {
@@ -122,13 +132,16 @@ export async function POST(req: Request) {
       });
       if (riders.length !== resolvedRiderIds.length) {
         return NextResponse.json(
-          { data: null, error: { message: 'One or more riders not found or do not belong to you' } },
+          {
+            data: null,
+            error: { message: 'One or more riders not found or do not belong to you' },
+          },
           { status: 403 },
         );
       }
     }
 
-    // Verify add-ons exist
+    // Fetch add-ons
     let addOnsPriceSar = 0;
     if (addOnIds && addOnIds.length > 0) {
       const foundAddOns = await prisma.addOn.findMany({
@@ -160,18 +173,55 @@ export async function POST(req: Request) {
       packagePriceSar = Number(pkg.priceSar);
     }
 
-    // Calculate pricing server-side
+    // ── Calculate road distance server-side (never trust the client) ────────────
+    let oneWayDistanceKm = 0;
+    let chargeableDistanceKm = 0;
+    let distanceProvider: string | null = null;
+    let pickupLat: number | null = null;
+    let pickupLng: number | null = null;
+    let dropoffLat: number | null = null;
+    let dropoffLng: number | null = null;
+    let normalizedPickupLabel: string | null = null;
+    let normalizedDropoffLabel: string | null = null;
+
+    try {
+      const routeResult = await calculateRouteDistanceKm(pickupLocation, dropoffLocation);
+      oneWayDistanceKm = routeResult.oneWayDistanceKm;
+      chargeableDistanceKm = calculateChargeableDistanceKm(oneWayDistanceKm, tripDirection);
+      distanceProvider = routeResult.providerUsed;
+      pickupLat = routeResult.pickupCoordinates.lat;
+      pickupLng = routeResult.pickupCoordinates.lng;
+      dropoffLat = routeResult.dropoffCoordinates.lat;
+      dropoffLng = routeResult.dropoffCoordinates.lng;
+      normalizedPickupLabel = routeResult.normalizedPickupLabel;
+      normalizedDropoffLabel = routeResult.normalizedDropoffLabel;
+    } catch (err) {
+      if (err instanceof DistanceError) {
+        const status =
+          err.code === 'NOT_CONFIGURED' || err.code === 'PROVIDER_NOT_IMPLEMENTED' ? 503 : 400;
+        return NextResponse.json(
+          { data: null, error: { message: err.message } },
+          { status },
+        );
+      }
+      return NextResponse.json(
+        { data: null, error: { message: 'Could not calculate route distance. Please try again.' } },
+        { status: 503 },
+      );
+    }
+
+    // ── Server-side pricing calculation (final, never trust client) ─────────────
     const config = await getPricingConfig();
     const extraRiderCount = Math.max(0, resolvedRiderIds.length - 1);
     const pricing = calculateSubscriptionQuote(
       packagePriceSar,
       addOnsPriceSar,
-      estimatedDistanceKm ?? 0,
+      chargeableDistanceKm,
       extraRiderCount,
       config,
     );
 
-    // Primary rider = first in list (for backward compat riderId field)
+    // Primary rider = first in list (backward compat riderId field)
     const primaryRiderId = resolvedRiderIds[0] ?? null;
 
     const subscription = await prisma.$transaction(async (tx) => {
@@ -183,6 +233,7 @@ export async function POST(req: Request) {
           subscriptionType,
           pickupLocation,
           dropoffLocation,
+          tripDirection,
           pickupTime,
           returnTime,
           femaleDriverPreference: femaleDriverPreference ?? false,
@@ -190,7 +241,18 @@ export async function POST(req: Request) {
           status: 'PENDING',
           paymentStatus: 'PENDING',
           startsOn: startsOn ? new Date(startsOn) : null,
-          estimatedDistanceKm: estimatedDistanceKm ?? null,
+          // Distance snapshots
+          oneWayDistanceKm,
+          chargeableDistanceKm,
+          distanceProvider,
+          pickupLat,
+          pickupLng,
+          dropoffLat,
+          dropoffLng,
+          normalizedPickupLabel,
+          normalizedDropoffLabel,
+          pricePerKmSarSnapshot: config.pricePerKmSar,
+          // Price snapshots
           packagePriceSar: pricing.packagePriceSar,
           addOnsPriceSar: pricing.addOnsPriceSar,
           distancePriceSar: pricing.distancePriceSar,
@@ -202,18 +264,21 @@ export async function POST(req: Request) {
               isOffDay: (offDays ?? []).includes(day),
             })),
           },
-          addOns: addOnIds && addOnIds.length > 0
-            ? { create: addOnIds.map((addOnId) => ({ addOnId })) }
-            : undefined,
-          subscriptionRiders: resolvedRiderIds.length > 0
-            ? {
-                create: resolvedRiderIds.map((rid, idx) => ({
-                  riderId: rid,
-                  isPrimary: idx === 0,
-                  priceMultiplier: idx === 0 ? 1.0 : config.extraRiderSameDropoffMultiplier,
-                })),
-              }
-            : undefined,
+          addOns:
+            addOnIds && addOnIds.length > 0
+              ? { create: addOnIds.map((addOnId) => ({ addOnId })) }
+              : undefined,
+          subscriptionRiders:
+            resolvedRiderIds.length > 0
+              ? {
+                  create: resolvedRiderIds.map((rid, idx) => ({
+                    riderId: rid,
+                    isPrimary: idx === 0,
+                    priceMultiplier:
+                      idx === 0 ? 1.0 : config.extraRiderSameDropoffMultiplier,
+                  })),
+                }
+              : undefined,
         },
         select: SUBSCRIPTION_SELECT,
       });
@@ -222,7 +287,9 @@ export async function POST(req: Request) {
         data: {
           userId: auth.userId,
           title: 'Subscription Created',
-          message: `Your ${subscriptionType} subscription has been created and is pending payment. Final price: SAR ${pricing.finalPriceSar.toFixed(2)}.`,
+          message: `Your ${subscriptionType} subscription has been created and is pending payment. ${
+            tripDirection === 'ROUND_TRIP' ? 'Round-trip' : 'One-way'
+          } (${chargeableDistanceKm} km chargeable). Final price: SAR ${pricing.finalPriceSar.toFixed(2)}.`,
           type: 'SUBSCRIPTION',
         },
       });
@@ -236,6 +303,10 @@ export async function POST(req: Request) {
             subscriptionType,
             packageId,
             riderIds: resolvedRiderIds,
+            tripDirection,
+            oneWayDistanceKm,
+            chargeableDistanceKm,
+            distanceProvider,
             pricing,
           }),
           ipAddress: getIp(req),
