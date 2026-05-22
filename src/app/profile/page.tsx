@@ -181,7 +181,7 @@ export default function ProfilePage() {
               <p className="text-sm text-emerald-700 mb-3">
                 Apply to drive on the FIZZA platform and earn on your own schedule.
               </p>
-              <Link href="/driver-application" className="btn-primary text-sm px-4 py-2 inline-block rounded-xl">
+              <Link href={{ pathname: '/driver-application' }} className="btn-primary text-sm px-4 py-2 inline-block rounded-xl">
                 Apply Now →
               </Link>
             </div>

@@ -139,6 +139,8 @@ model Rider {
   trips              Trip[]
   subscriptionRiders SubscriptionRider[]
 
+  @@index([parentId])
+  @@index([isActive])
   @@map("riders")
 }
 
@@ -219,6 +221,9 @@ model UserSubscription {
 
   @@index([userId])
   @@index([status])
+  @@index([paymentStatus])
+  @@index([packageId])
+  @@index([createdAt])
   @@map("user_subscriptions")
 }
 
@@ -230,6 +235,7 @@ model SubscriptionSchedule {
   createdAt      DateTime         @default(now()) @map("created_at")
   subscription   UserSubscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
 
+  @@index([subscriptionId])
   @@map("subscription_schedules")
 }
 
@@ -287,6 +293,8 @@ model Driver {
   trips            Trip[]
   locations        DriverLocation[]
 
+  @@index([profileId])
+  @@index([isSuspended])
   @@map("drivers")
 }
 
@@ -317,6 +325,13 @@ model Trip {
   walletTransactions   WalletTransaction[]
   safetyReports        SafetyReport[]
 
+  @@index([subscriptionId])
+  @@index([riderId])
+  @@index([driverId])
+  @@index([status])
+  @@index([scheduledDate])
+  @@index([legType])
+  @@index([createdAt])
   @@map("trips")
 }
 
@@ -330,6 +345,9 @@ model DriverLocation {
   driver     Driver   @relation(fields: [driverId], references: [id], onDelete: Cascade)
   trip       Trip?    @relation(fields: [tripId], references: [id], onDelete: SetNull)
 
+  @@index([driverId])
+  @@index([tripId])
+  @@index([recordedAt])
   @@map("driver_locations")
 }
 
@@ -385,6 +403,7 @@ model Payment {
   @@index([subscriptionId])
   @@index([status])
   @@index([externalRef])
+  @@index([createdAt])
   @@map("payments")
 }
 
@@ -430,6 +449,8 @@ model SafetyReport {
 
   @@index([userId])
   @@index([status])
+  @@index([tripId])
+  @@index([createdAt])
   @@map("safety_reports")
 }
 
@@ -453,6 +474,9 @@ model Notification {
   createdAt DateTime @default(now()) @map("created_at")
   user      Profile? @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@index([userId])
+  @@index([isRead])
+  @@index([createdAt])
   @@map("notifications")
 }
 
@@ -484,6 +508,9 @@ model AuditLog {
   createdAt DateTime @default(now()) @map("created_at")
   user      Profile? @relation(fields: [userId], references: [id], onDelete: SetNull)
 
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
   @@map("audit_logs")
 }
 
@@ -517,5 +544,7 @@ model DriverApplication {
   applicant              Profile                 @relation("ApplicationApplicant", fields: [userId], references: [id], onDelete: Cascade)
   reviewer               Profile?                @relation("ApplicationReviewer", fields: [reviewedBy], references: [id], onDelete: SetNull)
 
+  @@index([userId])
+  @@index([status])
   @@map("driver_applications")
 }

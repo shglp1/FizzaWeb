@@ -396,3 +396,50 @@ ALTER TABLE `notifications` ADD CONSTRAINT `notifications_user_id_fkey` FOREIGN 
 -- AddForeignKey
 ALTER TABLE `audit_logs` ADD CONSTRAINT `audit_logs_user_id_fkey` FOREIGN KEY (`user_id`) REFERENCES `profiles`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
 
+-- AddForeignKey
+ALTER TABLE `driver_applications` ADD CONSTRAINT `driver_applications_user_id_fkey` FOREIGN KEY (`user_id`) REFERENCES `profiles`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `driver_applications` ADD CONSTRAINT `driver_applications_reviewed_by_fkey` FOREIGN KEY (`reviewed_by`) REFERENCES `profiles`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- Performance indexes (Task 9)
+CREATE INDEX `riders_parent_id_idx` ON `riders`(`parent_id`);
+CREATE INDEX `riders_is_active_idx` ON `riders`(`is_active`);
+
+CREATE INDEX `user_subscriptions_payment_status_idx` ON `user_subscriptions`(`payment_status`);
+CREATE INDEX `user_subscriptions_package_id_idx` ON `user_subscriptions`(`package_id`);
+CREATE INDEX `user_subscriptions_created_at_idx` ON `user_subscriptions`(`created_at`);
+
+CREATE INDEX `subscription_schedules_subscription_id_idx` ON `subscription_schedules`(`subscription_id`);
+
+CREATE INDEX `drivers_profile_id_idx` ON `drivers`(`profile_id`);
+CREATE INDEX `drivers_is_suspended_idx` ON `drivers`(`is_suspended`);
+
+CREATE INDEX `trips_subscription_id_idx` ON `trips`(`subscription_id`);
+CREATE INDEX `trips_rider_id_idx` ON `trips`(`rider_id`);
+CREATE INDEX `trips_driver_id_idx` ON `trips`(`driver_id`);
+CREATE INDEX `trips_status_idx` ON `trips`(`status`);
+CREATE INDEX `trips_scheduled_date_idx` ON `trips`(`scheduled_date`);
+CREATE INDEX `trips_leg_type_idx` ON `trips`(`leg_type`);
+CREATE INDEX `trips_created_at_idx` ON `trips`(`created_at`);
+
+CREATE INDEX `driver_locations_driver_id_idx` ON `driver_locations`(`driver_id`);
+CREATE INDEX `driver_locations_trip_id_idx` ON `driver_locations`(`trip_id`);
+CREATE INDEX `driver_locations_recorded_at_idx` ON `driver_locations`(`recorded_at`);
+
+CREATE INDEX `payments_created_at_idx` ON `payments`(`created_at`);
+
+CREATE INDEX `notifications_user_id_idx` ON `notifications`(`user_id`);
+CREATE INDEX `notifications_is_read_idx` ON `notifications`(`is_read`);
+CREATE INDEX `notifications_created_at_idx` ON `notifications`(`created_at`);
+
+CREATE INDEX `safety_reports_trip_id_idx` ON `safety_reports`(`trip_id`);
+CREATE INDEX `safety_reports_created_at_idx` ON `safety_reports`(`created_at`);
+
+CREATE INDEX `audit_logs_user_id_idx` ON `audit_logs`(`user_id`);
+CREATE INDEX `audit_logs_action_idx` ON `audit_logs`(`action`);
+CREATE INDEX `audit_logs_created_at_idx` ON `audit_logs`(`created_at`);
+
+CREATE INDEX `driver_applications_user_id_idx` ON `driver_applications`(`user_id`);
+CREATE INDEX `driver_applications_status_idx` ON `driver_applications`(`status`);
+

@@ -8,7 +8,10 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "test": "node --experimental-strip-types --test src/tests/auth.smoke.ts src/tests/validation.smoke.ts src/tests/subscription.smoke.ts src/tests/trip.smoke.ts src/tests/payment.smoke.ts src/tests/safety.smoke.ts src/tests/notification.smoke.ts src/tests/pricing.smoke.ts src/tests/admin.smoke.ts src/tests/distance.smoke.ts src/tests/packages.smoke.ts"
+    "test": "node --experimental-strip-types --test src/tests/auth.smoke.ts src/tests/validation.smoke.ts src/tests/subscription.smoke.ts src/tests/trip.smoke.ts src/tests/payment.smoke.ts src/tests/safety.smoke.ts src/tests/notification.smoke.ts src/tests/pricing.smoke.ts src/tests/admin.smoke.ts src/tests/distance.smoke.ts src/tests/packages.smoke.ts",
+    "verify": "npx prisma generate && npm run build && npm run typecheck && npm run lint && npm audit --audit-level=high && npm test",
+    "load:smoke": "k6 run load-tests/fizza-smoke.js",
+    "load:1000": "k6 run load-tests/fizza-1000-users.js"
   },
   "prisma": {
     "seed": "node --experimental-strip-types prisma/seed.ts"
