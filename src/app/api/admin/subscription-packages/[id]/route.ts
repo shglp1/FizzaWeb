@@ -4,6 +4,8 @@ import { prisma } from '@/lib/prisma';
 import { requireRole } from '@/lib/session';
 import { z } from 'zod';
 
+type RouteParams = { params: Promise<{ id: string }> };
+
 const updatePackageSchema = z.object({
   name: z.string().min(1).max(100).optional(),
   billingCycle: z.string().min(1).max(50).optional(),
@@ -15,7 +17,7 @@ const updatePackageSchema = z.object({
 
 export async function PATCH(
   request: NextRequest,
-  context: RouteContext<'/api/admin/subscription-packages/[id]'>,
+  context: RouteParams,
 ) {
   try {
     const auth = await requireRole(['ADMIN']);
@@ -82,7 +84,7 @@ export async function PATCH(
 
 export async function DELETE(
   _request: NextRequest,
-  context: RouteContext<'/api/admin/subscription-packages/[id]'>,
+  context: RouteParams,
 ) {
   try {
     const auth = await requireRole(['ADMIN']);

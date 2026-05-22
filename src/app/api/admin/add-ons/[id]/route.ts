@@ -4,6 +4,8 @@ import { prisma } from '@/lib/prisma';
 import { requireRole } from '@/lib/session';
 import { z } from 'zod';
 
+type RouteParams = { params: Promise<{ id: string }> };
+
 const updateAddOnSchema = z.object({
   name: z.string().min(1).max(100).optional(),
   priceSar: z.number().positive().optional(),
@@ -14,7 +16,7 @@ const updateAddOnSchema = z.object({
 
 export async function PATCH(
   request: NextRequest,
-  context: RouteContext<'/api/admin/add-ons/[id]'>,
+  context: RouteParams,
 ) {
   try {
     const auth = await requireRole(['ADMIN']);
@@ -80,7 +82,7 @@ export async function PATCH(
 
 export async function DELETE(
   _request: NextRequest,
-  context: RouteContext<'/api/admin/add-ons/[id]'>,
+  context: RouteParams,
 ) {
   try {
     const auth = await requireRole(['ADMIN']);
