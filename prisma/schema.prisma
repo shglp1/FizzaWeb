@@ -124,9 +124,10 @@ model Rider {
   isActive      Boolean            @default(true) @map("is_active")
   createdAt     DateTime           @default(now()) @map("created_at")
   updatedAt     DateTime           @updatedAt @map("updated_at")
-  parent        Profile            @relation(fields: [parentId], references: [id], onDelete: Cascade)
-  subscriptions UserSubscription[]
-  trips         Trip[]
+  parent              Profile             @relation(fields: [parentId], references: [id], onDelete: Cascade)
+  subscriptions       UserSubscription[]
+  trips               Trip[]
+  subscriptionRiders  SubscriptionRider[]
 
   @@map("riders")
 }
@@ -173,6 +174,13 @@ model UserSubscription {
   status                 SubscriptionStatus     @default(PENDING)
   startsOn               DateTime?              @map("starts_on") @db.Date
   endsOn                 DateTime?              @map("ends_on") @db.Date
+  estimatedDistanceKm    Decimal?               @map("estimated_distance_km") @db.Decimal(8, 2)
+  packagePriceSar        Decimal                @default(0.00) @map("package_price_sar") @db.Decimal(10, 2)
+  addOnsPriceSar         Decimal                @default(0.00) @map("add_ons_price_sar") @db.Decimal(10, 2)
+  distancePriceSar       Decimal                @default(0.00) @map("distance_price_sar") @db.Decimal(10, 2)
+  extraRidersPriceSar    Decimal                @default(0.00) @map("extra_riders_price_sar") @db.Decimal(10, 2)
+  finalPriceSar          Decimal                @default(0.00) @map("final_price_sar") @db.Decimal(10, 2)
+  cancellationReason     String?                @map("cancellation_reason") @db.Text
   createdAt              DateTime               @default(now()) @map("created_at")
   updatedAt              DateTime               @updatedAt @map("updated_at")
   user                   Profile                @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -182,7 +190,10 @@ model UserSubscription {
   trips                  Trip[]
   payments               Payment[]
   addOns                 SubscriptionAddOn[]
+  subscriptionRiders     SubscriptionRider[]
 
+  @@index([userId])
+  @@index([status])
   @@map("user_subscriptions")
 }
 
@@ -206,6 +217,20 @@ model SubscriptionAddOn {
   addOn          AddOn            @relation(fields: [addOnId], references: [id], onDelete: Cascade)
 
   @@map("subscription_add_ons")
+}
+
+model SubscriptionRider {
+  id              String           @id @default(uuid())
+  subscriptionId  String           @map("subscription_id")
+  riderId         String           @map("rider_id")
+  isPrimary       Boolean          @default(false) @map("is_primary")
+  priceMultiplier Decimal          @default(1.00) @map("price_multiplier") @db.Decimal(4, 2)
+  createdAt       DateTime         @default(now()) @map("created_at")
+  subscription    UserSubscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  rider           Rider            @relation(fields: [riderId], references: [id], onDelete: Cascade)
+
+  @@unique([subscriptionId, riderId])
+  @@map("subscription_riders")
 }
 
 model Vehicle {

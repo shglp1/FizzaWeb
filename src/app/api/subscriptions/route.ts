@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireAuth } from '@/lib/session';
 import { subscriptionCreateSchema } from '@/lib/validations/subscription';
+import { getPricingConfig, calculateSubscriptionQuote } from '@/lib/pricing/subscriptionPricing';
 
 function getIp(req: Request): string | null {
   return (
@@ -27,6 +28,12 @@ const SUBSCRIPTION_SELECT = {
   status: true,
   startsOn: true,
   endsOn: true,
+  estimatedDistanceKm: true,
+  packagePriceSar: true,
+  addOnsPriceSar: true,
+  distancePriceSar: true,
+  extraRidersPriceSar: true,
+  finalPriceSar: true,
   createdAt: true,
   updatedAt: true,
   rider: { select: { id: true, name: true, relationship: true, school: true } },
@@ -37,6 +44,15 @@ const SUBSCRIPTION_SELECT = {
       id: true,
       addOnId: true,
       addOn: { select: { id: true, name: true, priceSar: true } },
+    },
+  },
+  subscriptionRiders: {
+    select: {
+      id: true,
+      riderId: true,
+      isPrimary: true,
+      priceMultiplier: true,
+      rider: { select: { id: true, name: true, relationship: true } },
     },
   },
 } as const;
@@ -78,6 +94,7 @@ export async function POST(req: Request) {
     const {
       packageId,
       riderId,
+      riderIds,
       subscriptionType,
       pickupLocation,
       dropoffLocation,
@@ -89,26 +106,34 @@ export async function POST(req: Request) {
       femaleDriverPreference,
       autoRenewal,
       startsOn,
+      estimatedDistanceKm,
     } = parsed.data;
 
-    // Verify rider ownership — rider must belong to this user
-    if (riderId) {
-      const rider = await prisma.rider.findFirst({
-        where: { id: riderId, parentId: auth.userId, isActive: true },
+    // Resolve which rider IDs to use: prefer riderIds array, fall back to single riderId
+    const resolvedRiderIds: string[] = riderIds && riderIds.length > 0
+      ? riderIds
+      : riderId ? [riderId] : [];
+
+    // Validate all rider ownerships
+    if (resolvedRiderIds.length > 0) {
+      const riders = await prisma.rider.findMany({
+        where: { id: { in: resolvedRiderIds }, parentId: auth.userId, isActive: true },
+        select: { id: true },
       });
-      if (!rider) {
+      if (riders.length !== resolvedRiderIds.length) {
         return NextResponse.json(
-          { data: null, error: { message: 'Rider not found or does not belong to you' } },
+          { data: null, error: { message: 'One or more riders not found or do not belong to you' } },
           { status: 403 },
         );
       }
     }
 
     // Verify add-ons exist
+    let addOnsPriceSar = 0;
     if (addOnIds && addOnIds.length > 0) {
       const foundAddOns = await prisma.addOn.findMany({
         where: { id: { in: addOnIds }, isActive: true },
-        select: { id: true },
+        select: { id: true, priceSar: true },
       });
       if (foundAddOns.length !== addOnIds.length) {
         return NextResponse.json(
@@ -116,13 +141,44 @@ export async function POST(req: Request) {
           { status: 400 },
         );
       }
+      addOnsPriceSar = foundAddOns.reduce((sum, a) => sum + Number(a.priceSar), 0);
     }
+
+    // Fetch package price server-side
+    let packagePriceSar = 0;
+    if (packageId) {
+      const pkg = await prisma.subscriptionPackage.findFirst({
+        where: { id: packageId, isActive: true },
+        select: { priceSar: true },
+      });
+      if (!pkg) {
+        return NextResponse.json(
+          { data: null, error: { message: 'Package not found' } },
+          { status: 404 },
+        );
+      }
+      packagePriceSar = Number(pkg.priceSar);
+    }
+
+    // Calculate pricing server-side
+    const config = await getPricingConfig();
+    const extraRiderCount = Math.max(0, resolvedRiderIds.length - 1);
+    const pricing = calculateSubscriptionQuote(
+      packagePriceSar,
+      addOnsPriceSar,
+      estimatedDistanceKm ?? 0,
+      extraRiderCount,
+      config,
+    );
+
+    // Primary rider = first in list (for backward compat riderId field)
+    const primaryRiderId = resolvedRiderIds[0] ?? null;
 
     const subscription = await prisma.$transaction(async (tx) => {
       const sub = await tx.userSubscription.create({
         data: {
           userId: auth.userId,
-          riderId: riderId ?? null,
+          riderId: primaryRiderId,
           packageId: packageId ?? null,
           subscriptionType,
           pickupLocation,
@@ -134,6 +190,12 @@ export async function POST(req: Request) {
           status: 'PENDING',
           paymentStatus: 'PENDING',
           startsOn: startsOn ? new Date(startsOn) : null,
+          estimatedDistanceKm: estimatedDistanceKm ?? null,
+          packagePriceSar: pricing.packagePriceSar,
+          addOnsPriceSar: pricing.addOnsPriceSar,
+          distancePriceSar: pricing.distancePriceSar,
+          extraRidersPriceSar: pricing.extraRidersPriceSar,
+          finalPriceSar: pricing.finalPriceSar,
           schedules: {
             create: weekdays.map((day) => ({
               weekday: day,
@@ -143,6 +205,15 @@ export async function POST(req: Request) {
           addOns: addOnIds && addOnIds.length > 0
             ? { create: addOnIds.map((addOnId) => ({ addOnId })) }
             : undefined,
+          subscriptionRiders: resolvedRiderIds.length > 0
+            ? {
+                create: resolvedRiderIds.map((rid, idx) => ({
+                  riderId: rid,
+                  isPrimary: idx === 0,
+                  priceMultiplier: idx === 0 ? 1.0 : config.extraRiderSameDropoffMultiplier,
+                })),
+              }
+            : undefined,
         },
         select: SUBSCRIPTION_SELECT,
       });
@@ -151,7 +222,7 @@ export async function POST(req: Request) {
         data: {
           userId: auth.userId,
           title: 'Subscription Created',
-          message: `Your ${subscriptionType} subscription has been created and is pending payment.`,
+          message: `Your ${subscriptionType} subscription has been created and is pending payment. Final price: SAR ${pricing.finalPriceSar.toFixed(2)}.`,
           type: 'SUBSCRIPTION',
         },
       });
@@ -164,7 +235,8 @@ export async function POST(req: Request) {
             subscriptionId: sub.id,
             subscriptionType,
             packageId,
-            riderId,
+            riderIds: resolvedRiderIds,
+            pricing,
           }),
           ipAddress: getIp(req),
         },

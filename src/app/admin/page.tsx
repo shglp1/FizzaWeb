@@ -4,6 +4,13 @@ import { AppShell } from '@/components/layout/AppShell';
 import { driverApplicationService } from '@/services/driverApplicationService';
 import { tripService } from '@/services/tripService';
 import { safetyService } from '@/services/safetyService';
+import { OverviewSection } from './sections/OverviewSection';
+import { UsersSection } from './sections/UsersSection';
+import { RidersSection } from './sections/RidersSection';
+import { DriversSection } from './sections/DriversSection';
+import { SubscriptionsSection } from './sections/SubscriptionsSection';
+import { FinancialsSection } from './sections/FinancialsSection';
+import { SystemConfigSection } from './sections/SystemConfigSection';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -40,6 +47,8 @@ type AdminTrip = {
   scheduledDate: string;
   scheduledPickupTime: string | null;
   scheduledDropoffTime: string | null;
+  actualPickupTime: string | null;
+  actualDropoffTime: string | null;
   pickupLocation: string;
   dropoffLocation: string;
   rider: { id: string; name: string; relationship: string } | null;
@@ -94,52 +103,56 @@ function fmtTime(dt: string | null): string {
   return new Date(dt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
+// ─── Section tabs ─────────────────────────────────────────────────────────────
+
+type Section = 'overview' | 'users' | 'riders' | 'drivers' | 'applications' | 'subscriptions' | 'trips' | 'financials' | 'safety' | 'sysconfig';
+
+const SECTION_TABS: { label: string; value: Section }[] = [
+  { label: 'Overview', value: 'overview' },
+  { label: 'Users', value: 'users' },
+  { label: 'Riders', value: 'riders' },
+  { label: 'Drivers', value: 'drivers' },
+  { label: 'Applications', value: 'applications' },
+  { label: 'Subscriptions', value: 'subscriptions' },
+  { label: 'Trips', value: 'trips' },
+  { label: 'Financials', value: 'financials' },
+  { label: 'Safety', value: 'safety' },
+  { label: 'Config', value: 'sysconfig' },
+];
+
 // ─── Main page ────────────────────────────────────────────────────────────────
 
-type Section = 'applications' | 'trips' | 'safety';
-
 export default function AdminPage() {
-  const [section, setSection] = useState<Section>('applications');
+  const [section, setSection] = useState<Section>('overview');
 
   return (
     <AppShell>
       <h1 className="text-2xl font-semibold mb-6">Admin Dashboard</h1>
 
-      {/* Section switcher */}
-      <div className="flex flex-wrap gap-1 bg-gray-100 rounded-xl p-1 mb-8 w-fit">
-        <button
-          onClick={() => setSection('applications')}
-          className={`px-5 py-2 rounded-lg text-sm font-medium transition-all ${
-            section === 'applications' ? 'bg-white shadow text-emerald-700' : 'text-gray-500 hover:text-gray-700'
-          }`}
-        >
-          Driver Applications
-        </button>
-        <button
-          onClick={() => setSection('trips')}
-          className={`px-5 py-2 rounded-lg text-sm font-medium transition-all ${
-            section === 'trips' ? 'bg-white shadow text-emerald-700' : 'text-gray-500 hover:text-gray-700'
-          }`}
-        >
-          Trip Operations
-        </button>
-        <button
-          onClick={() => setSection('safety')}
-          className={`px-5 py-2 rounded-lg text-sm font-medium transition-all ${
-            section === 'safety' ? 'bg-white shadow text-emerald-700' : 'text-gray-500 hover:text-gray-700'
-          }`}
-        >
-          Safety Reports
-        </button>
+      <div className="flex flex-wrap gap-1 bg-gray-100 rounded-xl p-1 mb-8 overflow-x-auto">
+        {SECTION_TABS.map((tab) => (
+          <button
+            key={tab.value}
+            onClick={() => setSection(tab.value)}
+            className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-all ${
+              section === tab.value ? 'bg-white shadow text-emerald-700' : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
       </div>
 
-      {section === 'applications' ? (
-        <ApplicationsSection />
-      ) : section === 'trips' ? (
-        <TripsSection />
-      ) : (
-        <SafetySection />
-      )}
+      {section === 'overview' && <OverviewSection onNavigate={(s) => setSection(s as Section)} />}
+      {section === 'users' && <UsersSection />}
+      {section === 'riders' && <RidersSection />}
+      {section === 'drivers' && <DriversSection />}
+      {section === 'applications' && <ApplicationsSection />}
+      {section === 'subscriptions' && <SubscriptionsSection />}
+      {section === 'trips' && <TripsSection />}
+      {section === 'financials' && <FinancialsSection />}
+      {section === 'safety' && <SafetySection />}
+      {section === 'sysconfig' && <SystemConfigSection />}
     </AppShell>
   );
 }
@@ -175,9 +188,7 @@ function ApplicationsSection() {
     });
   }, []);
 
-  useEffect(() => {
-    loadApplications(activeTab, page);
-  }, [activeTab, page, loadApplications]);
+  useEffect(() => { loadApplications(activeTab, page); }, [activeTab, page, loadApplications]);
 
   const handleTabChange = (value: string) => {
     setActiveTab(value);
@@ -239,9 +250,7 @@ function ApplicationsSection() {
             key={tab.value}
             onClick={() => handleTabChange(tab.value)}
             className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-all ${
-              activeTab === tab.value
-                ? 'bg-white shadow text-emerald-700'
-                : 'text-gray-500 hover:text-gray-700'
+              activeTab === tab.value ? 'bg-white shadow text-emerald-700' : 'text-gray-500 hover:text-gray-700'
             }`}
           >
             {tab.label}
@@ -383,6 +392,7 @@ function TripsSection() {
   const [statusFilter, setStatusFilter] = useState('SCHEDULED');
   const [dateFilter, setDateFilter] = useState('');
   const [page, setPage] = useState(1);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [assigningTripId, setAssigningTripId] = useState<string | null>(null);
@@ -396,17 +406,14 @@ function TripsSection() {
   const [genMsg, setGenMsg] = useState('');
   const [genResult, setGenResult] = useState<{ generated: number; skipped: number } | null>(null);
 
-  const loadTrips = useCallback((status: string, date: string, p: number) => {
-    setLoading(true);
+  const loadTrips = useCallback((status: string, date: string, p: number, silent = false) => {
+    if (!silent) setLoading(true);
     setPageError('');
-    tripService.adminList({
-      status: status || undefined,
-      date: date || undefined,
-      page: p,
-    }).then((res) => {
+    tripService.adminList({ status: status || undefined, date: date || undefined, page: p }).then((res) => {
       if (res.data) {
         setTrips(res.data.trips ?? []);
         setMeta(res.data.meta ?? null);
+        setLastUpdated(new Date());
       } else {
         setPageError(res.error?.message ?? 'Failed to load trips.');
       }
@@ -420,19 +427,17 @@ function TripsSection() {
     });
   }, []);
 
+  useEffect(() => { loadTrips(statusFilter, dateFilter, page); }, [statusFilter, dateFilter, page, loadTrips]);
+  useEffect(() => { loadDrivers(); }, [loadDrivers]);
+
+  // Auto-refresh every 25 seconds
   useEffect(() => {
-    loadTrips(statusFilter, dateFilter, page);
+    const id = setInterval(() => loadTrips(statusFilter, dateFilter, page, true), 25_000);
+    return () => clearInterval(id);
   }, [statusFilter, dateFilter, page, loadTrips]);
 
-  useEffect(() => {
-    loadDrivers();
-  }, [loadDrivers]);
-
   const openAssign = (tripId: string) => {
-    if (assigningTripId === tripId) {
-      setAssigningTripId(null);
-      return;
-    }
+    if (assigningTripId === tripId) { setAssigningTripId(null); return; }
     setAssigningTripId(tripId);
     setSelectedDriverId('');
     setAssignMsg('');
@@ -470,7 +475,12 @@ function TripsSection() {
 
   return (
     <>
-      <h2 className="text-lg font-semibold mb-4">Trip Operations</h2>
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-lg font-semibold">Trip Operations</h2>
+        {lastUpdated && (
+          <span className="text-xs text-gray-400">Last updated {lastUpdated.toLocaleTimeString()}</span>
+        )}
+      </div>
 
       {/* Generate trips panel */}
       <div className="card mb-6 border border-emerald-100">
@@ -481,42 +491,20 @@ function TripsSection() {
         <div className="flex flex-wrap gap-3 items-end">
           <div>
             <label className="block text-xs text-gray-500 mb-1">Start date</label>
-            <input
-              type="date"
-              className="input text-sm"
-              value={genStartDate}
-              onChange={(e) => setGenStartDate(e.target.value)}
-            />
+            <input type="date" className="input text-sm" value={genStartDate} onChange={(e) => setGenStartDate(e.target.value)} />
           </div>
           <div>
             <label className="block text-xs text-gray-500 mb-1">End date</label>
-            <input
-              type="date"
-              className="input text-sm"
-              value={genEndDate}
-              onChange={(e) => setGenEndDate(e.target.value)}
-            />
+            <input type="date" className="input text-sm" value={genEndDate} onChange={(e) => setGenEndDate(e.target.value)} />
           </div>
-          <button
-            onClick={handleGenerate}
-            disabled={generating}
-            className="btn-primary text-sm px-5 py-2.5"
-          >
+          <button onClick={handleGenerate} disabled={generating} className="btn-primary text-sm px-5 py-2.5">
             {generating ? 'Generating…' : '⚡ Generate Trips'}
           </button>
         </div>
         {genMsg && (
-          <div className={`mt-3 text-sm px-4 py-2.5 rounded-xl ${
-            genMsg.includes('fail') || genMsg.includes('Fail')
-              ? 'text-red-700 bg-red-50'
-              : 'text-emerald-700 bg-emerald-50'
-          }`}>
+          <div className={`mt-3 text-sm px-4 py-2.5 rounded-xl ${genMsg.includes('fail') ? 'text-red-700 bg-red-50' : 'text-emerald-700 bg-emerald-50'}`}>
             {genMsg}
-            {genResult && (
-              <span className="ml-2 font-semibold">
-                {genResult.generated} created · {genResult.skipped} skipped
-              </span>
-            )}
+            {genResult && <span className="ml-2 font-semibold">{genResult.generated} created · {genResult.skipped} skipped</span>}
           </div>
         )}
       </div>
@@ -525,11 +513,7 @@ function TripsSection() {
       <div className="flex flex-wrap gap-3 mb-4 items-end">
         <div>
           <label className="block text-xs text-gray-500 mb-1">Status</label>
-          <select
-            className="input text-sm"
-            value={statusFilter}
-            onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
-          >
+          <select className="input text-sm" value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}>
             {TRIP_STATUS_FILTERS.map((s) => (
               <option key={s} value={s}>{s || 'All Statuses'}</option>
             ))}
@@ -537,25 +521,15 @@ function TripsSection() {
         </div>
         <div>
           <label className="block text-xs text-gray-500 mb-1">Date</label>
-          <input
-            type="date"
-            className="input text-sm"
-            value={dateFilter}
-            onChange={(e) => { setDateFilter(e.target.value); setPage(1); }}
-          />
+          <input type="date" className="input text-sm" value={dateFilter} onChange={(e) => { setDateFilter(e.target.value); setPage(1); }} />
         </div>
         {dateFilter && (
-          <button onClick={() => { setDateFilter(''); setPage(1); }} className="text-xs text-gray-500 hover:text-gray-700 underline self-end pb-2">
-            Clear date
-          </button>
+          <button onClick={() => { setDateFilter(''); setPage(1); }} className="text-xs text-gray-500 hover:text-gray-700 underline self-end pb-2">Clear date</button>
         )}
       </div>
 
       {assignMsg && (
-        <p className={`rounded-xl px-4 py-3 text-sm mb-4 ${
-          assignMsg.includes('fail') || assignMsg.includes('Select')
-            ? 'text-red-700 bg-red-50' : 'text-emerald-700 bg-emerald-50'
-        }`}>
+        <p className={`rounded-xl px-4 py-3 text-sm mb-4 ${assignMsg.includes('fail') || assignMsg.includes('Select') ? 'text-red-700 bg-red-50' : 'text-emerald-700 bg-emerald-50'}`}>
           {assignMsg}
         </p>
       )}
@@ -596,6 +570,12 @@ function TripsSection() {
                   )}
                   <p><span className="text-gray-400">Pickup:</span> {fmtTime(trip.scheduledPickupTime)} — {trip.pickupLocation}</p>
                   <p><span className="text-gray-400">Dropoff:</span> {fmtTime(trip.scheduledDropoffTime)} — {trip.dropoffLocation}</p>
+                  {trip.actualPickupTime && (
+                    <p><span className="text-gray-400">Actual Pickup:</span> {fmtTime(trip.actualPickupTime)}</p>
+                  )}
+                  {trip.actualDropoffTime && (
+                    <p><span className="text-gray-400">Actual Dropoff:</span> {fmtTime(trip.actualDropoffTime)}</p>
+                  )}
                 </div>
 
                 {trip.driver ? (
@@ -609,55 +589,56 @@ function TripsSection() {
                     </div>
                     {trip.vehicle && (
                       <p className="text-xs text-gray-500 shrink-0 text-right">
-                        {trip.vehicle.model}<br />
-                        <span className="font-mono">{trip.vehicle.plateNumber}</span>
+                        {trip.vehicle.model}<br /><span className="font-mono">{trip.vehicle.plateNumber}</span>
                       </p>
                     )}
                   </div>
                 ) : (
-                  <p className="text-xs text-amber-600 mb-3 bg-amber-50 px-3 py-1.5 rounded-lg border border-amber-100">
-                    No driver assigned
-                  </p>
+                  <p className="text-xs text-amber-600 mb-3 bg-amber-50 px-3 py-1.5 rounded-lg border border-amber-100">No driver assigned</p>
                 )}
 
-                {trip.status === 'SCHEDULED' && (
-                  <div>
+                <div className="flex gap-2 flex-wrap">
+                  {(trip.status === 'SCHEDULED' || trip.status === 'DRIVER_ASSIGNED') && (
                     <button
                       onClick={() => openAssign(trip.id)}
                       className={`text-sm px-4 py-2 rounded-xl font-semibold border transition-all ${
-                        isAssigning
-                          ? 'bg-blue-600 text-white border-blue-600'
-                          : 'border-blue-300 text-blue-700 hover:bg-blue-50'
+                        isAssigning ? 'bg-blue-600 text-white border-blue-600' : 'border-blue-300 text-blue-700 hover:bg-blue-50'
                       }`}
                     >
-                      {isAssigning ? 'Cancel' : 'Assign Driver'}
+                      {isAssigning ? 'Cancel' : trip.driver ? 'Reassign Driver' : 'Assign Driver'}
                     </button>
+                  )}
+                  {(trip.status !== 'COMPLETED' && trip.status !== 'CANCELLED') && (
+                    <a
+                      href={`/tracking/${trip.id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sm px-4 py-2 rounded-xl font-semibold border border-gray-200 text-gray-600 hover:bg-gray-50 transition-all"
+                    >
+                      View Tracking
+                    </a>
+                  )}
+                </div>
 
-                    {isAssigning && (
-                      <div className="mt-3 space-y-2">
-                        <select
-                          className="input text-sm w-full"
-                          value={selectedDriverId}
-                          onChange={(e) => setSelectedDriverId(e.target.value)}
-                        >
-                          <option value="">Select a driver…</option>
-                          {drivers.map((d) => (
-                            <option key={d.id} value={d.id}>
-                              {d.profile?.fullName ?? 'Driver'}
-                              {d.vehicle ? ` — ${d.vehicle.model} (${d.vehicle.plateNumber})` : ''}
-                              {d.rating ? ` ★ ${Number(d.rating).toFixed(1)}` : ''}
-                            </option>
-                          ))}
-                        </select>
-                        <button
-                          onClick={() => submitAssign(trip.id)}
-                          disabled={assigning}
-                          className="btn-primary text-sm px-4 py-2"
-                        >
-                          {assigning ? 'Assigning…' : 'Confirm Assignment'}
-                        </button>
-                      </div>
-                    )}
+                {isAssigning && (
+                  <div className="mt-3 space-y-2">
+                    <select
+                      className="input text-sm w-full"
+                      value={selectedDriverId}
+                      onChange={(e) => setSelectedDriverId(e.target.value)}
+                    >
+                      <option value="">Select a driver…</option>
+                      {drivers.map((d) => (
+                        <option key={d.id} value={d.id}>
+                          {d.profile?.fullName ?? 'Driver'}
+                          {d.vehicle ? ` — ${d.vehicle.model} (${d.vehicle.plateNumber})` : ''}
+                          {d.rating ? ` ★ ${Number(d.rating).toFixed(1)}` : ''}
+                        </option>
+                      ))}
+                    </select>
+                    <button onClick={() => submitAssign(trip.id)} disabled={assigning} className="btn-primary text-sm px-4 py-2">
+                      {assigning ? 'Assigning…' : 'Confirm Assignment'}
+                    </button>
                   </div>
                 )}
               </div>
@@ -824,10 +805,7 @@ function SafetySection() {
       </div>
 
       {reviewMsg && !reviewingId && (
-        <p className={`rounded-xl px-4 py-3 text-sm mb-4 ${
-          reviewMsg.includes('fail') || reviewMsg.includes('Select') || reviewMsg.includes('required')
-            ? 'text-red-700 bg-red-50' : 'text-emerald-700 bg-emerald-50'
-        }`}>
+        <p className={`rounded-xl px-4 py-3 text-sm mb-4 ${reviewMsg.includes('fail') || reviewMsg.includes('Select') || reviewMsg.includes('required') ? 'text-red-700 bg-red-50' : 'text-emerald-700 bg-emerald-50'}`}>
           {reviewMsg}
         </p>
       )}
@@ -872,8 +850,7 @@ function SafetySection() {
                 {report.attachments.length > 0 && (
                   <div className="flex gap-2 mb-3">
                     {report.attachments.map((a) => (
-                      <a key={a.id} href={a.filePath} target="_blank" rel="noopener noreferrer"
-                        className="text-xs text-blue-600 underline">Attachment</a>
+                      <a key={a.id} href={a.filePath} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 underline">Attachment</a>
                     ))}
                   </div>
                 )}
