@@ -3,6 +3,10 @@ import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { requireRole } from '@/lib/session';
 
+type RouteParams = {
+  params: Promise<{ id: string }>;
+};
+
 const updateSchema = z.object({
   isActive: z.boolean().optional(),
   name: z.string().min(2).max(100).optional(),
@@ -13,7 +17,7 @@ const updateSchema = z.object({
 
 export async function PATCH(
   req: Request,
-  context: RouteContext<'/api/admin/riders/[id]'>,
+  context: RouteParams,
 ) {
   try {
     const auth = await requireRole(['ADMIN']);

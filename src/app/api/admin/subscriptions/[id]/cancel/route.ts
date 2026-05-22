@@ -3,9 +3,13 @@ import { prisma } from '@/lib/prisma';
 import { requireRole } from '@/lib/session';
 import { adminSubscriptionCancelSchema } from '@/lib/validations/subscription';
 
+type RouteParams = {
+  params: Promise<{ id: string }>;
+};
+
 export async function PATCH(
   req: Request,
-  context: RouteContext<'/api/admin/subscriptions/[id]/cancel'>,
+  context: RouteParams,
 ) {
   try {
     const auth = await requireRole(['ADMIN']);

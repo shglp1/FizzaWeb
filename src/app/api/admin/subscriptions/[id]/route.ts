@@ -3,9 +3,13 @@ import { prisma } from '@/lib/prisma';
 import { requireRole } from '@/lib/session';
 import { adminSubscriptionUpdateSchema } from '@/lib/validations/subscription';
 
+type RouteParams = {
+  params: Promise<{ id: string }>;
+};
+
 export async function GET(
   _req: Request,
-  context: RouteContext<'/api/admin/subscriptions/[id]'>,
+  context: RouteParams,
 ) {
   try {
     const auth = await requireRole(['ADMIN']);
@@ -61,7 +65,7 @@ export async function GET(
 
 export async function PATCH(
   req: Request,
-  context: RouteContext<'/api/admin/subscriptions/[id]'>,
+  context: RouteParams,
 ) {
   try {
     const auth = await requireRole(['ADMIN']);
