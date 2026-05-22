@@ -1,11 +1,15 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
+import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rateLimit';
 
 const resetSchema = z.object({
   email: z.string().email('Invalid email address'),
 });
 
 export async function POST(req: Request) {
+  const rl = checkRateLimit(req, 'auth:reset-password', RATE_LIMITS.resetPassword);
+  if (!rl.allowed) return rateLimitResponse(rl);
+
   try {
     const body = await req.json();
     const parsed = resetSchema.safeParse(body);

@@ -1,9 +1,13 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { registerSchema } from '@/lib/validations/auth';
+import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rateLimit';
 import bcrypt from 'bcryptjs';
 
 export async function POST(req: Request) {
+  const rl = checkRateLimit(req, 'auth:register', RATE_LIMITS.register);
+  if (!rl.allowed) return rateLimitResponse(rl);
+
   try {
     const body = await req.json();
     const parsed = registerSchema.safeParse(body);

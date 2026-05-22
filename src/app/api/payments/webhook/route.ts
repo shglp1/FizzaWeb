@@ -3,8 +3,14 @@ import { randomUUID } from 'crypto';
 import { prisma } from '@/lib/prisma';
 import { getPaymentStatus } from '@/lib/payments/myfatoorah';
 import { webhookPayloadSchema } from '@/lib/validations/payment';
+import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rateLimit';
 
 export async function POST(request: NextRequest) {
+  // Coarse guard against trivial DoS on the webhook endpoint.
+  // The primary protection is HMAC signature verification below.
+  const rl = checkRateLimit(request, 'payments:webhook', RATE_LIMITS.webhookPayment);
+  if (!rl.allowed) return rateLimitResponse(rl);
+
   try {
     let body: unknown;
     try {
