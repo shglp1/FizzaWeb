@@ -1,431 +1,570 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { AppShell } from '@/components/layout/AppShell';
 import {
-  Card,
-  Alert,
-  Button,
-  StatusBadge,
-  LoadingState,
-  ErrorState,
+  PageHeader, Card, StatusBadge, LoadingState, ErrorState, Button, Alert,
 } from '@/components/ui';
 import { trackingService } from '@/services/trackingService';
+import { TRIP_STATUS_LABEL, isTrackableStatus } from '@/lib/trips/tripLifecycle';
+import type { TripStatus } from '@/lib/trips/tripLifecycle';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type TripStatus = 'SCHEDULED' | 'DRIVER_ASSIGNED' | 'ON_THE_WAY' | 'PICKED_UP' | 'COMPLETED' | 'CANCELLED';
+type TripEvent = {
+  id: string;
+  eventType: string;
+  message: string | null;
+  actorRole: string;
+  createdAt: string;
+};
 
-type TrackingData = {
-  trip: {
+type TrackingTrip = {
+  id: string;
+  status: string;
+  statusReason: string | null;
+  scheduledDate: string;
+  scheduledPickupTime: string | null;
+  scheduledDropoffTime: string | null;
+  actualPickupTime: string | null;
+  actualDropoffTime: string | null;
+  pickupLocation: string;
+  dropoffLocation: string;
+  pickupLat: number | null;
+  pickupLng: number | null;
+  dropoffLat: number | null;
+  dropoffLng: number | null;
+  rider: { id: string; name: string; relationship: string } | null;
+  driver: {
     id: string;
-    status: TripStatus;
-    scheduledDate: string;
-    scheduledPickupTime: string | null;
-    scheduledDropoffTime: string | null;
-    actualPickupTime: string | null;
-    actualDropoffTime: string | null;
-    pickupLocation: string;
-    dropoffLocation: string;
-    rider: { id: string; name: string; relationship: string; school: string | null } | null;
-    driver: {
-      id: string;
-      rating: string | null;
-      profile: { fullName: string; phone: string | null; avatarUrl: string | null } | null;
-    } | null;
-    vehicle: { model: string; plateNumber: string; color: string | null } | null;
-  };
-  currentLocation: { lat: number; lng: number; recordedAt: string } | null;
+    rating: number | null;
+    profile: { fullName: string; phone: string; avatarUrl: string | null } | null;
+  } | null;
+  vehicle: { model: string; plateNumber: string; color: string } | null;
+  events: TripEvent[];
 };
 
-// ─── Constants ────────────────────────────────────────────────────────────────
-
-const STATUS_STEPS: { status: TripStatus; label: string; emoji: string }[] = [
-  { status: 'SCHEDULED',       label: 'Trip Scheduled',  emoji: '📅' },
-  { status: 'DRIVER_ASSIGNED', label: 'Driver Assigned', emoji: '🚗' },
-  { status: 'ON_THE_WAY',      label: 'Driver En Route', emoji: '🛣️' },
-  { status: 'PICKED_UP',       label: 'Rider Picked Up', emoji: '👤' },
-  { status: 'COMPLETED',       label: 'Trip Completed',  emoji: '✅' },
-];
-
-const STATUS_ORDER: Record<TripStatus, number> = {
-  SCHEDULED: 0, DRIVER_ASSIGNED: 1, ON_THE_WAY: 2, PICKED_UP: 3, COMPLETED: 4, CANCELLED: -1,
+type Location = {
+  lat: number;
+  lng: number;
+  recordedAt: string;
+  stale: boolean;
 };
 
-const STATUS_BADGE_VARIANT: Record<TripStatus, 'warning' | 'info' | 'purple' | 'orange' | 'success' | 'danger'> = {
-  SCHEDULED:       'warning',
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+const STATUS_VARIANT: Record<string, 'info' | 'warning' | 'purple' | 'orange' | 'success' | 'danger'> = {
   DRIVER_ASSIGNED: 'info',
+  PRE_TRIP:        'purple',
   ON_THE_WAY:      'purple',
+  ARRIVED_PICKUP:  'orange',
   PICKED_UP:       'orange',
+  EN_ROUTE_DROPOFF:'purple',
+  ARRIVED_DROPOFF: 'orange',
   COMPLETED:       'success',
   CANCELLED:       'danger',
+  NO_SHOW:         'danger',
 };
 
-const STATUS_LABEL: Record<TripStatus, string> = {
-  SCHEDULED: 'Scheduled', DRIVER_ASSIGNED: 'Driver Assigned', ON_THE_WAY: 'On the Way',
-  PICKED_UP: 'Picked Up', COMPLETED: 'Completed', CANCELLED: 'Cancelled',
-};
-
-function fmtTime(dt: string | null): string {
+function fmtTime(dt: string | null) {
   if (!dt) return '—';
   return new Date(dt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
-function fmtDateTime(dt: string): string {
-  return new Date(dt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+function fmtDateTime(dt: string) {
+  return new Date(dt).toLocaleString([], {
+    month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+  });
 }
 
-// ─── Map components ───────────────────────────────────────────────────────────
+function minutesUntil(dt: string | null): number | null {
+  if (!dt) return null;
+  return Math.round((new Date(dt).getTime() - Date.now()) / 60_000);
+}
 
-function MapFallback({
-  pickup, dropoff, currentLocation, status,
-}: {
-  pickup: string; dropoff: string;
-  currentLocation: { lat: number; lng: number; recordedAt: string } | null;
-  status: TripStatus;
-}) {
-  const hasLive = currentLocation && ['ON_THE_WAY', 'PICKED_UP'].includes(status);
+const EVENT_ICON: Record<string, string> = {
+  DRIVER_ASSIGNED:       '🚗',
+  LOCATION_SHARING:      '📍',
+  NEAR_PICKUP:           '📍',
+  ARRIVED_PICKUP:        '🏁',
+  RIDER_PICKED_UP:       '✅',
+  NEAR_DROPOFF:          '📍',
+  ARRIVED_DROPOFF:       '🏫',
+  TRIP_COMPLETED:        '🎉',
+  DRIVER_LATE:           '⏰',
+  RIDER_LATE:            '⏰',
+  TRIP_CANCELLED:        '❌',
+  NO_SHOW:               '❌',
+  STATUS_CHANGE:         '🔄',
+  CHAT_MESSAGE_FLAGGED:  '⚠️',
+};
+
+// ─── Leaflet Map (SSR-safe) ───────────────────────────────────────────────────
+
+type MapProps = {
+  driverLat: number;
+  driverLng: number;
+  pickupLat: number | null;
+  pickupLng: number | null;
+  dropoffLat: number | null;
+  dropoffLng: number | null;
+  stale: boolean;
+};
+
+function LiveMap({ driverLat, driverLng, pickupLat, pickupLng, dropoffLat, dropoffLng, stale }: MapProps) {
+  const mapRef = useRef<HTMLDivElement>(null);
+  const leafletRef = useRef<unknown>(null);
+  const markerRef = useRef<unknown>(null);
+
+  useEffect(() => {
+    if (!mapRef.current) return;
+    let isMounted = true;
+
+    // Inject Leaflet CSS
+    if (!document.querySelector('#leaflet-css')) {
+      const link = document.createElement('link');
+      link.id = 'leaflet-css';
+      link.rel = 'stylesheet';
+      link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+      document.head.appendChild(link);
+    }
+
+    import('leaflet').then((L) => {
+      if (!isMounted || !mapRef.current) return;
+
+      // Fix default icon paths
+      const iconProto = L.Icon.Default.prototype as unknown as Record<string, unknown>;
+      delete iconProto._getIconUrl;
+      L.Icon.Default.mergeOptions({
+        iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+        iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
+        shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+      });
+
+      if (leafletRef.current) {
+        // Map already initialised — just update driver marker
+        const map = leafletRef.current as ReturnType<typeof L.map>;
+        if (markerRef.current) {
+          const marker = markerRef.current as ReturnType<typeof L.marker>;
+          marker.setLatLng([driverLat, driverLng]);
+        }
+        map.setView([driverLat, driverLng], map.getZoom());
+        return;
+      }
+
+      const map = L.map(mapRef.current).setView([driverLat, driverLng], 14);
+      leafletRef.current = map;
+
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap contributors',
+      }).addTo(map);
+
+      // Driver marker (blue)
+      const driverIcon = L.divIcon({
+        html: `<div style="background:${stale ? '#9CA3AF' : '#2563EB'};width:16px;height:16px;border-radius:50%;border:3px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.4)"></div>`,
+        className: '',
+        iconSize: [16, 16],
+        iconAnchor: [8, 8],
+      });
+      const driverMarker = L.marker([driverLat, driverLng], { icon: driverIcon })
+        .addTo(map)
+        .bindPopup('Driver');
+      markerRef.current = driverMarker;
+
+      // Pickup marker (green)
+      if (pickupLat != null && pickupLng != null) {
+        const pickupIcon = L.divIcon({
+          html: `<div style="background:#10B981;width:14px;height:14px;border-radius:50%;border:3px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.3)"></div>`,
+          className: '',
+          iconSize: [14, 14],
+          iconAnchor: [7, 7],
+        });
+        L.marker([pickupLat, pickupLng], { icon: pickupIcon }).addTo(map).bindPopup('Pickup');
+      }
+
+      // Drop-off marker (red)
+      if (dropoffLat != null && dropoffLng != null) {
+        const dropoffIcon = L.divIcon({
+          html: `<div style="background:#EF4444;width:14px;height:14px;border-radius:50%;border:3px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.3)"></div>`,
+          className: '',
+          iconSize: [14, 14],
+          iconAnchor: [7, 7],
+        });
+        L.marker([dropoffLat, dropoffLng], { icon: dropoffIcon }).addTo(map).bindPopup('Drop-off');
+      }
+
+      // Fit all markers in view
+      const points: [number, number][] = [[driverLat, driverLng]];
+      if (pickupLat != null && pickupLng != null) points.push([pickupLat, pickupLng]);
+      if (dropoffLat != null && dropoffLng != null) points.push([dropoffLat, dropoffLng]);
+      if (points.length > 1) map.fitBounds(points, { padding: [32, 32] });
+    }).catch(() => { /* leaflet failed to load */ });
+
+    return () => { isMounted = false; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Update driver marker position when coords change (after initial mount)
+  useEffect(() => {
+    if (!leafletRef.current || !markerRef.current) return;
+    import('leaflet').then((L) => {
+      if (!markerRef.current) return;
+      const marker = markerRef.current as ReturnType<typeof L.marker>;
+      marker.setLatLng([driverLat, driverLng]);
+    }).catch(() => { /* ignore */ });
+  }, [driverLat, driverLng]);
 
   return (
-    <div className="rounded-2xl overflow-hidden border border-gray-200 bg-gradient-to-br from-slate-800 to-slate-900 text-white">
-      <div className="px-5 py-3 bg-black/30 flex items-center justify-between">
-        <span className="text-xs font-medium text-slate-300 uppercase tracking-wider">Route Overview</span>
-        {hasLive ? (
-          <span className="flex items-center gap-1.5 text-xs font-semibold text-emerald-400">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            Live
-          </span>
-        ) : (
-          <span className="text-xs text-slate-500">Not live yet</span>
-        )}
-      </div>
-
-      <div className="px-5 py-5 space-y-4">
-        <div className="flex items-start gap-3">
-          <div className="flex flex-col items-center gap-1">
-            <div className="w-8 h-8 rounded-full bg-emerald-500/20 border-2 border-emerald-400 flex items-center justify-center text-emerald-300 text-sm font-bold">A</div>
-            <div className="w-0.5 h-8 bg-slate-600" />
-          </div>
-          <div className="pt-1">
-            <p className="text-xs text-slate-400 mb-0.5">Pickup</p>
-            <p className="text-sm font-medium leading-tight">{pickup}</p>
-          </div>
-        </div>
-
-        {hasLive && (
-          <div className="flex items-start gap-3">
-            <div className="flex flex-col items-center gap-1">
-              <div className="w-8 h-8 rounded-full bg-blue-500/20 border-2 border-blue-400 flex items-center justify-center text-base">🚗</div>
-              <div className="w-0.5 h-8 bg-slate-600" />
-            </div>
-            <div className="pt-1">
-              <p className="text-xs text-slate-400 mb-0.5">
-                Driver · updated {fmtTime(currentLocation!.recordedAt)}
-              </p>
-              <p className="text-xs text-slate-300 font-mono">
-                {currentLocation!.lat.toFixed(5)}, {currentLocation!.lng.toFixed(5)}
-              </p>
-            </div>
-          </div>
-        )}
-
-        <div className="flex items-start gap-3">
-          <div className="w-8 h-8 rounded-full bg-red-500/20 border-2 border-red-400 flex items-center justify-center text-red-300 text-sm font-bold">B</div>
-          <div className="pt-1">
-            <p className="text-xs text-slate-400 mb-0.5">Dropoff</p>
-            <p className="text-sm font-medium leading-tight">{dropoff}</p>
-          </div>
-        </div>
-      </div>
-
-      <div className="px-5 py-3 bg-black/20 text-xs text-slate-500 text-center">
-        Set NEXT_PUBLIC_MAPBOX_TOKEN for an interactive map
-      </div>
-    </div>
+    <div
+      ref={mapRef}
+      className="w-full rounded-2xl overflow-hidden border border-gray-200"
+      style={{ height: 280 }}
+      aria-label="Live driver location map"
+    />
   );
 }
 
-function MapboxMap({
-  token, pickup, dropoff, currentLocation,
-}: {
-  token: string; pickup: string; dropoff: string;
-  currentLocation: { lat: number; lng: number } | null;
-}) {
-  const width = 700;
-  const height = 320;
-  const overlay = currentLocation
-    ? `pin-s-car+1da462(${currentLocation.lng},${currentLocation.lat})/`
-    : '';
-  const url = `https://api.mapbox.com/styles/v1/mapbox/streets-v12/static/${overlay}auto/${width}x${height}?access_token=${token}&attribution=false&logo=false`;
+// ─── Status Timeline ──────────────────────────────────────────────────────────
+
+const TIMELINE_STEPS: { status: TripStatus; label: string }[] = [
+  { status: 'DRIVER_ASSIGNED',  label: 'Driver Assigned' },
+  { status: 'PRE_TRIP',         label: 'Driver Heading Out' },
+  { status: 'ON_THE_WAY',       label: 'En Route to Pickup' },
+  { status: 'ARRIVED_PICKUP',   label: 'Arrived at Pickup' },
+  { status: 'PICKED_UP',        label: 'Rider Picked Up' },
+  { status: 'EN_ROUTE_DROPOFF', label: 'En Route to Drop-off' },
+  { status: 'ARRIVED_DROPOFF',  label: 'Arrived at Drop-off' },
+  { status: 'COMPLETED',        label: 'Completed' },
+];
+
+const STEP_ORDER: TripStatus[] = TIMELINE_STEPS.map((s) => s.status);
+
+function getStepIndex(status: string): number {
+  return STEP_ORDER.indexOf(status as TripStatus);
+}
+
+function StatusTimeline({ currentStatus }: { currentStatus: string }) {
+  const currentIdx = getStepIndex(currentStatus);
+  const isCancelled = currentStatus === 'CANCELLED' || currentStatus === 'NO_SHOW';
+
+  if (isCancelled) {
+    return (
+      <div className="flex items-center gap-2 p-3 rounded-xl bg-red-50 text-red-700 text-sm font-medium">
+        <span>❌</span>
+        <span>{TRIP_STATUS_LABEL[currentStatus as TripStatus] ?? currentStatus}</span>
+      </div>
+    );
+  }
 
   return (
-    <div className="rounded-2xl overflow-hidden border border-gray-200">
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={url} alt="Route map" width={width} height={height} className="w-full object-cover" />
-      <div className="px-4 py-2 bg-gray-50 flex justify-between text-xs text-gray-500">
-        <span>A: {pickup}</span>
-        <span>B: {dropoff}</span>
-      </div>
+    <ol className="relative space-y-0">
+      {TIMELINE_STEPS.map((step, idx) => {
+        const done = currentIdx > idx;
+        const active = currentIdx === idx;
+        return (
+          <li key={step.status} className="flex gap-3 items-start">
+            {/* Connector line + dot */}
+            <div className="flex flex-col items-center w-5 shrink-0">
+              <div
+                className={`w-4 h-4 rounded-full border-2 shrink-0 z-10 ${
+                  done
+                    ? 'bg-emerald-500 border-emerald-500'
+                    : active
+                    ? 'bg-fizza-secondary border-fizza-secondary'
+                    : 'bg-white border-gray-300'
+                }`}
+              />
+              {idx < TIMELINE_STEPS.length - 1 && (
+                <div className={`w-0.5 flex-1 min-h-4 ${done ? 'bg-emerald-400' : 'bg-gray-200'}`} />
+              )}
+            </div>
+            <p
+              className={`text-sm pb-3 ${
+                active
+                  ? 'font-semibold text-fizza-primary'
+                  : done
+                  ? 'text-emerald-700'
+                  : 'text-gray-400'
+              }`}
+            >
+              {step.label}
+            </p>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+// ─── Event Log ────────────────────────────────────────────────────────────────
+
+function EventLog({ events }: { events: TripEvent[] }) {
+  if (events.length === 0) return null;
+  return (
+    <div className="space-y-2">
+      {events.map((ev) => (
+        <div key={ev.id} className="flex items-start gap-2 text-sm">
+          <span className="text-base leading-none mt-0.5">{EVENT_ICON[ev.eventType] ?? '📌'}</span>
+          <div className="flex-1 min-w-0">
+            <p className="text-gray-700">{ev.message ?? ev.eventType.replace(/_/g, ' ')}</p>
+            <p className="text-xs text-gray-400">{fmtDateTime(ev.createdAt)}</p>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-export default function TrackingPage() {
-  const params = useParams<{ tripId: string }>();
-  const tripId = params.tripId;
+export default function TrackingDetailPage() {
+  const { tripId } = useParams<{ tripId: string }>();
 
-  const [data, setData]           = useState<TrackingData | null>(null);
-  const [loading, setLoading]     = useState(true);
+  const [trip, setTrip] = useState<TrackingTrip | null>(null);
+  const [location, setLocation] = useState<Location | null>(null);
+  const [loading, setLoading] = useState(true);
   const [pageError, setPageError] = useState('');
-  const [lastPoll, setLastPoll]   = useState<Date | null>(null);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [showEvents, setShowEvents] = useState(false);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const mapboxToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? '';
-
-  useEffect(() => {
-    if (!tripId) return;
-
-    const fetch = () => {
-      trackingService.get(tripId).then((res) => {
-        if (res.data) { setData(res.data); setLastPoll(new Date()); }
-        else if (!data) setPageError(res.error?.message ?? 'Failed to load tracking data.');
-        setLoading(false);
-      });
-    };
-
-    fetch();
-    const interval = setInterval(fetch, 20_000);
-    return () => clearInterval(interval);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const fetchTracking = useCallback(async () => {
+    const res = await trackingService.get(tripId);
+    if (res.data) {
+      setTrip(res.data.trip as TrackingTrip);
+      setLocation(res.data.location as Location | null);
+      setLastUpdated(new Date());
+    } else {
+      setPageError(res.error?.message ?? 'Failed to load tracking data.');
+    }
+    setLoading(false);
   }, [tripId]);
 
-  if (loading) return <AppShell><LoadingState message="Loading tracking info…" /></AppShell>;
+  const pollLocation = useCallback(async () => {
+    const res = await trackingService.getLocation(tripId);
+    if (res.data) {
+      setLocation(res.data as Location);
+      setLastUpdated(new Date());
+    }
+  }, [tripId]);
 
-  if (pageError || !data) {
-    return (
-      <AppShell>
-        <Link href="/trips" className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700 mb-4">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <polyline points="15 18 9 12 15 6" />
-          </svg>
-          My Trips
-        </Link>
-        <ErrorState message={pageError || 'Trip not found.'} />
-      </AppShell>
-    );
-  }
+  useEffect(() => {
+    fetchTracking();
+  }, [fetchTracking]);
 
-  const { trip, currentLocation } = data;
-  const currentOrder = STATUS_ORDER[trip.status] ?? -1;
-  const isCancelled  = trip.status === 'CANCELLED';
-  const isLive       = ['ON_THE_WAY', 'PICKED_UP'].includes(trip.status);
+  // Poll location every 15 seconds when trip is trackable
+  useEffect(() => {
+    if (!trip) return;
+    if (!isTrackableStatus(trip.status as TripStatus)) return;
+
+    pollRef.current = setInterval(pollLocation, 15_000);
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, [trip, pollLocation]);
+
+  if (loading) return (
+    <AppShell>
+      <LoadingState message="Loading trip tracking…" />
+    </AppShell>
+  );
+
+  if (pageError || !trip) return (
+    <AppShell>
+      <ErrorState message={pageError || 'Trip not found.'} onRetry={fetchTracking} />
+    </AppShell>
+  );
+
+  const trackable = isTrackableStatus(trip.status as TripStatus);
+  const minutesToPickup = minutesUntil(trip.scheduledPickupTime);
+  const isCompleted = trip.status === 'COMPLETED';
+  const isCancelled = trip.status === 'CANCELLED' || trip.status === 'NO_SHOW';
 
   return (
     <AppShell>
-      {/* Back link */}
-      <Link href="/trips" className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700 mb-4 transition-colors">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <polyline points="15 18 9 12 15 6" />
-        </svg>
-        My Trips
-      </Link>
+      <PageHeader
+        title={`Tracking — ${trip.rider?.name ?? 'Rider'}`}
+        subtitle={new Date(trip.scheduledDate).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+        action={
+          <Link href="/tracking">
+            <Button variant="ghost" size="sm">← All trips</Button>
+          </Link>
+        }
+      />
 
-      {/* Title row */}
-      <div className="flex items-start justify-between gap-4 mb-5">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Live Tracking</h1>
-          <p className="text-sm text-gray-500 mt-0.5">
-            {new Date(trip.scheduledDate).toLocaleDateString('en-US', {
-              weekday: 'long', year: 'numeric', month: 'short', day: 'numeric',
-            })}
-          </p>
-        </div>
-        <div className="flex flex-col items-end gap-1.5">
-          <StatusBadge variant={STATUS_BADGE_VARIANT[trip.status]}>
-            {STATUS_LABEL[trip.status]}
-          </StatusBadge>
-          {isLive && lastPoll && (
-            <span className="flex items-center gap-1 text-[10px] text-emerald-600 font-semibold">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              Polling · {fmtTime(lastPoll.toISOString())}
-            </span>
-          )}
-        </div>
+      {/* Status Banner */}
+      <div className="mb-4">
+        <StatusBadge variant={STATUS_VARIANT[trip.status] ?? 'info'} className="text-sm px-3 py-1.5">
+          {TRIP_STATUS_LABEL[trip.status as TripStatus] ?? trip.status}
+        </StatusBadge>
+        {trip.statusReason && (
+          <p className="text-xs text-gray-500 mt-1">{trip.statusReason}</p>
+        )}
       </div>
 
-      {/* Cancelled banner */}
-      {isCancelled && (
-        <Alert variant="error" className="mb-5">This trip has been cancelled.</Alert>
+      {/* GPS Stale Warning */}
+      {location?.stale && (
+        <Alert variant="warning" className="mb-4">
+          GPS signal is delayed — location shown may be up to 1 minute old.
+        </Alert>
       )}
 
-      {/* Map */}
-      <div className="mb-5">
-        {mapboxToken ? (
-          <MapboxMap
-            token={mapboxToken}
-            pickup={trip.pickupLocation}
-            dropoff={trip.dropoffLocation}
-            currentLocation={currentLocation}
+      {/* Not yet trackable */}
+      {!trackable && !isCompleted && !isCancelled && (
+        <Alert variant="info" className="mb-4">
+          {minutesToPickup != null && minutesToPickup > 10
+            ? `Live tracking opens about 10 minutes before pickup (in ~${minutesToPickup} min).`
+            : 'Driver location will appear once the driver begins heading out.'}
+        </Alert>
+      )}
+
+      {/* Live Map */}
+      {location && (
+        <Card className="mb-4 !p-0 overflow-hidden">
+          <div className="px-4 pt-3 pb-2 flex items-center justify-between">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Live Location</p>
+            <div className="flex items-center gap-1.5">
+              <span className={`inline-block w-2 h-2 rounded-full ${location.stale ? 'bg-gray-400' : 'bg-emerald-500 animate-pulse'}`} />
+              <span className="text-xs text-gray-400">
+                {lastUpdated
+                  ? `Updated ${lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+                  : 'Live'}
+              </span>
+            </div>
+          </div>
+          <LiveMap
+            driverLat={location.lat}
+            driverLng={location.lng}
+            pickupLat={trip.pickupLat}
+            pickupLng={trip.pickupLng}
+            dropoffLat={trip.dropoffLat}
+            dropoffLng={trip.dropoffLng}
+            stale={location.stale}
           />
-        ) : (
-          <MapFallback
-            pickup={trip.pickupLocation}
-            dropoff={trip.dropoffLocation}
-            currentLocation={currentLocation}
-            status={trip.status}
-          />
-        )}
-      </div>
-
-      {/* Driver + Vehicle */}
-      <div className="grid sm:grid-cols-2 gap-4 mb-5">
-        {trip.driver ? (
-          <Card>
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Driver</p>
-            <div className="flex items-center gap-3">
-              <div className="w-11 h-11 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-700 font-bold text-base shrink-0">
-                {trip.driver.profile?.fullName?.[0] ?? 'D'}
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="font-semibold text-gray-900 truncate">{trip.driver.profile?.fullName ?? 'Driver'}</p>
-                {trip.driver.rating && (
-                  <p className="text-sm text-amber-600 font-medium">★ {Number(trip.driver.rating).toFixed(1)}</p>
-                )}
-                {trip.driver.profile?.phone && (
-                  <p className="text-xs text-gray-400 mt-0.5">{trip.driver.profile.phone}</p>
-                )}
-              </div>
-            </div>
-          </Card>
-        ) : (
-          <Card>
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Driver</p>
-            <p className="text-sm text-gray-400">No driver assigned yet.</p>
-          </Card>
-        )}
-
-        {trip.vehicle ? (
-          <Card>
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Vehicle</p>
-            <p className="font-semibold text-gray-900">{trip.vehicle.model}</p>
-            <p className="text-sm text-gray-500 mt-0.5">
-              {trip.vehicle.color ? `${trip.vehicle.color} · ` : ''}
-              <span className="font-mono font-medium">{trip.vehicle.plateNumber}</span>
-            </p>
-          </Card>
-        ) : (
-          <Card>
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Vehicle</p>
-            <p className="text-sm text-gray-400">No vehicle info yet.</p>
-          </Card>
-        )}
-      </div>
-
-      {/* Trip details */}
-      <Card className="mb-5">
-        <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Trip Details</h2>
-        <div className="grid sm:grid-cols-2 gap-x-6 gap-y-2 text-sm text-gray-700">
-          {trip.rider && (
-            <div className="flex gap-1.5">
-              <span className="text-gray-400 shrink-0">Rider</span>
-              <span>{trip.rider.name} <span className="text-gray-400">({trip.rider.relationship})</span></span>
-            </div>
-          )}
-          <div className="flex gap-1.5">
-            <span className="text-gray-400 shrink-0">Sched. pickup</span>
-            <span>{fmtTime(trip.scheduledPickupTime)}</span>
-          </div>
-          <div className="flex gap-1.5">
-            <span className="text-gray-400 shrink-0">Sched. dropoff</span>
-            <span>{fmtTime(trip.scheduledDropoffTime)}</span>
-          </div>
-          {trip.actualPickupTime && (
-            <div className="flex gap-1.5">
-              <span className="text-gray-400 shrink-0">Actual pickup</span>
-              <span className="text-emerald-700 font-medium">{fmtTime(trip.actualPickupTime)}</span>
-            </div>
-          )}
-          {trip.actualDropoffTime && (
-            <div className="flex gap-1.5">
-              <span className="text-gray-400 shrink-0">Actual dropoff</span>
-              <span className="text-emerald-700 font-medium">{fmtTime(trip.actualDropoffTime)}</span>
-            </div>
-          )}
-          <div className="sm:col-span-2 flex gap-1.5">
-            <span className="text-gray-400 shrink-0">From</span>
-            <span>{trip.pickupLocation}</span>
-          </div>
-          <div className="sm:col-span-2 flex gap-1.5">
-            <span className="text-gray-400 shrink-0">To</span>
-            <span>{trip.dropoffLocation}</span>
-          </div>
-        </div>
-      </Card>
-
-      {/* Status timeline */}
-      {!isCancelled && (
-        <Card className="mb-5">
-          <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-4">Trip Progress</h2>
-          <div className="space-y-3">
-            {STATUS_STEPS.map((step, idx) => {
-              const stepOrder = STATUS_ORDER[step.status];
-              const done      = currentOrder >= stepOrder;
-              const active    = currentOrder === stepOrder;
-              return (
-                <div key={step.status} className="flex items-center gap-3">
-                  {/* Step indicator */}
-                  <div className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 text-sm transition-colors ${
-                    done
-                      ? 'bg-emerald-100 text-emerald-700 border-2 border-emerald-300'
-                      : 'bg-gray-100 text-gray-300 border-2 border-gray-200'
-                  }`}>
-                    {done ? step.emoji : <span className="text-xs font-semibold">{idx + 1}</span>}
-                  </div>
-
-                  {/* Label */}
-                  <div className="flex-1">
-                    <p className={`text-sm font-medium ${done ? 'text-gray-800' : 'text-gray-300'}`}>
-                      {step.label}
-                    </p>
-                    {active && currentLocation && step.status === 'ON_THE_WAY' && (
-                      <p className="text-xs text-emerald-600 mt-0.5">
-                        Last GPS update: {fmtDateTime(currentLocation.recordedAt)}
-                      </p>
-                    )}
-                  </div>
-
-                  {/* "Now" pill */}
-                  {active && (
-                    <span className="text-xs font-semibold text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200">
-                      Now
-                    </span>
-                  )}
-                </div>
-              );
-            })}
+          <div className="px-4 py-2 flex gap-4 text-xs text-gray-500">
+            <span className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded-full bg-blue-500 border-2 border-white shadow" /> Driver</span>
+            <span className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded-full bg-emerald-500 border-2 border-white shadow" /> Pickup</span>
+            <span className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded-full bg-red-500 border-2 border-white shadow" /> Drop-off</span>
           </div>
         </Card>
       )}
 
-      {/* Actions */}
-      <div className="grid sm:grid-cols-2 gap-3">
-        <Button variant="outline" size="sm" disabled title="Coming soon" className="justify-center py-3">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.07 9.81a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3 3h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L7.09 10.9a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 17z" />
-          </svg>
-          Contact Driver
-        </Button>
-        <Button variant="outline" size="sm" disabled title="Coming soon" className="justify-center py-3">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
-            <line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" />
-          </svg>
-          Report Issue
-        </Button>
+      {/* GPS unavailable — no location yet but trip is trackable */}
+      {!location && trackable && (
+        <Card className="mb-4">
+          <div className="flex flex-col items-center py-6 gap-2 text-gray-500">
+            <span className="text-3xl">📡</span>
+            <p className="text-sm font-medium">GPS signal not yet available</p>
+            <p className="text-xs text-gray-400">The driver's location will appear here shortly.</p>
+          </div>
+        </Card>
+      )}
+
+      {/* Trip Info + Driver Card */}
+      <div className="grid grid-cols-1 gap-4 mb-4 sm:grid-cols-2">
+        {/* Trip details */}
+        <Card>
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Trip Details</p>
+          <div className="space-y-2 text-sm">
+            <div className="flex items-start gap-2">
+              <span className="text-gray-400 mt-0.5">🟢</span>
+              <div>
+                <p className="text-xs text-gray-400">Pickup</p>
+                <p className="font-medium text-gray-800">{trip.pickupLocation}</p>
+                {trip.scheduledPickupTime && (
+                  <p className="text-xs text-gray-500">Scheduled: {fmtTime(trip.scheduledPickupTime)}</p>
+                )}
+                {trip.actualPickupTime && (
+                  <p className="text-xs text-emerald-600">Actual: {fmtTime(trip.actualPickupTime)}</p>
+                )}
+              </div>
+            </div>
+            <div className="flex items-start gap-2">
+              <span className="text-gray-400 mt-0.5">🔴</span>
+              <div>
+                <p className="text-xs text-gray-400">Drop-off</p>
+                <p className="font-medium text-gray-800">{trip.dropoffLocation}</p>
+                {trip.scheduledDropoffTime && (
+                  <p className="text-xs text-gray-500">Scheduled: {fmtTime(trip.scheduledDropoffTime)}</p>
+                )}
+                {trip.actualDropoffTime && (
+                  <p className="text-xs text-emerald-600">Actual: {fmtTime(trip.actualDropoffTime)}</p>
+                )}
+              </div>
+            </div>
+          </div>
+        </Card>
+
+        {/* Driver info */}
+        {trip.driver?.profile && (
+          <Card>
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Driver</p>
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-10 h-10 rounded-full bg-fizza-secondary/20 flex items-center justify-center text-lg font-bold text-fizza-primary">
+                {trip.driver.profile.fullName.charAt(0)}
+              </div>
+              <div>
+                <p className="font-semibold text-gray-900">{trip.driver.profile.fullName}</p>
+                {trip.driver.rating != null && (
+                  <p className="text-xs text-amber-500">★ {trip.driver.rating.toFixed(1)}</p>
+                )}
+              </div>
+            </div>
+            {trip.vehicle && (
+              <div className="text-xs text-gray-500 space-y-0.5">
+                <p>{trip.vehicle.color} {trip.vehicle.model}</p>
+                <p className="font-mono tracking-wider">{trip.vehicle.plateNumber}</p>
+              </div>
+            )}
+            {trip.driver.profile.phone && (
+              <a
+                href={`tel:${trip.driver.profile.phone}`}
+                className="mt-3 flex items-center gap-1.5 text-xs text-fizza-secondary font-medium hover:underline"
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 13.6a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.6 3h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 10.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 17.92z" />
+                </svg>
+                Call driver
+              </a>
+            )}
+          </Card>
+        )}
       </div>
+
+      {/* Status Timeline */}
+      <Card className="mb-4">
+        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-4">Trip Progress</p>
+        <StatusTimeline currentStatus={trip.status} />
+      </Card>
+
+      {/* Activity Log */}
+      {trip.events.length > 0 && (
+        <Card>
+          <button
+            className="flex items-center justify-between w-full text-left"
+            onClick={() => setShowEvents((v) => !v)}
+          >
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
+              Activity Log ({trip.events.length})
+            </p>
+            <svg
+              width="16" height="16" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+              className={`text-gray-400 transition-transform ${showEvents ? 'rotate-180' : ''}`}
+              aria-hidden="true"
+            >
+              <polyline points="6 9 12 15 18 9" />
+            </svg>
+          </button>
+          {showEvents && (
+            <div className="mt-4">
+              <EventLog events={trip.events} />
+            </div>
+          )}
+        </Card>
+      )}
     </AppShell>
   );
 }

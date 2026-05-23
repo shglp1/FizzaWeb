@@ -29,24 +29,29 @@ const TRIP_SELECT = {
   },
 } as const;
 
+const ALL_STATUSES: TripStatus[] = [
+  'SCHEDULED', 'DRIVER_ASSIGNED', 'PRE_TRIP', 'ON_THE_WAY',
+  'ARRIVED_PICKUP', 'PICKED_UP', 'EN_ROUTE_DROPOFF',
+  'ARRIVED_DROPOFF', 'COMPLETED', 'CANCELLED', 'NO_SHOW',
+];
+
 function buildStatusWhere(filter: string | null) {
   switch (filter) {
     case 'upcoming':
-      return { status: { in: ['SCHEDULED', 'DRIVER_ASSIGNED'] as TripStatus[] } };
+      return { status: { in: ['SCHEDULED', 'DRIVER_ASSIGNED', 'PRE_TRIP'] as TripStatus[] } };
     case 'active':
-      return { status: { in: ['ON_THE_WAY', 'PICKED_UP'] as TripStatus[] } };
+      return {
+        status: {
+          in: ['ON_THE_WAY', 'ARRIVED_PICKUP', 'PICKED_UP', 'EN_ROUTE_DROPOFF', 'ARRIVED_DROPOFF'] as TripStatus[],
+        },
+      };
     case 'completed':
       return { status: 'COMPLETED' as const };
     case 'cancelled':
-      return { status: 'CANCELLED' as const };
+      return { status: { in: ['CANCELLED', 'NO_SHOW'] as TripStatus[] } };
     default:
-      if (
-        filter &&
-        ['SCHEDULED', 'DRIVER_ASSIGNED', 'ON_THE_WAY', 'PICKED_UP', 'COMPLETED', 'CANCELLED'].includes(
-          filter,
-        )
-      ) {
-        return { status: filter as 'SCHEDULED' | 'DRIVER_ASSIGNED' | 'ON_THE_WAY' | 'PICKED_UP' | 'COMPLETED' | 'CANCELLED' };
+      if (filter && (ALL_STATUSES as string[]).includes(filter)) {
+        return { status: filter as TripStatus };
       }
       return {};
   }

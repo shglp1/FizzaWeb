@@ -1,99 +1,79 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireAuth } from '@/lib/session';
-import { CANCELLABLE_BY_PARENT } from '@/lib/validations/trip';
-
-function getIp(req: Request): string | null {
-  return (
-    req.headers.get('x-forwarded-for')?.split(',')[0].trim() ??
-    req.headers.get('x-real-ip') ??
-    null
-  );
-}
+import { isCancellable } from '@/lib/trips/tripLifecycle';
+import { notifyCancelled, recordStatusChange } from '@/lib/trips/tripNotifications';
+import type { TripStatus } from '@/lib/trips/tripLifecycle';
 
 export async function PATCH(
   req: Request,
-  context: { params: Promise<{ id: string }> },
+  { params }: { params: Promise<{ id: string }> },
 ) {
   try {
     const auth = await requireAuth();
     if (auth instanceof NextResponse) return auth;
 
-    const { id } = await context.params;
+    const { id } = await params;
+    let reason: string | undefined;
+    try {
+      const body = await req.json();
+      reason = typeof body?.reason === 'string' ? body.reason : undefined;
+    } catch { /* no body required */ }
 
-    // Verify ownership — parent can only cancel their own trips
-    const [subscriptions, riders] = await Promise.all([
-      prisma.userSubscription.findMany({
-        where: { userId: auth.userId },
-        select: { id: true },
-      }),
-      prisma.rider.findMany({
-        where: { parentId: auth.userId },
-        select: { id: true },
-      }),
-    ]);
-
-    const trip = await prisma.trip.findFirst({
-      where: {
-        id,
-        OR: [
-          { subscriptionId: { in: subscriptions.map((s) => s.id) } },
-          { riderId: { in: riders.map((r) => r.id) } },
-        ],
+    const trip = await prisma.trip.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        status: true,
+        driver: { select: { profileId: true } },
+        subscription: { select: { userId: true } },
+        rider: { select: { parentId: true } },
       },
     });
 
     if (!trip) {
-      return NextResponse.json(
-        { data: null, error: { message: 'Trip not found or access denied' } },
-        { status: 403 },
-      );
+      return NextResponse.json({ data: null, error: { message: 'Trip not found' } }, { status: 404 });
     }
 
-    if (!CANCELLABLE_BY_PARENT.includes(trip.status)) {
-      return NextResponse.json(
-        {
-          data: null,
-          error: {
-            message: `Cannot cancel a trip with status ${trip.status}. Only SCHEDULED or DRIVER_ASSIGNED trips can be cancelled.`,
-          },
-        },
-        { status: 400 },
-      );
+    // Access control: parent can cancel their own trips; admin can cancel any
+    if (auth.role !== 'ADMIN') {
+      const parentId = trip.subscription?.userId ?? trip.rider?.parentId;
+      if (parentId !== auth.userId) {
+        return NextResponse.json({ data: null, error: { message: 'Forbidden' } }, { status: 403 });
+      }
     }
 
-    const updated = await prisma.$transaction(async (tx) => {
-      const t = await tx.trip.update({
-        where: { id },
-        data: { status: 'CANCELLED', cancelledBy: auth.userId },
-      });
+    if (!isCancellable(trip.status as TripStatus)) {
+      return NextResponse.json({
+        data: null,
+        error: { message: `Cannot cancel a trip with status: ${trip.status}` },
+      }, { status: 422 });
+    }
 
-      await tx.notification.create({
-        data: {
-          userId: auth.userId,
-          title: 'Trip Cancelled',
-          message: `Your trip scheduled for ${new Date(trip.scheduledDate).toLocaleDateString()} has been cancelled.`,
-          type: 'TRIP',
-        },
-      });
-
-      await tx.auditLog.create({
-        data: {
-          userId: auth.userId,
-          action: 'TRIP_CANCELLED',
-          details: JSON.stringify({ tripId: id, previousStatus: trip.status }),
-          ipAddress: getIp(req),
-        },
-      });
-
-      return t;
+    await prisma.trip.update({
+      where: { id },
+      data: {
+        status: 'CANCELLED',
+        statusReason: reason ?? 'Cancelled by parent',
+        cancelledBy: auth.userId,
+        chatClosedAt: new Date(),
+      },
     });
 
-    return NextResponse.json({ data: updated, error: null });
+    const parentUserId = trip.subscription?.userId ?? trip.rider?.parentId ?? null;
+    const driverProfileId = trip.driver?.profileId ?? null;
+
+    await recordStatusChange(id, auth.userId, auth.role, trip.status, 'CANCELLED');
+    await notifyCancelled({
+      tripId: id,
+      parentUserId,
+      driverProfileId,
+      reason,
+      cancelledByRole: auth.role,
+    });
+
+    return NextResponse.json({ data: { id, status: 'CANCELLED' }, error: null });
   } catch {
-    return NextResponse.json(
-      { data: null, error: { message: 'Internal Server Error' } },
-      { status: 500 },
-    );
+    return NextResponse.json({ data: null, error: { message: 'Internal Server Error' } }, { status: 500 });
   }
 }

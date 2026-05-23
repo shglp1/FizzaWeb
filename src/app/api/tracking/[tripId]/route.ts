@@ -1,94 +1,114 @@
+/**
+ * GET /api/tracking/[tripId]
+ * Returns tracking data for a specific trip: trip details + latest driver location + events.
+ * Access: parent owns trip, driver is assigned driver, or admin.
+ */
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireAuth } from '@/lib/session';
 
 export async function GET(
   _req: Request,
-  context: { params: Promise<{ tripId: string }> },
+  { params }: { params: Promise<{ tripId: string }> },
 ) {
   try {
     const auth = await requireAuth();
     if (auth instanceof NextResponse) return auth;
 
-    const { tripId } = await context.params;
+    const { tripId } = await params;
 
-    // Fetch the trip with full details
     const trip = await prisma.trip.findUnique({
       where: { id: tripId },
-      include: {
-        rider: { select: { id: true, name: true, relationship: true, phone: true } },
+      select: {
+        id: true, status: true, statusReason: true, legType: true,
+        scheduledDate: true, scheduledPickupTime: true, scheduledDropoffTime: true,
+        actualPickupTime: true, actualDropoffTime: true,
+        pickupLocation: true, dropoffLocation: true,
+        pickupLat: true, pickupLng: true,
+        dropoffLat: true, dropoffLng: true,
+        chatOpenedAt: true, chatClosedAt: true,
+        rider: { select: { id: true, name: true, relationship: true } },
         driver: {
-          include: {
-            profile: { select: { id: true, fullName: true, phone: true, avatarUrl: true } },
-            vehicle: { select: { model: true, plateNumber: true, color: true, capacity: true } },
+          select: {
+            id: true, rating: true,
+            profile: { select: { fullName: true, phone: true, avatarUrl: true } },
           },
         },
-        vehicle: { select: { model: true, plateNumber: true, color: true, capacity: true } },
-        subscription: { select: { id: true, subscriptionType: true, userId: true } },
+        vehicle: { select: { model: true, plateNumber: true, color: true } },
+        subscription: { select: { userId: true } },
+        events: {
+          select: { id: true, eventType: true, message: true, actorRole: true, createdAt: true },
+          orderBy: { createdAt: 'asc' as const },
+        },
       },
     });
 
     if (!trip) {
-      return NextResponse.json(
-        { data: null, error: { message: 'Trip not found' } },
-        { status: 404 },
-      );
+      return NextResponse.json({ data: null, error: { message: 'Trip not found' } }, { status: 404 });
     }
 
-    // Authorization check
-    if (auth.role === 'DRIVER') {
-      const driver = await prisma.driver.findFirst({
-        where: { profileId: auth.userId },
-        select: { id: true },
-      });
-      if (!driver || trip.driverId !== driver.id) {
-        return NextResponse.json(
-          { data: null, error: { message: 'Access denied' } },
-          { status: 403 },
-        );
-      }
-    } else if (auth.role !== 'ADMIN') {
-      // Parent check — trip must belong to their subscription or rider
-      const [subscriptions, riders] = await Promise.all([
-        prisma.userSubscription.findMany({
-          where: { userId: auth.userId },
-          select: { id: true },
-        }),
-        prisma.rider.findMany({
-          where: { parentId: auth.userId },
-          select: { id: true },
-        }),
-      ]);
-      const subIds = new Set(subscriptions.map((s) => s.id));
-      const riderIds = new Set(riders.map((r) => r.id));
-      const hasAccess =
-        (trip.subscriptionId && subIds.has(trip.subscriptionId)) ||
-        (trip.riderId && riderIds.has(trip.riderId));
-      if (!hasAccess) {
-        return NextResponse.json(
-          { data: null, error: { message: 'Access denied' } },
-          { status: 403 },
-        );
+    // Access control
+    if (auth.role !== 'ADMIN') {
+      if (auth.role === 'DRIVER') {
+        if (trip.driver?.profile == null) {
+          // driver not assigned or can't verify — look up by driver.profileId
+          const driver = await prisma.driver.findFirst({
+            where: { profileId: auth.userId },
+            select: { id: true },
+          });
+          const thisTrip = await prisma.trip.findFirst({
+            where: { id: tripId, driverId: driver?.id ?? '' },
+            select: { id: true },
+          });
+          if (!thisTrip) return NextResponse.json({ data: null, error: { message: 'Forbidden' } }, { status: 403 });
+        }
+      } else {
+        // Parent access
+        const parentId = trip.subscription?.userId ?? null;
+        if (parentId !== auth.userId) {
+          // Also check rider parent
+          const riderId = (trip as { riderId?: string | null }).riderId ?? null;
+          if (riderId) {
+            const rider = await prisma.rider.findFirst({
+              where: { id: riderId, parentId: auth.userId },
+              select: { id: true },
+            });
+            if (!rider) return NextResponse.json({ data: null, error: { message: 'Forbidden' } }, { status: 403 });
+          } else {
+            return NextResponse.json({ data: null, error: { message: 'Forbidden' } }, { status: 403 });
+          }
+        }
       }
     }
 
-    // Get latest driver location for this trip
-    const currentLocation = trip.driverId
+    // Fetch latest driver location (most recent for this trip or by driver)
+    const latestLocation = trip.driver
       ? await prisma.driverLocation.findFirst({
-          where: { driverId: trip.driverId, tripId },
+          where: { tripId },
+          orderBy: { recordedAt: 'desc' },
+          select: { lat: true, lng: true, recordedAt: true },
+        }) ?? await prisma.driverLocation.findFirst({
+          where: { driver: { profile: { id: trip.driver.profile?.fullName ? undefined : undefined } } },
           orderBy: { recordedAt: 'desc' },
           select: { lat: true, lng: true, recordedAt: true },
         })
       : null;
 
+    // Determine if GPS is stale (> 60 seconds old)
+    const gpsStale = latestLocation
+      ? (Date.now() - new Date(latestLocation.recordedAt).getTime()) > 60_000
+      : null;
+
     return NextResponse.json({
-      data: { trip, currentLocation },
+      data: {
+        trip,
+        location: latestLocation
+          ? { lat: latestLocation.lat, lng: latestLocation.lng, recordedAt: latestLocation.recordedAt, stale: gpsStale ?? false }
+          : null,
+      },
       error: null,
     });
   } catch {
-    return NextResponse.json(
-      { data: null, error: { message: 'Internal Server Error' } },
-      { status: 500 },
-    );
+    return NextResponse.json({ data: null, error: { message: 'Internal Server Error' } }, { status: 500 });
   }
 }
