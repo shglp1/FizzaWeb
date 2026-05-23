@@ -4,6 +4,18 @@
 
 export type AppRole = 'ADMIN' | 'DRIVER' | 'PARENT';
 
+/**
+ * Computed UX state derived from JWT role + DB application status.
+ * Returned by GET /api/me as `driverState`.
+ *
+ * - PARENT          → regular family user, no driver application
+ * - APPLICANT       → PARENT role with a pending/rejected/needs-changes application
+ *                     (or APPROVED application where JWT role hasn't been refreshed yet)
+ * - APPROVED_DRIVER → JWT role is DRIVER (admin has approved + role was refreshed on login)
+ * - ADMIN           → JWT role is ADMIN
+ */
+export type DriverState = 'PARENT' | 'APPLICANT' | 'APPROVED_DRIVER' | 'ADMIN';
+
 /** Driver application status as returned by GET /api/driver-application */
 export type DriverAppStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'NEEDS_CHANGES';
 
@@ -176,4 +188,36 @@ export function getNavigationForRole(role: string): { main: NavItem[]; secondary
  */
 export function getNavigationForApplicant(): { main: NavItem[]; secondary: NavItem[] } {
   return { main: DRIVER_APPLICANT_NAV, secondary: DRIVER_APPLICANT_SECONDARY_NAV };
+}
+
+// ─── DriverState-based navigation (preferred — Task 10.3) ────────────────────
+//
+// These helpers consume `driverState` from GET /api/me and replace the old
+// two-step pattern (role from /api/me + status from /api/driver-application).
+
+/** Default dashboard path for each DriverState. */
+const DRIVER_STATE_DASHBOARDS: Record<DriverState, string> = {
+  PARENT:          '/dashboard',
+  APPLICANT:       '/driver-application',
+  APPROVED_DRIVER: '/driver/dashboard',
+  ADMIN:           '/admin',
+};
+
+/** Returns the home/dashboard path for a given DriverState. */
+export function getDashboardPathForDriverState(state: DriverState): string {
+  return DRIVER_STATE_DASHBOARDS[state] ?? '/dashboard';
+}
+
+/**
+ * Returns the correct navigation set for a given DriverState.
+ * Replaces the old `getNavigationForRole` + `getNavigationForApplicant` split.
+ * Called by Sidebar and MobileNav using the driverState from useCurrentUser().
+ */
+export function getNavigationForDriverState(
+  state: DriverState,
+): { main: NavItem[]; secondary: NavItem[] } {
+  if (state === 'ADMIN')           return { main: ADMIN_NAV,            secondary: ADMIN_SECONDARY_NAV };
+  if (state === 'APPROVED_DRIVER') return { main: DRIVER_NAV,           secondary: DRIVER_SECONDARY_NAV };
+  if (state === 'APPLICANT')       return { main: DRIVER_APPLICANT_NAV, secondary: DRIVER_APPLICANT_SECONDARY_NAV };
+  return { main: PARENT_NAV, secondary: PARENT_SECONDARY_NAV };
 }
