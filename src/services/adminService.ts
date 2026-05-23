@@ -30,12 +30,20 @@ export const systemConfigService = {
 // ─── Users ────────────────────────────────────────────────────────────────────
 
 export const adminUserService = {
-  list: (params: { search?: string; role?: string; page?: number } = {}) => {
+  list: (params: {
+    search?: string;
+    role?: string;                 // legacy — prefer accountType
+    accountType?: string;          // FAMILY_PARENT | DRIVER_APPLICANT | APPROVED_DRIVER | ADMIN
+    applicationStatus?: string;    // NOT_SUBMITTED | PENDING | NEEDS_CHANGES | REJECTED | APPROVED
+    page?: number;
+  } = {}) => {
     const q = new URLSearchParams();
-    if (params.search) q.set('search', params.search);
-    if (params.role) q.set('role', params.role);
-    if (params.page) q.set('page', String(params.page));
-    return apiFetch<{ users: unknown[]; meta: unknown }>(`/api/admin/users?${q}`);
+    if (params.search)            q.set('search', params.search);
+    if (params.role)              q.set('role', params.role);
+    if (params.accountType)       q.set('accountType', params.accountType);
+    if (params.applicationStatus) q.set('applicationStatus', params.applicationStatus);
+    if (params.page)              q.set('page', String(params.page));
+    return apiFetch<{ users: unknown[]; meta: unknown; summary: unknown }>(`/api/admin/users?${q}`);
   },
   get: (id: string) => apiFetch<unknown>(`/api/admin/users/${id}`),
   update: (id: string, data: Record<string, unknown>) =>
