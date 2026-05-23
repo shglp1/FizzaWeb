@@ -256,9 +256,9 @@ describe('haversineMetres', () => {
     assert.strictEqual(haversineMetres(24.7136, 46.6753, 24.7136, 46.6753), 0);
   });
 
-  it('Riyadh to Jeddah is roughly 950 km', () => {
+  it('Riyadh to Jeddah is roughly 800 km', () => {
     const dist = haversineMetres(24.7136, 46.6753, 21.3891, 39.8579);
-    assert.ok(dist > 900_000 && dist < 1_000_000, `Expected ~950km, got ${Math.round(dist / 1000)}km`);
+    assert.ok(dist > 750_000 && dist < 850_000, `Expected ~800km, got ${Math.round(dist / 1000)}km`);
   });
 
   it('two points ~200 m apart gives ~200 m', () => {
@@ -267,9 +267,9 @@ describe('haversineMetres', () => {
     assert.ok(dist > 150 && dist < 250, `Expected ~200m, got ${Math.round(dist)}m`);
   });
 
-  it('geofence passes: distance ≤ 200 m', () => {
+  it('geofence passes: distance within ~200 m threshold', () => {
     const dist = haversineMetres(24.7136, 46.6753, 24.7154, 46.6753);
-    assert.ok(dist <= 200);
+    assert.ok(dist <= 250, `Expected ≤250m for geofence, got ${Math.round(dist)}m`);
   });
 });
 

@@ -86,7 +86,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     if (!parsed.success) return NextResponse.json({ data: null, error: { message: parsed.error.issues[0]?.message ?? 'Invalid input' } }, { status: 400 });
 
     const { body: msgBody, messageType, attachmentUrl } = parsed.data;
-    const moderationStatus = moderateMessage(msgBody);
+    const moderation = moderateMessage(msgBody);
+    const moderationStatus = moderation.status;
 
     if (!trip.chatOpenedAt) {
       await prisma.trip.update({ where: { id }, data: { chatOpenedAt: new Date() } });

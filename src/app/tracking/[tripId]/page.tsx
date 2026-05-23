@@ -457,7 +457,7 @@ export default function TrackingDetailPage() {
           <div className="flex flex-col items-center py-6 gap-2 text-gray-500">
             <span className="text-3xl">📡</span>
             <p className="text-sm font-medium">GPS signal not yet available</p>
-            <p className="text-xs text-gray-400">The driver's location will appear here shortly.</p>
+            <p className="text-xs text-gray-400">The driver&apos;s location will appear here shortly.</p>
           </div>
         </Card>
       )}

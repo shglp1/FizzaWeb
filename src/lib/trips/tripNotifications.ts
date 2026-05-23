@@ -8,7 +8,15 @@
  * modules at the top level here; this file is meant for server-side use only.
  */
 
+import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
+
+function toTripEventMetadata(
+  metadata?: Record<string, string | number | boolean | null>,
+): Prisma.InputJsonValue | undefined {
+  if (metadata === undefined) return undefined;
+  return metadata as Prisma.InputJsonValue;
+}
 
 type NotifyInput = {
   tripId: string;
@@ -26,7 +34,7 @@ async function recordEvent(
   actorUserId: string | null,
   actorRole: string | null,
   message: string,
-  metadata?: Record<string, unknown>,
+  metadata?: Record<string, string | number | boolean | null>,
 ): Promise<boolean> {
   const existing = await prisma.tripEvent.findFirst({
     where: { tripId, eventType },
@@ -41,7 +49,7 @@ async function recordEvent(
       actorUserId,
       actorRole,
       message,
-      metadata: metadata ?? undefined,
+      metadata: toTripEventMetadata(metadata),
     },
   });
   return true;
@@ -307,7 +315,7 @@ export async function recordStatusChange(
       actorRole,
       eventType: 'STATUS_CHANGED',
       message: `Status changed: ${fromStatus} → ${toStatus}`,
-      metadata: { from: fromStatus, to: toStatus },
+      metadata: toTripEventMetadata({ from: fromStatus, to: toStatus }),
     },
   });
 }

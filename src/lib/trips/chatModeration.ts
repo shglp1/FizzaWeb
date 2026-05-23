@@ -5,27 +5,69 @@
  * Pure functions — safe to import on server or in tests.
  */
 
-/** Minimal banned-word list. Extend via SystemConfiguration in production. */
-const BANNED_WORDS = [
-  'spam', 'scam', 'abuse', 'harassment',
-  // Add more as needed — loaded from SystemConfiguration at runtime
+/** Words that block delivery immediately. */
+const BLOCKED_WORDS = ['fuck', 'shit'];
+
+/** Words that flag for admin review. */
+const FLAGGED_WORDS = [
+  'damn',
+  'spam',
+  'scam',
+  'abuse',
+  'harassment',
 ];
 
-export type ModerationResult = 'CLEAN' | 'FLAGGED' | 'BLOCKED';
+export type ModerationStatus = 'CLEAN' | 'FLAGGED' | 'BLOCKED';
+
+export type ModerationSeverity = 'LOW' | 'MEDIUM' | 'HIGH';
+
+export type ModerateResult = {
+  status: ModerationStatus;
+  matchedWords: string[];
+  severity?: ModerationSeverity;
+};
+
+function findMatchedWords(text: string, words: string[]): string[] {
+  const lower = text.toLowerCase();
+  const matched = new Set<string>();
+  for (const word of words) {
+    const w = word.toLowerCase();
+    if (w && lower.includes(w)) matched.add(word);
+  }
+  return [...matched];
+}
 
 /**
- * Check a message body against the banned word list.
- * Returns BLOCKED if a severe pattern matches, FLAGGED for lighter ones, CLEAN otherwise.
+ * Check a message body against banned word lists.
+ * BLOCKED: severe terms or multiple matches; FLAGGED: lighter terms; CLEAN otherwise.
  */
-export function moderateMessage(body: string, extraBannedWords: string[] = []): ModerationResult {
-  const lower = body.toLowerCase();
-  const allBanned = [...BANNED_WORDS, ...extraBannedWords];
-  for (const word of allBanned) {
-    if (lower.includes(word.toLowerCase())) {
-      return 'FLAGGED';
-    }
+export function moderateMessage(body: string, extraBannedWords: string[] = []): ModerateResult {
+  const trimmed = body.trim();
+  if (!trimmed) {
+    return { status: 'CLEAN', matchedWords: [] };
   }
-  return 'CLEAN';
+
+  const blockedHits = findMatchedWords(trimmed, BLOCKED_WORDS);
+  const flaggedHits = findMatchedWords(trimmed, [...FLAGGED_WORDS, ...extraBannedWords]);
+  const matchedWords = [...new Set([...blockedHits, ...flaggedHits])];
+
+  if (matchedWords.length === 0) {
+    return { status: 'CLEAN', matchedWords: [] };
+  }
+
+  if (blockedHits.length > 0 || matchedWords.length >= 2) {
+    return {
+      status: 'BLOCKED',
+      matchedWords,
+      severity: 'HIGH',
+    };
+  }
+
+  return {
+    status: 'FLAGGED',
+    matchedWords,
+    severity: 'MEDIUM',
+  };
 }
 
 /** Parent quick-reply options. */
