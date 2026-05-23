@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma';
 import { requireAuth } from '@/lib/session';
 import { createPaymentSchema } from '@/lib/validations/payment';
 import { isConfigured, createInvoice } from '@/lib/payments/myfatoorah';
+import { PaymentGatewayError, mapGatewayErrorToResponse, buildSafeLogPayload } from '@/lib/payments/types';
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rateLimit';
 
 export async function POST(request: NextRequest) {
@@ -75,12 +76,21 @@ export async function POST(request: NextRequest) {
           customerName,
           customerEmail,
           customerReference: payment.id,
+          userId,
+          purpose: 'WALLET_TOP_UP',
         });
       } catch (invoiceError) {
         await prisma.payment.update({
           where: { id: payment.id },
           data: { status: 'FAILED' },
         });
+
+        const safeLog = buildSafeLogPayload(
+          { userId, purpose: 'WALLET_TOP_UP', amountSar, paymentId: payment.id },
+          invoiceError,
+        );
+        console.error('[POST /api/payments/create] WALLET_TOP_UP invoice failed', safeLog);
+
         await prisma.auditLog.create({
           data: {
             id: randomUUID(),
@@ -89,15 +99,15 @@ export async function POST(request: NextRequest) {
             details: JSON.stringify({
               amountSar,
               paymentId: payment.id,
+              reason: invoiceError instanceof PaymentGatewayError ? invoiceError.reason : 'UNKNOWN',
               error:
                 invoiceError instanceof Error ? invoiceError.message : 'Invoice creation failed',
             }),
           },
         });
-        return NextResponse.json(
-          { data: null, error: { message: 'Failed to create payment invoice. Please try again.' } },
-          { status: 502 },
-        );
+
+        const errPayload = mapGatewayErrorToResponse(invoiceError);
+        return NextResponse.json({ data: null, error: errPayload }, { status: 502 });
       }
 
       await prisma.payment.update({
@@ -184,12 +194,21 @@ export async function POST(request: NextRequest) {
         customerName,
         customerEmail,
         customerReference: payment.id,
+        userId,
+        purpose: 'SUBSCRIPTION_PAYMENT',
       });
     } catch (invoiceError) {
       await prisma.payment.update({
         where: { id: payment.id },
         data: { status: 'FAILED' },
       });
+
+      const safeLog = buildSafeLogPayload(
+        { userId, purpose: 'SUBSCRIPTION_PAYMENT', amountSar: total, paymentId: payment.id },
+        invoiceError,
+      );
+      console.error('[POST /api/payments/create] SUBSCRIPTION_PAYMENT invoice failed', safeLog);
+
       await prisma.auditLog.create({
         data: {
           id: randomUUID(),
@@ -198,15 +217,15 @@ export async function POST(request: NextRequest) {
           details: JSON.stringify({
             subscriptionId,
             paymentId: payment.id,
+            reason: invoiceError instanceof PaymentGatewayError ? invoiceError.reason : 'UNKNOWN',
             error:
               invoiceError instanceof Error ? invoiceError.message : 'Invoice creation failed',
           }),
         },
       });
-      return NextResponse.json(
-        { data: null, error: { message: 'Failed to create payment invoice. Please try again.' } },
-        { status: 502 },
-      );
+
+      const errPayload = mapGatewayErrorToResponse(invoiceError);
+      return NextResponse.json({ data: null, error: errPayload }, { status: 502 });
     }
 
     await prisma.payment.update({

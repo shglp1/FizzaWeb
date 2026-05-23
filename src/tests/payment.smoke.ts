@@ -12,6 +12,11 @@ import {
   MAX_TOP_UP_SAR,
 } from '../lib/validations/payment.ts';
 import { paySubscriptionSchema } from '../lib/validations/wallet.ts';
+import {
+  PaymentGatewayError,
+  mapGatewayErrorToResponse,
+  buildSafeLogPayload,
+} from '../lib/payments/types.ts';
 
 // ─── createPaymentSchema ──────────────────────────────────────────────────────
 
@@ -127,6 +132,170 @@ describe('paySubscriptionSchema', () => {
   it('rejects missing subscriptionId', () => {
     const r = paySubscriptionSchema.safeParse({});
     assert.ok(!r.success);
+  });
+});
+
+// ─── PaymentGatewayError ──────────────────────────────────────────────────────
+
+describe('PaymentGatewayError class', () => {
+  it('is an instance of Error', () => {
+    const err = new PaymentGatewayError('test', 'NOT_CONFIGURED');
+    assert.ok(err instanceof Error);
+  });
+
+  it('has name PaymentGatewayError', () => {
+    const err = new PaymentGatewayError('test', 'NOT_CONFIGURED');
+    assert.equal(err.name, 'PaymentGatewayError');
+  });
+
+  it('stores reason', () => {
+    const err = new PaymentGatewayError('msg', 'PAYMENT_GATEWAY_REJECTED');
+    assert.equal(err.reason, 'PAYMENT_GATEWAY_REJECTED');
+  });
+
+  it('stores providerStatus when provided', () => {
+    const err = new PaymentGatewayError('msg', 'PAYMENT_GATEWAY_HTTP_ERROR', { providerStatus: 422 });
+    assert.equal(err.providerStatus, 422);
+  });
+
+  it('stores providerMessage when provided', () => {
+    const err = new PaymentGatewayError('msg', 'PAYMENT_GATEWAY_REJECTED', { providerMessage: 'Declined' });
+    assert.equal(err.providerMessage, 'Declined');
+  });
+
+  it('providerStatus is undefined when not provided', () => {
+    const err = new PaymentGatewayError('msg', 'INVALID_PARAMS');
+    assert.equal(err.providerStatus, undefined);
+  });
+
+  it('providerMessage is undefined when not provided', () => {
+    const err = new PaymentGatewayError('msg', 'INVALID_PARAMS');
+    assert.equal(err.providerMessage, undefined);
+  });
+
+  it('message is set correctly', () => {
+    const err = new PaymentGatewayError('Something failed', 'NOT_CONFIGURED');
+    assert.equal(err.message, 'Something failed');
+  });
+});
+
+// ─── mapGatewayErrorToResponse ────────────────────────────────────────────────
+
+describe('mapGatewayErrorToResponse', () => {
+  it('returns correct message for PaymentGatewayError', () => {
+    const err = new PaymentGatewayError('internal', 'PAYMENT_GATEWAY_REJECTED');
+    const result = mapGatewayErrorToResponse(err);
+    assert.equal(result.message, 'Failed to create payment invoice.');
+  });
+
+  it('returns reason from PaymentGatewayError', () => {
+    const err = new PaymentGatewayError('internal', 'PAYMENT_GATEWAY_HTTP_ERROR', { providerStatus: 500 });
+    const result = mapGatewayErrorToResponse(err);
+    assert.equal(result.reason, 'PAYMENT_GATEWAY_HTTP_ERROR');
+  });
+
+  it('includes providerStatus when present', () => {
+    const err = new PaymentGatewayError('internal', 'PAYMENT_GATEWAY_HTTP_ERROR', { providerStatus: 422 });
+    const result = mapGatewayErrorToResponse(err);
+    assert.equal(result.providerStatus, 422);
+  });
+
+  it('omits providerStatus when not set on error', () => {
+    const err = new PaymentGatewayError('internal', 'PAYMENT_GATEWAY_REJECTED');
+    const result = mapGatewayErrorToResponse(err);
+    assert.equal('providerStatus' in result, false);
+  });
+
+  it('returns UNKNOWN reason for plain Error', () => {
+    const result = mapGatewayErrorToResponse(new Error('something'));
+    assert.equal(result.reason, 'UNKNOWN');
+  });
+
+  it('returns UNKNOWN reason for non-error values', () => {
+    const result = mapGatewayErrorToResponse('oops');
+    assert.equal(result.reason, 'UNKNOWN');
+  });
+
+  it('reason NOT_CONFIGURED maps correctly', () => {
+    const err = new PaymentGatewayError('internal', 'NOT_CONFIGURED');
+    const result = mapGatewayErrorToResponse(err);
+    assert.equal(result.reason, 'NOT_CONFIGURED');
+  });
+});
+
+// ─── buildSafeLogPayload ──────────────────────────────────────────────────────
+
+describe('buildSafeLogPayload — never leaks credentials', () => {
+  const BASE_PARAMS = {
+    userId: 'user-abc',
+    purpose: 'WALLET_TOP_UP',
+    amountSar: 100,
+    paymentId: 'pay-123',
+  };
+
+  it('includes userId', () => {
+    const log = buildSafeLogPayload(BASE_PARAMS, new Error('x'));
+    assert.equal(log['userId'], 'user-abc');
+  });
+
+  it('includes purpose', () => {
+    const log = buildSafeLogPayload(BASE_PARAMS, new Error('x'));
+    assert.equal(log['purpose'], 'WALLET_TOP_UP');
+  });
+
+  it('includes amountSar', () => {
+    const log = buildSafeLogPayload(BASE_PARAMS, new Error('x'));
+    assert.equal(log['amountSar'], 100);
+  });
+
+  it('includes paymentId', () => {
+    const log = buildSafeLogPayload(BASE_PARAMS, new Error('x'));
+    assert.equal(log['paymentId'], 'pay-123');
+  });
+
+  it('never includes apiKey field', () => {
+    const log = buildSafeLogPayload(BASE_PARAMS, new Error('x'));
+    assert.ok(!('apiKey' in log));
+    assert.ok(!('MYFATOORAH_API_KEY' in log));
+  });
+
+  it('never includes Authorization field', () => {
+    const log = buildSafeLogPayload(BASE_PARAMS, new Error('x'));
+    assert.ok(!('Authorization' in log));
+    assert.ok(!('authorization' in log));
+  });
+
+  it('includes reason from PaymentGatewayError', () => {
+    const err = new PaymentGatewayError('msg', 'PAYMENT_GATEWAY_REJECTED', { providerStatus: 400 });
+    const log = buildSafeLogPayload(BASE_PARAMS, err);
+    assert.equal(log['reason'], 'PAYMENT_GATEWAY_REJECTED');
+  });
+
+  it('includes providerStatus from PaymentGatewayError', () => {
+    const err = new PaymentGatewayError('msg', 'PAYMENT_GATEWAY_HTTP_ERROR', { providerStatus: 503 });
+    const log = buildSafeLogPayload(BASE_PARAMS, err);
+    assert.equal(log['providerStatus'], 503);
+  });
+
+  it('includes providerMessage from PaymentGatewayError', () => {
+    const err = new PaymentGatewayError('msg', 'PAYMENT_GATEWAY_REJECTED', { providerMessage: 'Card declined' });
+    const log = buildSafeLogPayload(BASE_PARAMS, err);
+    assert.equal(log['providerMessage'], 'Card declined');
+  });
+
+  it('reason is UNKNOWN for plain Error', () => {
+    const log = buildSafeLogPayload(BASE_PARAMS, new Error('boom'));
+    assert.equal(log['reason'], 'UNKNOWN');
+  });
+
+  it('error field contains Error message', () => {
+    const log = buildSafeLogPayload(BASE_PARAMS, new Error('boom'));
+    assert.equal(log['error'], 'boom');
+  });
+
+  it('error field is fallback string for non-Error', () => {
+    const log = buildSafeLogPayload(BASE_PARAMS, 'not an error');
+    assert.equal(log['error'], 'Invoice creation failed');
   });
 });
 
