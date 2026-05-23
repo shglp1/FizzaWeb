@@ -93,10 +93,15 @@ export function Sidebar() {
     router.push('/login');
   };
 
-  // Derive nav from driverState — single source of truth from /api/me
-  const driverState: DriverState = user?.driverState ?? 'PARENT';
-  const { main, secondary } = getNavigationForDriverState(driverState);
-  const chip = ROLE_CHIP[driverState];
+  const resolvedState: DriverState = user?.driverState ?? 'PARENT';
+  const { main, secondary } = loading && !user
+    ? { main: [] as NavItem[], secondary: [] as NavItem[] }
+    : getNavigationForDriverState(resolvedState);
+  const chip = ROLE_CHIP[resolvedState];
+
+  if (pathname === '/admin' || pathname.startsWith('/admin/')) {
+    return null;
+  }
 
   return (
     <aside className="hidden md:flex flex-col w-64 min-h-screen bg-fizza-primary shrink-0">
@@ -127,7 +132,7 @@ export function Sidebar() {
           )}
 
           {/* Driver portal link for applicants */}
-          {driverState === 'DRIVER_APPLICANT' && (
+          {resolvedState === 'DRIVER_APPLICANT' && (
             <>
               <div className="my-3 border-t border-white/10" />
               <a

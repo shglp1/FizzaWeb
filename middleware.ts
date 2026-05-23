@@ -1,8 +1,6 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { verifyToken, SESSION_COOKIE } from '@/lib/auth';
-import { getDashboardPathForRole } from '@/lib/roleRoutes';
-
 // ─── Public routes (no auth required) ────────────────────────────────────────
 // Driver landing + driver auth pages are public so unauthenticated visitors
 // can discover and enter the driver funnel before creating an account.
@@ -73,10 +71,22 @@ export async function middleware(req: NextRequest) {
   // ── Role-based routing ────────────────────────────────────────────────────
 
   // ADMIN visiting parent or driver pages → /admin
-  if (role === 'ADMIN' && (pathname === '/dashboard' || pathname.startsWith('/dashboard/'))) {
-    return NextResponse.redirect(new URL('/admin', req.url));
-  }
-  if (role === 'ADMIN' && (pathname === '/driver/dashboard' || pathname.startsWith('/driver/dashboard/'))) {
+  const ADMIN_REDIRECT_PREFIXES = [
+    '/dashboard',
+    '/riders',
+    '/subscriptions',
+    '/trips',
+    '/wallet',
+    '/safety',
+    '/driver/dashboard',
+    '/driver-application',
+  ];
+  if (
+    role === 'ADMIN' &&
+    ADMIN_REDIRECT_PREFIXES.some(
+      (p) => pathname === p || pathname.startsWith(p + '/'),
+    )
+  ) {
     return NextResponse.redirect(new URL('/admin', req.url));
   }
 
@@ -90,9 +100,9 @@ export async function middleware(req: NextRequest) {
     return NextResponse.redirect(new URL('/driver/dashboard', req.url));
   }
 
-  // PARENT/DRIVER visiting admin → their dashboard
-  if (role !== 'ADMIN' && pathname.startsWith('/admin')) {
-    return NextResponse.redirect(new URL(getDashboardPathForRole(role), req.url));
+  // Non-admin visiting /admin → forbidden (no admin shell)
+  if (role !== 'ADMIN' && (pathname === '/admin' || pathname.startsWith('/admin/'))) {
+    return NextResponse.redirect(new URL('/forbidden', req.url));
   }
 
   // PARENT visiting driver dashboard → /dashboard

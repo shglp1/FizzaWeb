@@ -65,7 +65,6 @@ function getItemsForDriverState(state: DriverState): MobileNavItem[] {
 
 export function MobileNav() {
   const pathname = usePathname();
-  // Shared hook — reuses the same /api/me request as Sidebar (module-level dedup)
   const { user } = useCurrentUser();
 
   const driverState: DriverState = user?.driverState ?? 'PARENT';
@@ -76,6 +75,10 @@ export function MobileNav() {
     if (href === '/admin') return pathname === '/admin' || pathname.startsWith('/admin/');
     return pathname === href || pathname.startsWith(href + '/');
   };
+
+  if (pathname === '/admin' || pathname.startsWith('/admin/')) {
+    return null;
+  }
 
   return (
     <nav
