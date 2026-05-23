@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { AppShell } from '@/components/layout/AppShell';
 import {
   PageHeader,
@@ -22,11 +22,13 @@ import { riderService } from '@/services/riderService';
 type Trip = {
   id: string;
   status: string;
-  scheduledAt: string;
+  scheduledDate?: string;
+  scheduledPickupTime?: string;
   rider?: { name: string };
 };
 
-type Wallet = { balanceSar: string | number };
+// Wallet API shape: { data: { wallet: { balanceSar, ... }, loyaltyPoints } }
+type Wallet = { balanceSar: number };
 type Subscription = { id: string; status: string; package?: { name: string } };
 type Rider = { id: string; name: string; isActive: boolean };
 
@@ -34,20 +36,35 @@ type Rider = { id: string; name: string; isActive: boolean };
 
 function tripStatusVariant(s: string): 'success' | 'warning' | 'info' | 'danger' | 'gray' {
   const m: Record<string, 'success' | 'warning' | 'info' | 'danger' | 'gray'> = {
-    completed: 'success', in_progress: 'info', scheduled: 'warning', cancelled: 'danger',
+    COMPLETED: 'success', ON_THE_WAY: 'info', PICKED_UP: 'info',
+    SCHEDULED: 'warning', DRIVER_ASSIGNED: 'warning', CANCELLED: 'danger',
   };
   return m[s] ?? 'gray';
 }
 
-function fmt(date: string) {
-  return new Date(date).toLocaleString('en-SA', {
-    month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
-  });
+function fmtPickup(trip: Trip): string {
+  if (trip.scheduledPickupTime) {
+    return new Date(trip.scheduledPickupTime).toLocaleString('en-SA', {
+      month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+    });
+  }
+  if (trip.scheduledDate) {
+    return new Date(trip.scheduledDate).toLocaleDateString('en-SA', {
+      month: 'short', day: 'numeric',
+    });
+  }
+  return '—';
+}
+
+function safeBalance(wallet: Wallet | null): string {
+  const n = wallet?.balanceSar ?? 0;
+  return `SAR ${Number.isFinite(n) ? n.toFixed(2) : '0.00'}`;
 }
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
+  const router = useRouter();
   const [trips, setTrips] = useState<Trip[]>([]);
   const [wallet, setWallet] = useState<Wallet | null>(null);
   const [subs, setSubs] = useState<Subscription[]>([]);
@@ -56,29 +73,46 @@ export default function DashboardPage() {
   const [error, setError] = useState('');
 
   useEffect(() => {
+    // Client-side role guard (middleware already handles server-side redirect)
+    fetch('/api/me')
+      .then((r) => r.json())
+      .then(({ data }) => {
+        if (data?.role === 'ADMIN')  { router.replace('/admin'); return; }
+        if (data?.role === 'DRIVER') { router.replace('/driver/dashboard'); return; }
+      })
+      .catch(() => {});
+
     Promise.all([
-      tripService.list(),
+      tripService.list('upcoming'),
       walletService.getWallet(),
       subscriptionService.list(),
       riderService.list(),
-    ]).then(([t, w, s, r]) => {
-      if (t.data) setTrips(t.data.slice(0, 5));
-      if (w.data?.wallet) setWallet(w.data.wallet);
-      if (s.data) setSubs(s.data);
-      if (r.data) setRiders(r.data);
-      if (!t.data && !w.data) setError('Failed to load dashboard data.');
-      setLoading(false);
-    }).catch(() => { setError('Unable to connect.'); setLoading(false); });
+    ])
+      .then(([t, w, s, r]) => {
+        if (t.data) setTrips(Array.isArray(t.data) ? t.data.slice(0, 5) : []);
+        // Wallet API: { data: { wallet: { balanceSar }, loyaltyPoints } }
+        if (w.data?.wallet) setWallet(w.data.wallet);
+        if (s.data) setSubs(Array.isArray(s.data) ? s.data : []);
+        if (r.data) setRiders(Array.isArray(r.data) ? r.data : []);
+        if (!t.data && !w.data) setError('Failed to load dashboard data.');
+        setLoading(false);
+      })
+      .catch(() => {
+        setError('Unable to connect.');
+        setLoading(false);
+      });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const walletBalance = wallet != null ? Number(wallet.balanceSar) || 0 : 0;
-  const activeSub = subs.find((s) => s.status === 'active');
+  const activeSub = subs.find((s) => s.status === 'active' || s.status === 'ACTIVE');
   const activeRiders = riders.filter((r) => r.isActive).length;
-  const upcomingTrips = trips.filter((t) => t.status === 'scheduled').length;
+  const upcomingTrips = trips.filter(
+    (t) => t.status === 'SCHEDULED' || t.status === 'DRIVER_ASSIGNED',
+  ).length;
 
   return (
     <AppShell>
-      <PageHeader title="Dashboard" subtitle="Welcome back — here's your family overview" />
+      <PageHeader title="Family Dashboard" subtitle="Your family transportation overview" />
 
       {loading ? (
         <LoadingState message="Loading your dashboard…" />
@@ -90,12 +124,12 @@ export default function DashboardPage() {
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             <StatCard
               label="Wallet Balance"
-              value={`SAR ${walletBalance.toFixed(2)}`}
+              value={safeBalance(wallet)}
               icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 12V22H4V12 M22 7H2v5h20V7z M12 22V7" /></svg>}
               color="#0B683A"
             />
             <StatCard
-              label="Active Riders"
+              label="Family Members"
               value={activeRiders}
               icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2 M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z" /></svg>}
               color="#14A34A"
@@ -116,22 +150,22 @@ export default function DashboardPage() {
 
           {/* Body */}
           <div className="grid lg:grid-cols-3 gap-5">
-            {/* Recent trips */}
+            {/* Upcoming trips */}
             <div className="lg:col-span-2">
               <Card>
                 <div className="section-header">
-                  <h2 className="text-base font-semibold text-gray-900">Recent Trips</h2>
-                  <Link href="/trips" className="text-sm text-fizza-secondary hover:text-fizza-primary font-medium transition-colors">View all →</Link>
+                  <h2 className="text-base font-semibold text-gray-900">Upcoming Trips</h2>
+                  <a href="/trips" className="text-sm text-fizza-secondary hover:text-fizza-primary font-medium transition-colors">View all →</a>
                 </div>
 
                 {trips.length === 0 ? (
                   <div className="flex flex-col items-center py-10 gap-3 text-center">
                     <div className="h-12 w-12 rounded-2xl bg-gray-100 flex items-center justify-center text-2xl">🚗</div>
                     <div>
-                      <p className="text-sm font-medium text-gray-700">No trips yet</p>
+                      <p className="text-sm font-medium text-gray-700">No upcoming trips</p>
                       <p className="text-xs text-gray-400 mt-0.5">Start with a subscription plan</p>
                     </div>
-                    <Link href="/subscriptions" className="btn-primary btn-sm">Browse Plans</Link>
+                    <a href="/subscriptions" className="btn-primary btn-sm">Browse Plans</a>
                   </div>
                 ) : (
                   <div className="divide-y divide-gray-50">
@@ -141,11 +175,11 @@ export default function DashboardPage() {
                           {trip.rider?.name?.charAt(0) ?? '?'}
                         </div>
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-gray-900 truncate">{trip.rider?.name ?? 'Unknown'}</p>
-                          <p className="text-xs text-gray-400">{fmt(trip.scheduledAt)}</p>
+                          <p className="text-sm font-medium text-gray-900 truncate">{trip.rider?.name ?? 'Unknown rider'}</p>
+                          <p className="text-xs text-gray-400">{fmtPickup(trip)}</p>
                         </div>
                         <StatusBadge variant={tripStatusVariant(trip.status)}>
-                          {trip.status.replace(/_/g, ' ')}
+                          {trip.status.replace(/_/g, ' ').toLowerCase()}
                         </StatusBadge>
                       </div>
                     ))}
@@ -154,16 +188,17 @@ export default function DashboardPage() {
               </Card>
             </div>
 
-            {/* Sidebar: quick links + riders */}
+            {/* Quick actions + family members */}
             <div className="flex flex-col gap-4">
               <Card>
                 <h2 className="text-base font-semibold text-gray-900 mb-4">Quick Actions</h2>
                 <div className="space-y-2">
                   {[
-                    { href: '/riders', emoji: '👤', title: 'Add a Rider', sub: 'Manage family members', bg: 'bg-emerald-50 text-fizza-secondary' },
-                    { href: '/subscriptions', emoji: '📋', title: activeSub ? 'Manage Plan' : 'Pick a Plan', sub: activeSub?.package?.name ?? 'No active plan', bg: 'bg-blue-50 text-blue-600' },
-                    { href: '/wallet', emoji: '💳', title: 'Wallet', sub: wallet ? `SAR ${walletBalance.toFixed(2)}` : 'Check balance', bg: 'bg-amber-50 text-amber-600' },
-                    { href: '/safety', emoji: '🛡️', title: 'Safety Report', sub: 'Report an issue', bg: 'bg-red-50 text-red-500' },
+                    { href: '/riders',        emoji: '👨‍👩‍👧', title: 'Add Family Member',  sub: 'Manage family members',     bg: 'bg-emerald-50 text-fizza-secondary' },
+                    { href: '/subscriptions', emoji: '📋',   title: activeSub ? 'Manage Plan' : 'Create Subscription', sub: activeSub?.package?.name ?? 'No active plan', bg: 'bg-blue-50 text-blue-600' },
+                    { href: '/wallet',        emoji: '💳',   title: 'Top Up Wallet',        sub: safeBalance(wallet),          bg: 'bg-amber-50 text-amber-600' },
+                    { href: '/trips',         emoji: '🗓️',  title: 'View Trips',            sub: `${upcomingTrips} upcoming`,  bg: 'bg-purple-50 text-purple-600' },
+                    { href: '/safety',        emoji: '🛡️',  title: 'Safety Report',         sub: 'Report an issue',            bg: 'bg-red-50 text-red-500' },
                   ].map((item) => (
                     <a key={item.href} href={item.href} className="flex items-center gap-3 rounded-xl px-3 py-2.5 hover:bg-gray-50 transition-colors group">
                       <span className={`flex h-9 w-9 items-center justify-center rounded-xl text-base shrink-0 ${item.bg}`}>
@@ -181,8 +216,8 @@ export default function DashboardPage() {
               {riders.length > 0 && (
                 <Card padding="sm">
                   <div className="section-header px-1">
-                    <h2 className="text-sm font-semibold text-gray-900">My Riders</h2>
-                    <Link href="/riders" className="text-xs text-fizza-secondary font-medium">Manage</Link>
+                    <h2 className="text-sm font-semibold text-gray-900">Family Members</h2>
+                    <a href="/riders" className="text-xs text-fizza-secondary font-medium">Manage</a>
                   </div>
                   <div className="space-y-1 mt-1">
                     {riders.slice(0, 4).map((r) => (
