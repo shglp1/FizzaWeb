@@ -18,7 +18,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const { email, password, fullName, phone } = parsed.data;
+    const { email, password, fullName, phone, registrationSource = 'FAMILY' } = parsed.data;
     const passwordHash = await bcrypt.hash(password, 12);
 
     const result = await prisma.$transaction(async (tx) => {
@@ -28,7 +28,7 @@ export async function POST(req: Request) {
       });
 
       await tx.profile.create({
-        data: { id: user.id, role: 'PARENT', fullName, phone },
+        data: { id: user.id, role: 'PARENT', fullName, phone, registrationSource },
       });
 
       await tx.wallet.create({

@@ -52,10 +52,10 @@ function NavLink({ item, active }: { item: NavItem; active: boolean }) {
 // ─── Role chip config — keyed by DriverState ──────────────────────────────────
 
 const ROLE_CHIP: Record<DriverState, { label: string; cls: string }> = {
-  ADMIN:           { label: 'Admin',     cls: 'bg-red-500/20 text-red-200' },
-  APPROVED_DRIVER: { label: 'Driver',    cls: 'bg-blue-500/20 text-blue-200' },
-  APPLICANT:       { label: 'Applicant', cls: 'bg-amber-500/20 text-amber-200' },
-  PARENT:          { label: 'Parent',    cls: 'bg-white/10 text-white/60' },
+  ADMIN:            { label: 'Admin',     cls: 'bg-red-500/20 text-red-200' },
+  APPROVED_DRIVER:  { label: 'Driver',    cls: 'bg-blue-500/20 text-blue-200' },
+  DRIVER_APPLICANT: { label: 'Applicant', cls: 'bg-amber-500/20 text-amber-200' },
+  PARENT:           { label: 'Parent',    cls: 'bg-white/10 text-white/60' },
 };
 
 // ─── Loading skeleton ─────────────────────────────────────────────────────────
@@ -127,7 +127,7 @@ export function Sidebar() {
           )}
 
           {/* Driver portal link for applicants */}
-          {driverState === 'APPLICANT' && (
+          {driverState === 'DRIVER_APPLICANT' && (
             <>
               <div className="my-3 border-t border-white/10" />
               <a

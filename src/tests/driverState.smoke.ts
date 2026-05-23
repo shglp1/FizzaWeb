@@ -27,7 +27,7 @@ describe('getDashboardPathForDriverState', () => {
     assert.equal(getDashboardPathForDriverState('APPROVED_DRIVER'), '/driver/dashboard');
   });
   it('APPLICANT → /driver-application', () => {
-    assert.equal(getDashboardPathForDriverState('APPLICANT'), '/driver-application');
+    assert.equal(getDashboardPathForDriverState('DRIVER_APPLICANT'), '/driver-application');
   });
   it('PARENT → /dashboard', () => {
     assert.equal(getDashboardPathForDriverState('PARENT'), '/dashboard');
@@ -86,7 +86,7 @@ describe('getNavigationForDriverState — APPROVED_DRIVER', () => {
 // ─── getNavigationForDriverState — APPLICANT ─────────────────────────────────
 
 describe('getNavigationForDriverState — APPLICANT', () => {
-  const { main, secondary } = getNavigationForDriverState('APPLICANT');
+  const { main, secondary } = getNavigationForDriverState('DRIVER_APPLICANT');
   const all = [...main, ...secondary];
 
   it('includes /driver-application', () => {
@@ -149,50 +149,57 @@ describe('getNavigationForDriverState — PARENT', () => {
 describe('driverState mapping contract', () => {
   /**
    * Pure mirror of /api/me mapping logic — no DB or JWT required.
+   * Now includes registrationSource (Task 10.4 addition).
    * Update this if the API logic changes.
    */
   function computeDriverState(
     role: string,
+    registrationSource: 'FAMILY' | 'DRIVER_PORTAL',
     applicationStatus: string | null,
   ): DriverState {
     if (role === 'ADMIN')  return 'ADMIN';
     if (role === 'DRIVER') return 'APPROVED_DRIVER';
-    // PARENT role
-    if (applicationStatus !== null) return 'APPLICANT';
-    return 'PARENT';
+    // PARENT role: driver applicant if came from driver portal OR has any application
+    const isDriverApplicant = registrationSource === 'DRIVER_PORTAL' || applicationStatus !== null;
+    return isDriverApplicant ? 'DRIVER_APPLICANT' : 'PARENT';
   }
 
   it('ADMIN role → ADMIN', () => {
-    assert.equal(computeDriverState('ADMIN', null), 'ADMIN');
+    assert.equal(computeDriverState('ADMIN', 'FAMILY', null), 'ADMIN');
   });
   it('DRIVER role → APPROVED_DRIVER', () => {
-    assert.equal(computeDriverState('DRIVER', null), 'APPROVED_DRIVER');
+    assert.equal(computeDriverState('DRIVER', 'FAMILY', null), 'APPROVED_DRIVER');
   });
-  it('PARENT + no application → PARENT', () => {
-    assert.equal(computeDriverState('PARENT', null), 'PARENT');
+  it('PARENT + FAMILY source + no application → PARENT', () => {
+    assert.equal(computeDriverState('PARENT', 'FAMILY', null), 'PARENT');
   });
-  it('PARENT + PENDING → APPLICANT', () => {
-    assert.equal(computeDriverState('PARENT', 'PENDING'), 'APPLICANT');
+  it('PARENT + DRIVER_PORTAL source + no application → DRIVER_APPLICANT', () => {
+    // New account from /driver/register before submitting form
+    assert.equal(computeDriverState('PARENT', 'DRIVER_PORTAL', null), 'DRIVER_APPLICANT');
   });
-  it('PARENT + NEEDS_CHANGES → APPLICANT', () => {
-    assert.equal(computeDriverState('PARENT', 'NEEDS_CHANGES'), 'APPLICANT');
+  it('PARENT + FAMILY source + PENDING application → DRIVER_APPLICANT', () => {
+    // Edge: family user somehow has an application (should not happen in new flow)
+    assert.equal(computeDriverState('PARENT', 'FAMILY', 'PENDING'), 'DRIVER_APPLICANT');
   });
-  it('PARENT + REJECTED → APPLICANT', () => {
-    assert.equal(computeDriverState('PARENT', 'REJECTED'), 'APPLICANT');
+  it('PARENT + DRIVER_PORTAL + PENDING → DRIVER_APPLICANT', () => {
+    assert.equal(computeDriverState('PARENT', 'DRIVER_PORTAL', 'PENDING'), 'DRIVER_APPLICANT');
   });
-  it('PARENT + APPROVED (JWT not yet refreshed) → APPLICANT', () => {
-    // When an admin approves the application, the DB role is updated to DRIVER.
-    // If the user's JWT still contains PARENT (not yet re-logged in), the
-    // application record exists with APPROVED status.
-    // /api/me returns driverState = "APPLICANT"; the approved card prompts re-login.
-    assert.equal(computeDriverState('PARENT', 'APPROVED'), 'APPLICANT');
+  it('PARENT + DRIVER_PORTAL + NEEDS_CHANGES → DRIVER_APPLICANT', () => {
+    assert.equal(computeDriverState('PARENT', 'DRIVER_PORTAL', 'NEEDS_CHANGES'), 'DRIVER_APPLICANT');
+  });
+  it('PARENT + DRIVER_PORTAL + REJECTED → DRIVER_APPLICANT', () => {
+    assert.equal(computeDriverState('PARENT', 'DRIVER_PORTAL', 'REJECTED'), 'DRIVER_APPLICANT');
+  });
+  it('PARENT + APPROVED application (JWT not refreshed) → DRIVER_APPLICANT', () => {
+    // /api/me returns DRIVER_APPLICANT; the approved card prompts re-login.
+    assert.equal(computeDriverState('PARENT', 'DRIVER_PORTAL', 'APPROVED'), 'DRIVER_APPLICANT');
   });
 });
 
 // ─── Navigation completeness — all four states have non-empty main nav ────────
 
 describe('getNavigationForDriverState — all states have non-empty nav', () => {
-  const states: DriverState[] = ['PARENT', 'APPLICANT', 'APPROVED_DRIVER', 'ADMIN'];
+  const states: DriverState[] = ['PARENT', 'DRIVER_APPLICANT', 'APPROVED_DRIVER', 'ADMIN'];
 
   for (const state of states) {
     it(`${state} has at least one main nav item`, () => {
@@ -221,7 +228,7 @@ describe('dashboard path vs nav home consistency', () => {
     assert.ok(main.some((i) => i.href === path), 'dashboard path must appear in main nav');
   });
   it('APPLICANT dashboard path is /driver-application (not in main nav — no home concept)', () => {
-    const path = getDashboardPathForDriverState('APPLICANT');
+    const path = getDashboardPathForDriverState('DRIVER_APPLICANT');
     assert.equal(path, '/driver-application');
   });
 });

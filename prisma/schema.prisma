@@ -101,6 +101,10 @@ model Profile {
   fullName              String              @map("full_name")
   phone                 String?
   avatarUrl             String?             @map("avatar_url") @db.Text
+  /// "FAMILY" (default) or "DRIVER_PORTAL" — set at registration to separate
+  /// normal family accounts from driver applicant accounts.
+  /// Migration required: ALTER TABLE profiles ADD COLUMN registration_source VARCHAR(32) NOT NULL DEFAULT 'FAMILY'
+  registrationSource    String              @default("FAMILY") @map("registration_source")
   createdAt             DateTime            @default(now()) @map("created_at")
   updatedAt             DateTime            @updatedAt @map("updated_at")
   user                  User                @relation(fields: [id], references: [id], onDelete: Cascade)

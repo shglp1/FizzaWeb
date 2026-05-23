@@ -7,11 +7,17 @@ export const authService = {
     });
     return res.json();
   },
-  register: async (email: string, password: string, fullName: string, phone: string) => {
+  register: async (
+    email: string,
+    password: string,
+    fullName: string,
+    phone: string,
+    registrationSource: 'FAMILY' | 'DRIVER_PORTAL' = 'FAMILY',
+  ) => {
     const res = await fetch('/api/auth/register', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password, fullName, phone })
+      body: JSON.stringify({ email, password, fullName, phone, registrationSource }),
     });
     return res.json();
   },

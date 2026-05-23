@@ -5,16 +5,21 @@
 export type AppRole = 'ADMIN' | 'DRIVER' | 'PARENT';
 
 /**
- * Computed UX state derived from JWT role + DB application status.
+ * Computed UX state derived from JWT role + DB registrationSource + application status.
  * Returned by GET /api/me as `driverState`.
  *
- * - PARENT          → regular family user, no driver application
- * - APPLICANT       → PARENT role with a pending/rejected/needs-changes application
- *                     (or APPROVED application where JWT role hasn't been refreshed yet)
- * - APPROVED_DRIVER → JWT role is DRIVER (admin has approved + role was refreshed on login)
- * - ADMIN           → JWT role is ADMIN
+ * - PARENT           → regular family user (registrationSource === 'FAMILY', no application)
+ * - DRIVER_APPLICANT → account created via /driver/register (registrationSource === 'DRIVER_PORTAL')
+ *                      OR any PARENT who has submitted a driver application
+ *                      Covers: PENDING / NEEDS_CHANGES / REJECTED / APPROVED-but-JWT-stale
+ * - APPROVED_DRIVER  → JWT role is DRIVER (admin approved + user re-logged in)
+ * - ADMIN            → JWT role is ADMIN
+ *
+ * Critical separation:
+ *   PARENT family accounts must NEVER show driver UI or be routed to /driver-application.
+ *   Only DRIVER_APPLICANT and APPROVED_DRIVER accounts interact with the driver portal.
  */
-export type DriverState = 'PARENT' | 'APPLICANT' | 'APPROVED_DRIVER' | 'ADMIN';
+export type DriverState = 'PARENT' | 'DRIVER_APPLICANT' | 'APPROVED_DRIVER' | 'ADMIN';
 
 /** Driver application status as returned by GET /api/driver-application */
 export type DriverAppStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'NEEDS_CHANGES';
@@ -127,9 +132,11 @@ export const PARENT_NAV: NavItem[] = [
   { label: 'Notifications',    href: '/notifications',      icon: 'notifications' },
 ];
 
+// NOTE: "Drive with Fizza" has been intentionally removed.
+// Driver onboarding must happen only through the dedicated public driver portal (/drive).
+// Normal family accounts must NOT be able to apply as drivers from the family UX.
 export const PARENT_SECONDARY_NAV: NavItem[] = [
-  { label: 'Profile',          href: '/profile',            icon: 'profile' },
-  { label: 'Drive with Fizza', href: '/driver-application', icon: 'driverApp' },
+  { label: 'Profile', href: '/profile', icon: 'profile' },
 ];
 
 // ── Driver applicant nav — restricted (PARENT role + pending application) ─────
@@ -197,10 +204,10 @@ export function getNavigationForApplicant(): { main: NavItem[]; secondary: NavIt
 
 /** Default dashboard path for each DriverState. */
 const DRIVER_STATE_DASHBOARDS: Record<DriverState, string> = {
-  PARENT:          '/dashboard',
-  APPLICANT:       '/driver-application',
-  APPROVED_DRIVER: '/driver/dashboard',
-  ADMIN:           '/admin',
+  PARENT:           '/dashboard',
+  DRIVER_APPLICANT: '/driver-application',
+  APPROVED_DRIVER:  '/driver/dashboard',
+  ADMIN:            '/admin',
 };
 
 /** Returns the home/dashboard path for a given DriverState. */
@@ -216,8 +223,8 @@ export function getDashboardPathForDriverState(state: DriverState): string {
 export function getNavigationForDriverState(
   state: DriverState,
 ): { main: NavItem[]; secondary: NavItem[] } {
-  if (state === 'ADMIN')           return { main: ADMIN_NAV,            secondary: ADMIN_SECONDARY_NAV };
-  if (state === 'APPROVED_DRIVER') return { main: DRIVER_NAV,           secondary: DRIVER_SECONDARY_NAV };
-  if (state === 'APPLICANT')       return { main: DRIVER_APPLICANT_NAV, secondary: DRIVER_APPLICANT_SECONDARY_NAV };
+  if (state === 'ADMIN')            return { main: ADMIN_NAV,            secondary: ADMIN_SECONDARY_NAV };
+  if (state === 'APPROVED_DRIVER')  return { main: DRIVER_NAV,           secondary: DRIVER_SECONDARY_NAV };
+  if (state === 'DRIVER_APPLICANT') return { main: DRIVER_APPLICANT_NAV, secondary: DRIVER_APPLICANT_SECONDARY_NAV };
   return { main: PARENT_NAV, secondary: PARENT_SECONDARY_NAV };
 }
