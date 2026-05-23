@@ -10,7 +10,10 @@ import { tripService } from '@/services/tripService';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type TripStatus = 'SCHEDULED' | 'DRIVER_ASSIGNED' | 'ON_THE_WAY' | 'PICKED_UP' | 'COMPLETED' | 'CANCELLED';
+type TripStatus =
+  | 'SCHEDULED' | 'DRIVER_ASSIGNED' | 'PRE_TRIP' | 'ON_THE_WAY'
+  | 'ARRIVED_PICKUP' | 'PICKED_UP' | 'EN_ROUTE_DROPOFF' | 'ARRIVED_DROPOFF'
+  | 'COMPLETED' | 'CANCELLED' | 'NO_SHOW';
 
 type Trip = {
   id: string;
@@ -26,21 +29,31 @@ type Trip = {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const TRIP_VARIANT: Record<TripStatus, 'warning' | 'info' | 'purple' | 'success' | 'danger' | 'orange'> = {
-  SCHEDULED:       'warning',
-  DRIVER_ASSIGNED: 'info',
-  ON_THE_WAY:      'purple',
-  PICKED_UP:       'orange',
-  COMPLETED:       'success',
-  CANCELLED:       'danger',
+  SCHEDULED:        'warning',
+  DRIVER_ASSIGNED:  'info',
+  PRE_TRIP:         'purple',
+  ON_THE_WAY:       'purple',
+  ARRIVED_PICKUP:   'orange',
+  PICKED_UP:        'orange',
+  EN_ROUTE_DROPOFF: 'purple',
+  ARRIVED_DROPOFF:  'orange',
+  COMPLETED:        'success',
+  CANCELLED:        'danger',
+  NO_SHOW:          'danger',
 };
 
 const TRIP_LABEL: Record<TripStatus, string> = {
-  SCHEDULED:       'Scheduled',
-  DRIVER_ASSIGNED: 'Assigned',
-  ON_THE_WAY:      'On the Way',
-  PICKED_UP:       'Picked Up',
-  COMPLETED:       'Completed',
-  CANCELLED:       'Cancelled',
+  SCHEDULED:        'Scheduled',
+  DRIVER_ASSIGNED:  'Assigned',
+  PRE_TRIP:         'Heading Out',
+  ON_THE_WAY:       'En Route',
+  ARRIVED_PICKUP:   'At Pickup',
+  PICKED_UP:        'Picked Up',
+  EN_ROUTE_DROPOFF: 'To Drop-off',
+  ARRIVED_DROPOFF:  'At Drop-off',
+  COMPLETED:        'Completed',
+  CANCELLED:        'Cancelled',
+  NO_SHOW:          'No Show',
 };
 
 function fmtTime(t: string | null) {
@@ -89,7 +102,9 @@ export default function DriverDashboardPage() {
   // Derived stats
   const today = new Date().toISOString().split('T')[0]!;
   const todayTrips = trips.filter((t) => t.scheduledDate.startsWith(today));
-  const activeTrip = trips.find((t) => t.status === 'ON_THE_WAY' || t.status === 'PICKED_UP');
+  const activeTrip = trips.find((t) =>
+    ['PRE_TRIP', 'ON_THE_WAY', 'ARRIVED_PICKUP', 'PICKED_UP', 'EN_ROUTE_DROPOFF', 'ARRIVED_DROPOFF'].includes(t.status),
+  );
   const nextTrip = trips.find(
     (t) => t.status === 'SCHEDULED' || t.status === 'DRIVER_ASSIGNED',
   );
@@ -225,7 +240,7 @@ export default function DriverDashboardPage() {
                   </div>
                 ) : (
                   <div className="divide-y divide-gray-50">
-                    {trips.slice(0, 6).map((trip) => (
+                    {trips.map((trip) => (
                       <div key={trip.id} className="flex items-center gap-3 py-3">
                         <div className="h-8 w-8 rounded-full bg-emerald-50 flex items-center justify-center text-sm font-bold text-fizza-primary shrink-0">
                           {trip.rider?.name?.charAt(0) ?? '?'}

@@ -10,23 +10,46 @@ export const tripService = {
     return res.json();
   },
 
-  cancel: async (id: string) => {
+  cancel: async (id: string, reason?: string) => {
     const res = await fetch(`/api/trips/${encodeURIComponent(id)}/cancel`, {
       method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reason }),
     });
     return res.json();
   },
 
-  updateStatus: async (id: string, status: string) => {
+  updateStatus: async (
+    id: string,
+    status: string,
+    opts?: { statusReason?: string; lat?: number; lng?: number },
+  ) => {
     const res = await fetch(`/api/trips/${encodeURIComponent(id)}/status`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status }),
+      body: JSON.stringify({ status, ...opts }),
     });
     return res.json();
   },
 
-  // Admin
+  // ── Chat ──────────────────────────────────────────────────────────────────
+
+  getChat: async (id: string) => {
+    const res = await fetch(`/api/trips/${encodeURIComponent(id)}/chat`);
+    return res.json();
+  },
+
+  sendChatMessage: async (id: string, body: string, messageType: 'TEXT' | 'QUICK_REPLY' = 'TEXT') => {
+    const res = await fetch(`/api/trips/${encodeURIComponent(id)}/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ body, messageType }),
+    });
+    return res.json();
+  },
+
+  // ── Admin ─────────────────────────────────────────────────────────────────
+
   adminList: async (filters?: { status?: string; date?: string; driverId?: string; page?: number }) => {
     const params = new URLSearchParams();
     if (filters?.status) params.set('status', filters.status);
@@ -34,6 +57,11 @@ export const tripService = {
     if (filters?.driverId) params.set('driverId', filters.driverId);
     if (filters?.page) params.set('page', String(filters.page));
     const res = await fetch(`/api/admin/trips?${params}`);
+    return res.json();
+  },
+
+  adminOperations: async () => {
+    const res = await fetch('/api/admin/trips/operations');
     return res.json();
   },
 
@@ -57,6 +85,23 @@ export const tripService = {
 
   adminListDrivers: async () => {
     const res = await fetch('/api/admin/drivers');
+    return res.json();
+  },
+
+  adminChatFlags: async (page = 1) => {
+    const res = await fetch(`/api/admin/chat/flags?page=${page}`);
+    return res.json();
+  },
+
+  adminModerateMessage: async (
+    messageId: string,
+    data: { moderationStatus?: 'CLEAN' | 'FLAGGED' | 'BLOCKED'; delete?: boolean },
+  ) => {
+    const res = await fetch(`/api/admin/chat/messages/${encodeURIComponent(messageId)}/moderate`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
     return res.json();
   },
 };

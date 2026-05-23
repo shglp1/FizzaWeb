@@ -21,7 +21,10 @@ import { tripService } from '@/services/tripService';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type TripStatus = 'SCHEDULED' | 'DRIVER_ASSIGNED' | 'ON_THE_WAY' | 'PICKED_UP' | 'COMPLETED' | 'CANCELLED';
+type TripStatus =
+  | 'SCHEDULED' | 'DRIVER_ASSIGNED' | 'PRE_TRIP' | 'ON_THE_WAY'
+  | 'ARRIVED_PICKUP' | 'PICKED_UP' | 'EN_ROUTE_DROPOFF' | 'ARRIVED_DROPOFF'
+  | 'COMPLETED' | 'CANCELLED' | 'NO_SHOW';
 type TripLegType = 'OUTBOUND' | 'RETURN';
 
 type Trip = {
@@ -55,25 +58,35 @@ const TABS = [
 ];
 
 const STATUS_BADGE_VARIANT: Record<TripStatus, 'warning' | 'info' | 'purple' | 'success' | 'danger' | 'orange'> = {
-  SCHEDULED:       'warning',
-  DRIVER_ASSIGNED: 'info',
-  ON_THE_WAY:      'purple',
-  PICKED_UP:       'orange',
-  COMPLETED:       'success',
-  CANCELLED:       'danger',
+  SCHEDULED:        'warning',
+  DRIVER_ASSIGNED:  'info',
+  PRE_TRIP:         'purple',
+  ON_THE_WAY:       'purple',
+  ARRIVED_PICKUP:   'orange',
+  PICKED_UP:        'orange',
+  EN_ROUTE_DROPOFF: 'purple',
+  ARRIVED_DROPOFF:  'orange',
+  COMPLETED:        'success',
+  CANCELLED:        'danger',
+  NO_SHOW:          'danger',
 };
 
 const STATUS_LABEL: Record<TripStatus, string> = {
-  SCHEDULED:       'Scheduled',
-  DRIVER_ASSIGNED: 'Driver Assigned',
-  ON_THE_WAY:      'On the Way',
-  PICKED_UP:       'Picked Up',
-  COMPLETED:       'Completed',
-  CANCELLED:       'Cancelled',
+  SCHEDULED:        'Scheduled',
+  DRIVER_ASSIGNED:  'Driver Assigned',
+  PRE_TRIP:         'Driver Heading Out',
+  ON_THE_WAY:       'En Route to Pickup',
+  ARRIVED_PICKUP:   'Arrived at Pickup',
+  PICKED_UP:        'Rider Picked Up',
+  EN_ROUTE_DROPOFF: 'En Route to Drop-off',
+  ARRIVED_DROPOFF:  'Arrived at Drop-off',
+  COMPLETED:        'Completed',
+  CANCELLED:        'Cancelled',
+  NO_SHOW:          'No Show',
 };
 
-const CANCELLABLE: TripStatus[] = ['SCHEDULED', 'DRIVER_ASSIGNED'];
-const TRACKABLE: TripStatus[]   = ['DRIVER_ASSIGNED', 'ON_THE_WAY', 'PICKED_UP'];
+const CANCELLABLE: TripStatus[] = ['SCHEDULED', 'DRIVER_ASSIGNED', 'PRE_TRIP'];
+const TRACKABLE: TripStatus[]   = ['PRE_TRIP', 'ON_THE_WAY', 'ARRIVED_PICKUP', 'PICKED_UP', 'EN_ROUTE_DROPOFF', 'ARRIVED_DROPOFF'];
 
 function fmtTime(dt: string | null): string {
   if (!dt) return '—';

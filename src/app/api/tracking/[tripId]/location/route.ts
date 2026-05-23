@@ -1,103 +1,113 @@
+/**
+ * POST /api/tracking/[tripId]/location  — driver pushes GPS update
+ * GET  /api/tracking/[tripId]/location  — parent/admin fetches latest location
+ */
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireAuth } from '@/lib/session';
-import { driverLocationSchema } from '@/lib/validations/trip';
+import { z } from 'zod';
 
-// ── GPS throttle: minimum seconds between accepted location updates per driver ─
-// Prevents a single driver flooding the DB at high frequency.
-// In production, replace with a Redis-based sliding window for multi-instance support.
-const GPS_MIN_INTERVAL_SECONDS = 5;
-const lastUpdateTime = new Map<string, number>(); // driverId → epoch ms
+const locationSchema = z.object({
+  lat: z.number().min(-90).max(90),
+  lng: z.number().min(-180).max(180),
+});
 
 export async function POST(
   req: Request,
-  context: { params: Promise<{ tripId: string }> },
+  { params }: { params: Promise<{ tripId: string }> },
 ) {
   try {
     const auth = await requireAuth();
     if (auth instanceof NextResponse) return auth;
 
-    if (auth.role !== 'DRIVER') {
-      return NextResponse.json(
-        { data: null, error: { message: 'Only drivers can update location' } },
-        { status: 403 },
-      );
+    if (auth.role !== 'DRIVER' && auth.role !== 'ADMIN') {
+      return NextResponse.json({ data: null, error: { message: 'Only drivers can push location' } }, { status: 403 });
     }
 
-    const { tripId } = await context.params;
-
-    const body = await req.json();
-    const parsed = driverLocationSchema.safeParse(body);
+    const { tripId } = await params;
+    let body: unknown;
+    try { body = await req.json(); } catch {
+      return NextResponse.json({ data: null, error: { message: 'Invalid JSON' } }, { status: 400 });
+    }
+    const parsed = locationSchema.safeParse(body);
     if (!parsed.success) {
-      return NextResponse.json(
-        { data: null, error: { message: parsed.error.issues[0]?.message ?? 'Invalid location data' } },
-        { status: 400 },
-      );
+      return NextResponse.json({ data: null, error: { message: 'lat and lng are required numbers' } }, { status: 400 });
     }
 
-    // Verify driver is assigned to this trip and it is active
+    const { lat, lng } = parsed.data;
+
+    // Find the driver record
     const driver = await prisma.driver.findFirst({
       where: { profileId: auth.userId },
       select: { id: true },
     });
-
     if (!driver) {
-      return NextResponse.json(
-        { data: null, error: { message: 'Driver profile not found' } },
-        { status: 403 },
-      );
+      return NextResponse.json({ data: null, error: { message: 'Driver profile not found' } }, { status: 404 });
     }
 
-    // ── In-process GPS throttle ────────────────────────────────────────────────
-    // Rejects updates that arrive faster than GPS_MIN_INTERVAL_SECONDS.
-    // Note: this is per-process; use Redis for multi-replica deployments.
-    const now = Date.now();
-    const last = lastUpdateTime.get(driver.id) ?? 0;
-    if (now - last < GPS_MIN_INTERVAL_SECONDS * 1000) {
-      return NextResponse.json(
-        {
-          data: null,
-          error: {
-            message: `Location updates are throttled to once every ${GPS_MIN_INTERVAL_SECONDS} seconds`,
-          },
-        },
-        { status: 429 },
-      );
+    // Verify the driver is assigned to this trip
+    const trip = await prisma.trip.findUnique({
+      where: { id: tripId },
+      select: { id: true, driverId: true, status: true },
+    });
+    if (!trip) {
+      return NextResponse.json({ data: null, error: { message: 'Trip not found' } }, { status: 404 });
     }
-    lastUpdateTime.set(driver.id, now);
+    if (auth.role !== 'ADMIN' && trip.driverId !== driver.id) {
+      return NextResponse.json({ data: null, error: { message: 'Not your trip' } }, { status: 403 });
+    }
 
-    const trip = await prisma.trip.findFirst({
-      where: {
-        id: tripId,
-        driverId: driver.id,
-        status: { in: ['DRIVER_ASSIGNED', 'ON_THE_WAY', 'PICKED_UP'] },
-      },
-      select: { id: true },
+    await prisma.driverLocation.create({
+      data: { driverId: driver.id, tripId, lat, lng },
     });
 
+    return NextResponse.json({ data: { ok: true }, error: null });
+  } catch {
+    return NextResponse.json({ data: null, error: { message: 'Internal Server Error' } }, { status: 500 });
+  }
+}
+
+export async function GET(
+  _req: Request,
+  { params }: { params: Promise<{ tripId: string }> },
+) {
+  try {
+    const auth = await requireAuth();
+    if (auth instanceof NextResponse) return auth;
+
+    const { tripId } = await params;
+
+    const trip = await prisma.trip.findUnique({
+      where: { id: tripId },
+      select: { id: true, subscription: { select: { userId: true } }, driverId: true },
+    });
     if (!trip) {
-      return NextResponse.json(
-        { data: null, error: { message: 'Active trip not found or driver not assigned' } },
-        { status: 403 },
-      );
+      return NextResponse.json({ data: null, error: { message: 'Trip not found' } }, { status: 404 });
     }
 
-    const location = await prisma.driverLocation.create({
-      data: {
-        driverId: driver.id,
-        tripId,
-        lat: parsed.data.lat,
-        lng: parsed.data.lng,
-        recordedAt: new Date(),
-      },
+    // Access control for parents
+    if (auth.role !== 'ADMIN' && auth.role !== 'DRIVER') {
+      if (trip.subscription?.userId !== auth.userId) {
+        return NextResponse.json({ data: null, error: { message: 'Forbidden' } }, { status: 403 });
+      }
+    }
+
+    const location = await prisma.driverLocation.findFirst({
+      where: { tripId },
+      orderBy: { recordedAt: 'desc' },
       select: { lat: true, lng: true, recordedAt: true },
     });
 
-    return NextResponse.json({ data: location, error: null }, { status: 201 });
+    if (!location) {
+      return NextResponse.json({ data: { location: null }, error: null });
+    }
+
+    const stale = (Date.now() - new Date(location.recordedAt).getTime()) > 60_000;
+    return NextResponse.json({
+      data: { location: { lat: location.lat, lng: location.lng, recordedAt: location.recordedAt, stale } },
+      error: null,
+    });
   } catch {
-    return NextResponse.json(
-      { data: null, error: { message: 'Internal Server Error' } },
-      { status: 500 },
-    );
+    return NextResponse.json({ data: null, error: { message: 'Internal Server Error' } }, { status: 500 });
   }
 }

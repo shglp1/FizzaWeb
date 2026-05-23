@@ -25,10 +25,22 @@ enum SubscriptionStatus {
 enum TripStatus {
   SCHEDULED
   DRIVER_ASSIGNED
+  /// Driver started pre-trip location sharing (within 10 min of pickup)
+  PRE_TRIP
+  /// Driver en route to pickup location
   ON_THE_WAY
+  /// Driver has arrived at the pickup location
+  ARRIVED_PICKUP
+  /// Rider has been picked up
   PICKED_UP
+  /// Driver en route to drop-off location
+  EN_ROUTE_DROPOFF
+  /// Driver has arrived at the drop-off location
+  ARRIVED_DROPOFF
   COMPLETED
   CANCELLED
+  /// Rider did not show at pickup
+  NO_SHOW
 }
 
 enum PaymentStatus {
@@ -362,7 +374,13 @@ model Trip {
   dropoffLng           Float?              @map("dropoff_lng")
   status               TripStatus          @default(SCHEDULED)
   legType              TripLegType         @default(OUTBOUND) @map("leg_type")
+  /// Optional human-readable reason for the current status (e.g. cancellation reason, delay reason, no-show reason).
+  statusReason         String?             @map("status_reason") @db.Text
   cancelledBy          String?             @map("cancelled_by")
+  /// UTC timestamp when the chat window was opened for this trip.
+  chatOpenedAt         DateTime?           @map("chat_opened_at")
+  /// UTC timestamp when the chat window was closed for this trip.
+  chatClosedAt         DateTime?           @map("chat_closed_at")
   createdAt            DateTime            @default(now()) @map("created_at")
   updatedAt            DateTime            @updatedAt @map("updated_at")
   subscription         UserSubscription?   @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
@@ -373,6 +391,8 @@ model Trip {
   locations            DriverLocation[]
   walletTransactions   WalletTransaction[]
   safetyReports        SafetyReport[]
+  events               TripEvent[]
+  chatMessages         TripChatMessage[]
 
   @@index([subscriptionId])
   @@index([riderId])
@@ -598,4 +618,46 @@ model DriverApplication {
   @@index([userId])
   @@index([status])
   @@map("driver_applications")
+}
+
+/// Structured event log for a trip — used for audit trail, notification deduplication,
+/// and admin debugging. One record per event type per trip (enforced by application logic).
+model TripEvent {
+  id          String   @id @default(cuid())
+  tripId      String   @map("trip_id")
+  actorUserId String?  @map("actor_user_id")
+  actorRole   String?  @map("actor_role")
+  /// Event type constant, e.g. "STATUS_CHANGED", "NEAR_PICKUP", "RIDER_PICKED_UP".
+  eventType   String   @map("event_type")
+  message     String?  @db.Text
+  metadata    Json?
+  createdAt   DateTime @default(now()) @map("created_at")
+  trip        Trip     @relation(fields: [tripId], references: [id], onDelete: Cascade)
+
+  @@index([tripId])
+  @@index([eventType])
+  @@index([createdAt])
+  @@map("trip_events")
+}
+
+/// Chat message sent between parent and driver for a specific trip.
+model TripChatMessage {
+  id               String    @id @default(cuid())
+  tripId           String    @map("trip_id")
+  senderUserId     String    @map("sender_user_id")
+  senderRole       String    @map("sender_role")
+  /// TEXT (default) or QUICK_REPLY
+  messageType      String    @default("TEXT") @map("message_type")
+  body             String    @db.Text
+  attachmentUrl    String?   @map("attachment_url") @db.Text
+  /// CLEAN | FLAGGED | BLOCKED
+  moderationStatus String    @default("CLEAN") @map("moderation_status")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  deletedAt        DateTime? @map("deleted_at")
+  trip             Trip      @relation(fields: [tripId], references: [id], onDelete: Cascade)
+
+  @@index([tripId])
+  @@index([moderationStatus])
+  @@index([createdAt])
+  @@map("trip_chat_messages")
 }
