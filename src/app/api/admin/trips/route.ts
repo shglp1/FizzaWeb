@@ -29,10 +29,25 @@ export async function GET(req: Request) {
     const [trips, total] = await Promise.all([
       prisma.trip.findMany({
         where,
-        include: {
+        select: {
+          id: true,
+          status: true,
+          scheduledDate: true,
+          scheduledPickupTime: true,
+          scheduledDropoffTime: true,
+          actualPickupTime: true,
+          actualDropoffTime: true,
+          pickupLocation: true,
+          dropoffLocation: true,
+          pickupLat: true,
+          pickupLng: true,
+          dropoffLat: true,
+          dropoffLng: true,
           rider: { select: { id: true, name: true, relationship: true, school: true } },
           driver: {
-            include: {
+            select: {
+              id: true,
+              rating: true,
               profile: { select: { fullName: true, phone: true } },
               vehicle: { select: { model: true, plateNumber: true, color: true } },
             },
@@ -40,7 +55,7 @@ export async function GET(req: Request) {
           vehicle: { select: { model: true, plateNumber: true, color: true } },
           subscription: { select: { id: true, subscriptionType: true } },
         },
-        orderBy: { scheduledDate: 'desc' },
+        orderBy: [{ scheduledDate: 'asc' }, { scheduledPickupTime: 'asc' }],
         skip: (page - 1) * limit,
         take: limit,
       }),

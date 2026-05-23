@@ -119,8 +119,9 @@ model Profile {
   reviewedSafetyReports SafetyReport[]      @relation("ReviewedBy")
   notifications         Notification[]
   auditLogs             AuditLog[]
-  driverApplications    DriverApplication[] @relation("ApplicationApplicant")
-  reviewedApplications  DriverApplication[] @relation("ApplicationReviewer")
+  driverApplications    DriverApplication[]            @relation("ApplicationApplicant")
+  reviewedApplications  DriverApplication[]            @relation("ApplicationReviewer")
+  driverAssignmentsMade SubscriptionDriverAssignment[] @relation("AssignedBy")
 
   @@map("profiles")
 }
@@ -212,21 +213,34 @@ model UserSubscription {
   normalizedPickupLabel  String?                @map("normalized_pickup_label") @db.Text
   normalizedDropoffLabel String?                @map("normalized_dropoff_label") @db.Text
   pricePerKmSarSnapshot  Decimal?               @map("price_per_km_sar_snapshot") @db.Decimal(10, 4)
+  // ── Multi-day pricing snapshot (Task 11) ─────────────────────────────────────
+  /// Number of actual service days in the subscription period (weekdays × weeks, minus excluded dates).
+  actualServiceDays         Int?                @map("actual_service_days")
+  /// Per-day chargeable distance (1× or 2× route distance depending on tripDirection).
+  dailyChargeableDistanceKm Decimal?            @map("daily_chargeable_distance_km") @db.Decimal(8, 2)
+  /// totalChargeableDistanceKm = dailyChargeableDistanceKm × actualServiceDays.
+  totalChargeableDistanceKm Decimal?            @map("total_chargeable_distance_km") @db.Decimal(8, 2)
+  // ── Enterprise driver assignment (Task 11E) ───────────────────────────────────
+  /// Currently active assigned driver for this subscription (denormalised for fast trip generation).
+  assignedDriverId          String?             @map("assigned_driver_id")
   createdAt              DateTime               @default(now()) @map("created_at")
   updatedAt              DateTime               @updatedAt @map("updated_at")
   user                   Profile                @relation(fields: [userId], references: [id], onDelete: Cascade)
   rider                  Rider?                 @relation(fields: [riderId], references: [id], onDelete: SetNull)
   package                SubscriptionPackage?   @relation(fields: [packageId], references: [id], onDelete: SetNull)
+  assignedDriver         Driver?                @relation("SubscriptionAssignedDriver", fields: [assignedDriverId], references: [id], onDelete: SetNull)
   schedules              SubscriptionSchedule[]
   trips                  Trip[]
   payments               Payment[]
   addOns                 SubscriptionAddOn[]
   subscriptionRiders     SubscriptionRider[]
+  driverAssignments      SubscriptionDriverAssignment[]
 
   @@index([userId])
   @@index([status])
   @@index([paymentStatus])
   @@index([packageId])
+  @@index([assignedDriverId])
   @@index([createdAt])
   @@map("user_subscriptions")
 }
@@ -268,6 +282,29 @@ model SubscriptionRider {
   @@map("subscription_riders")
 }
 
+/// Records the history of driver assignments for a subscription.
+/// Supports mid-subscription driver changes with effectiveFrom / effectiveTo.
+model SubscriptionDriverAssignment {
+  id             String           @id @default(uuid())
+  subscriptionId String           @map("subscription_id")
+  driverId       String           @map("driver_id")
+  /// Date this assignment takes effect (inclusive). Null = immediately.
+  effectiveFrom  DateTime?        @map("effective_from") @db.Date
+  /// Date this assignment ends (inclusive). Null = open-ended / current assignment.
+  effectiveTo    DateTime?        @map("effective_to") @db.Date
+  assignedBy     String?          @map("assigned_by")
+  notes          String?          @db.Text
+  createdAt      DateTime         @default(now()) @map("created_at")
+  subscription   UserSubscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  driver         Driver           @relation("DriverAssignments", fields: [driverId], references: [id], onDelete: Cascade)
+  assigner       Profile?         @relation("AssignedBy", fields: [assignedBy], references: [id], onDelete: SetNull)
+
+  @@index([subscriptionId])
+  @@index([driverId])
+  @@index([effectiveFrom])
+  @@map("subscription_driver_assignments")
+}
+
 model Vehicle {
   id          String   @id @default(uuid())
   model       String
@@ -292,10 +329,12 @@ model Driver {
   suspensionReason String?          @map("suspension_reason") @db.Text
   createdAt        DateTime         @default(now()) @map("created_at")
   updatedAt        DateTime         @updatedAt @map("updated_at")
-  profile          Profile?         @relation(fields: [profileId], references: [id], onDelete: Cascade)
-  vehicle          Vehicle?         @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
-  trips            Trip[]
-  locations        DriverLocation[]
+  profile               Profile?                       @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  vehicle               Vehicle?                       @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
+  trips                 Trip[]
+  locations             DriverLocation[]
+  assignedSubscriptions UserSubscription[]             @relation("SubscriptionAssignedDriver")
+  driverAssignments     SubscriptionDriverAssignment[] @relation("DriverAssignments")
 
   @@index([profileId])
   @@index([isSuspended])
@@ -315,6 +354,12 @@ model Trip {
   actualDropoffTime    DateTime?           @map("actual_dropoff_time")
   pickupLocation       String              @map("pickup_location") @db.Text
   dropoffLocation      String              @map("dropoff_location") @db.Text
+  /// Pickup coordinates inherited from the subscription's LocationPicker selection (Task 11H).
+  pickupLat            Float?              @map("pickup_lat")
+  pickupLng            Float?              @map("pickup_lng")
+  /// Dropoff coordinates inherited from the subscription's LocationPicker selection (Task 11H).
+  dropoffLat           Float?              @map("dropoff_lat")
+  dropoffLng           Float?              @map("dropoff_lng")
   status               TripStatus          @default(SCHEDULED)
   legType              TripLegType         @default(OUTBOUND) @map("leg_type")
   cancelledBy          String?             @map("cancelled_by")
@@ -397,6 +442,8 @@ model Payment {
   invoiceId          String?             @map("invoice_id")
   paymentId          String?             @map("payment_id")
   idempotencyKey     String?             @unique @map("idempotency_key")
+  /// MyFatoorah hosted payment URL stored at invoice creation — allows "Resume Payment" UX.
+  invoiceUrl         String?             @map("invoice_url") @db.Text
   createdAt          DateTime            @default(now()) @map("created_at")
   updatedAt          DateTime            @updatedAt @map("updated_at")
   user               Profile             @relation(fields: [userId], references: [id], onDelete: Cascade)

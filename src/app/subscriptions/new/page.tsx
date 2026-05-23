@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { AppShell } from '@/components/layout/AppShell';
 import { subscriptionService } from '@/services/subscriptionService';
 import { riderService } from '@/services/riderService';
-import { LocationPicker, type SelectedLocation } from '@/components/location/LocationPicker';
+import { MapLocationPicker, type SelectedLocation } from '@/components/location/MapLocationPicker';
 import {
   Alert,
   Button,
@@ -22,11 +22,20 @@ type Rider = { id: string; name: string; relationship: string; school: string | 
 type TripDirection = 'ONE_WAY' | 'ROUND_TRIP';
 
 type PriceQuote = {
+  // ── Distance ────────────────────────────────────────────────────────────────
+  oneWayDistanceKm: number;
+  dailyChargeableDistanceKm: number;
+  totalChargeableDistanceKm: number;
+  tripDirection: TripDirection;
+  // ── Service days ─────────────────────────────────────────────────────────────
+  weekdays: number[];
+  actualServiceDays: number;
+  serviceStartDate: string;
+  serviceEndDate: string;
+  billingCycle: string;
+  // ── Price breakdown ──────────────────────────────────────────────────────────
   packagePriceSar: number;
   addOnsPriceSar: number;
-  oneWayDistanceKm: number;
-  chargeableDistanceKm: number;
-  tripDirection: TripDirection;
   pricePerKmSar: number;
   distanceChargeSar: number;
   primaryFinalSar: number;
@@ -34,6 +43,7 @@ type PriceQuote = {
   extraRiderSameDropoffMultiplier: number;
   extraRiderChargeSar: number;
   finalPriceSar: number;
+  // ── Meta ─────────────────────────────────────────────────────────────────────
   distanceProvider: string;
   normalizedPickupLabel: string;
   normalizedDropoffLabel: string;
@@ -70,6 +80,8 @@ function makeQuoteKey(
   pickup: SelectedLocation | null,
   dropoff: SelectedLocation | null,
   direction: TripDirection,
+  weekdays: number[],
+  startsOn: string,
 ): string {
   return [
     packageId ?? '',
@@ -78,6 +90,8 @@ function makeQuoteKey(
     pickup ? `${pickup.latitude.toFixed(6)},${pickup.longitude.toFixed(6)}` : '',
     dropoff ? `${dropoff.latitude.toFixed(6)},${dropoff.longitude.toFixed(6)}` : '',
     direction,
+    [...weekdays].sort().join(','),
+    startsOn,
   ].join('|');
 }
 
@@ -140,9 +154,15 @@ function Stepper({ step }: { step: number }) {
   );
 }
 
+// ─── Day-of-week label helper ─────────────────────────────────────────────────
+
+const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
 // ─── Quote breakdown card ─────────────────────────────────────────────────────
 
 function QuoteBreakdown({ quote }: { quote: PriceQuote }) {
+  const dayLabels = quote.weekdays.map((d) => DAY_LABELS[d] ?? d).join(', ');
+
   return (
     <Card className="!bg-emerald-50 !border-emerald-200 space-y-2 text-sm">
       <p className="font-semibold text-emerald-800 text-base mb-3">Price Breakdown</p>
@@ -156,36 +176,62 @@ function QuoteBreakdown({ quote }: { quote: PriceQuote }) {
         </div>
       </div>
 
-      {/* Distance row */}
+      {/* Distance rows */}
       <div className="flex justify-between">
-        <span className="text-gray-600">
-          One-way distance
-        </span>
+        <span className="text-gray-600">One-way distance</span>
         <span className="font-medium">{quote.oneWayDistanceKm} km</span>
       </div>
 
       <div className="flex justify-between">
-        <span className="text-gray-600">
-          Trip direction
-        </span>
+        <span className="text-gray-600">Trip direction</span>
         <span className="font-medium">
           {quote.tripDirection === 'ROUND_TRIP' ? 'Round-trip (×2)' : 'One-way'}
         </span>
       </div>
 
       <div className="flex justify-between">
-        <span className="text-gray-600">Chargeable distance</span>
-        <span className="font-medium">{quote.chargeableDistanceKm} km</span>
+        <span className="text-gray-600">Daily chargeable distance</span>
+        <span className="font-medium">{quote.dailyChargeableDistanceKm} km</span>
       </div>
 
-      <div className="flex justify-between border-t border-emerald-100 pt-2">
-        <span className="text-gray-600">
-          Distance charge
-          <span className="ml-1 text-xs text-gray-400">
-            ({quote.chargeableDistanceKm} km × SAR {quote.pricePerKmSar}/km)
+      {/* Service days */}
+      <div className="border-t border-emerald-100 pt-2 space-y-1.5">
+        <div className="flex justify-between">
+          <span className="text-gray-600">Schedule</span>
+          <span className="font-medium text-right">{dayLabels}</span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-gray-600">Service period</span>
+          <span className="font-medium text-xs text-right">
+            {quote.serviceStartDate} → {quote.serviceEndDate}
           </span>
-        </span>
-        <span className="font-medium">SAR {quote.distanceChargeSar.toFixed(2)}</span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-gray-600 font-medium">Service days</span>
+          <span className="font-bold text-emerald-700">{quote.actualServiceDays} days</span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-gray-600">Total chargeable distance</span>
+          <span className="font-medium">
+            {quote.totalChargeableDistanceKm} km
+            <span className="ml-1 text-xs text-gray-400">
+              ({quote.dailyChargeableDistanceKm} × {quote.actualServiceDays})
+            </span>
+          </span>
+        </div>
+      </div>
+
+      {/* Price rows */}
+      <div className="border-t border-emerald-100 pt-2">
+        <div className="flex justify-between">
+          <span className="text-gray-600">
+            Distance charge
+            <span className="ml-1 text-xs text-gray-400">
+              ({quote.totalChargeableDistanceKm} km × SAR {quote.pricePerKmSar}/km)
+            </span>
+          </span>
+          <span className="font-medium">SAR {quote.distanceChargeSar.toFixed(2)}</span>
+        </div>
       </div>
 
       {quote.packagePriceSar > 0 && (
@@ -222,7 +268,7 @@ function QuoteBreakdown({ quote }: { quote: PriceQuote }) {
       )}
 
       <div className="border-t border-emerald-200 pt-2 flex justify-between font-bold text-base">
-        <span className="text-emerald-800">Total</span>
+        <span className="text-emerald-800">Total ({quote.billingCycle})</span>
         <span className="text-emerald-700">SAR {quote.finalPriceSar.toFixed(2)}</span>
       </div>
 
@@ -294,6 +340,8 @@ export default function NewSubscriptionPage() {
     pickupLocation,
     dropoffLocation,
     tripDirection,
+    weekdays,
+    startsOn,
   );
 
   useEffect(() => {
@@ -347,6 +395,8 @@ export default function NewSubscriptionPage() {
           },
           tripDirection,
           riderIds: selectedRiderIds,
+          weekdays,
+          startsOn: startsOn || undefined,
         }),
       });
 
@@ -365,7 +415,7 @@ export default function NewSubscriptionPage() {
     }
   }, [
     pickupLocation, dropoffLocation, selectedRiderIds, selectedPackageId,
-    selectedAddOnIds, tripDirection, currentQuoteKey,
+    selectedAddOnIds, tripDirection, weekdays, startsOn, currentQuoteKey,
   ]);
 
   // ── Form helpers ──
@@ -703,7 +753,7 @@ export default function NewSubscriptionPage() {
       </div>
 
       {/* Location pickers */}
-      <LocationPicker
+      <MapLocationPicker
         label="Pickup Location"
         value={pickupLocation}
         onChange={setPickupLocation}
@@ -711,7 +761,7 @@ export default function NewSubscriptionPage() {
         required
       />
 
-      <LocationPicker
+      <MapLocationPicker
         label="Drop-off Location"
         value={dropoffLocation}
         onChange={setDropoffLocation}

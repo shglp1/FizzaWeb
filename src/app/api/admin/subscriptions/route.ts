@@ -82,6 +82,8 @@ export async function GET(req: NextRequest) {
           package: { select: { id: true, name: true, billingCycle: true } },
           addOns: { select: { addOn: { select: { id: true, name: true } } } },
           subscriptionRiders: { select: { rider: { select: { id: true, name: true } }, isPrimary: true } },
+          assignedDriverId: true,
+          assignedDriver: { select: { id: true, profile: { select: { fullName: true, phone: true } }, vehicle: { select: { model: true, plateNumber: true } } } },
           _count: { select: { trips: true } },
         },
         skip,

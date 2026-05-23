@@ -115,6 +115,16 @@ export const adminSubscriptionService = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ reason }),
     }),
+  /** List non-suspended drivers with conflict info for a specific subscription. */
+  listAvailableDrivers: (subscriptionId: string) =>
+    apiFetch<unknown[]>(`/api/admin/subscriptions/${subscriptionId}/available-drivers`),
+  /** Assign (or reassign) a driver to a subscription. */
+  assignDriver: (subscriptionId: string, data: { driverId: string; effectiveFrom?: string; notes?: string }) =>
+    apiFetch<unknown>(`/api/admin/subscriptions/${subscriptionId}/assign-driver`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    }),
 };
 
 // ─── Financials ───────────────────────────────────────────────────────────────
