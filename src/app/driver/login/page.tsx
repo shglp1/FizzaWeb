@@ -1,16 +1,15 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { Logo } from '@/components/layout/Logo';
 import { Button, Input, Alert } from '@/components/ui';
 import { authService } from '@/services/authService';
+import { isSafeReturnTo, resolveDriverLoginRedirect } from '@/lib/driverAuthFlow';
 
 type FormValues = { email: string; password: string };
 
 export default function DriverLoginPage() {
-  const router = useRouter();
   const [serverError, setServerError] = useState('');
   const [redirecting, setRedirecting] = useState(false);
 
@@ -30,24 +29,29 @@ export default function DriverLoginPage() {
 
     setRedirecting(true);
     try {
-      // Single /api/me call — driverState encodes role + application status,
-      // so no separate /api/driver-application fetch is needed here.
-      const meRes = await fetch('/api/me').then((r) => r.json() as Promise<{ data?: { driverState?: string } }>);
-      const driverState = meRes.data?.driverState ?? 'PARENT';
+      const returnTo =
+        typeof window !== 'undefined'
+          ? new URLSearchParams(window.location.search).get('returnTo')
+          : null;
 
-      if (driverState === 'APPROVED_DRIVER') {
-        router.push('/driver/dashboard');
-        return;
-      }
-      if (driverState === 'ADMIN') {
-        // Edge case: admin signed in via driver login
-        router.push('/admin');
-        return;
-      }
-      // APPLICANT or PARENT (no application yet) → driver-application page
-      router.push('/driver-application');
+      const meRes = await fetch('/api/me').then(
+        (r) => r.json() as Promise<{ data?: { driverState?: string } }>,
+      );
+      const driverState = (meRes.data?.driverState ?? 'PARENT') as
+        | 'PARENT'
+        | 'DRIVER_APPLICANT'
+        | 'APPROVED_DRIVER'
+        | 'ADMIN';
+
+      window.location.href = resolveDriverLoginRedirect(returnTo, driverState);
     } catch {
-      router.push('/driver-application');
+      const returnTo =
+        typeof window !== 'undefined'
+          ? new URLSearchParams(window.location.search).get('returnTo')
+          : null;
+      window.location.href = isSafeReturnTo(returnTo)
+        ? returnTo
+        : '/driver-application';
     }
   };
 

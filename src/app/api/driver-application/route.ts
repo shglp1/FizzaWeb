@@ -35,6 +35,23 @@ export async function POST(req: Request) {
     const auth = await requireAuth();
     if (auth instanceof NextResponse) return auth;
 
+    const profile = await prisma.profile.findUnique({
+      where: { id: auth.userId },
+      select: { registrationSource: true },
+    });
+    if (profile?.registrationSource !== 'DRIVER_PORTAL') {
+      return NextResponse.json(
+        {
+          data: null,
+          error: {
+            message:
+              'Driver applications must be submitted through the Driver Portal (/drive).',
+          },
+        },
+        { status: 403 },
+      );
+    }
+
     // Prevent duplicate active applications
     const existing = await prisma.driverApplication.findFirst({
       where: {

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { registerSchema } from '@/lib/validations/auth';
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rateLimit';
+import { setSessionCookie } from '@/lib/session';
 import bcrypt from 'bcryptjs';
 
 export async function POST(req: Request) {
@@ -42,8 +43,11 @@ export async function POST(req: Request) {
       return user;
     });
 
+    // Authenticate immediately — same session cookie as login
+    await setSessionCookie(result.id, result.role);
+
     return NextResponse.json({
-      data: { user: { id: result.id, email: result.email } },
+      data: { user: { id: result.id, email: result.email, role: result.role } },
       error: null,
     });
   } catch (error: unknown) {

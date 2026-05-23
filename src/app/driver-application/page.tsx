@@ -9,6 +9,7 @@ import {
 } from '@/components/ui';
 import { driverApplicationService } from '@/services/driverApplicationService';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
+import { DRIVER_APPLICATION_LOGIN_PATH } from '@/lib/driverAuthFlow';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -113,6 +114,39 @@ function StatusTracker({ status }: { status: AppStatus }) {
   );
 }
 
+// ─── Sign-in required (unauthenticated) ───────────────────────────────────────
+
+function SignInRequiredCard() {
+  return (
+    <div className="min-h-screen bg-fizza-bg flex flex-col items-center justify-center px-4 py-12">
+      <div className="max-w-md w-full text-center card-md p-8">
+        <div className="inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-amber-50 text-3xl mb-5">
+          🔐
+        </div>
+        <h1 className="text-xl font-bold text-gray-900 mb-2">Sign in to continue</h1>
+        <p className="text-sm text-gray-500 mb-6 leading-relaxed">
+          You need a driver account to submit an application. Sign in or create an account
+          through the Driver Portal.
+        </p>
+        <div className="flex flex-col sm:flex-row gap-3 justify-center">
+          <a
+            href={DRIVER_APPLICATION_LOGIN_PATH}
+            className="inline-flex items-center justify-center rounded-xl bg-fizza-primary px-6 py-3 text-sm font-bold text-white hover:bg-emerald-800 transition-colors"
+          >
+            Sign in
+          </a>
+          <a
+            href="/driver/register"
+            className="inline-flex items-center justify-center rounded-xl border border-gray-200 bg-white px-6 py-3 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
+          >
+            Create account
+          </a>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Family-account forbidden card ───────────────────────────────────────────
 // Shown when a normal PARENT/FAMILY account (not created via the driver portal)
 // manually navigates to /driver-application.  Driver applications are only
@@ -193,7 +227,7 @@ function ApprovedCard() {
 
 export default function DriverApplicationPage() {
   const router = useRouter();
-  const { user, loading: userLoading } = useCurrentUser();
+  const { user, loading: userLoading, isAuthenticated, isUnauthorized } = useCurrentUser();
   const [application, setApplication] = useState<Application | null>(null);
   const [loading, setLoading]           = useState(true);
   const [selectedType, setSelectedType] = useState<VehicleType | null>(null);
@@ -204,8 +238,16 @@ export default function DriverApplicationPage() {
   const { register, handleSubmit, reset, formState: { errors } } = useForm<FormValues>();
 
   const loadApplication = () => {
+    setLoading(true);
     driverApplicationService.get().then((res) => {
-      const app: Application | null = res.data?.application ?? null;
+      if (res.unauthorized) {
+        setApplication(null);
+        setLoading(false);
+        router.replace(DRIVER_APPLICATION_LOGIN_PATH);
+        return;
+      }
+      const data = res.data as { application?: Application | null } | undefined;
+      const app: Application | null = data?.application ?? null;
       setApplication(app);
       if (app) {
         setSelectedType(app.vehicleType);
@@ -231,9 +273,21 @@ export default function DriverApplicationPage() {
   };
 
   useEffect(() => {
+    if (userLoading) return;
+    if (!isAuthenticated) {
+      setLoading(false);
+      return;
+    }
     loadApplication();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [userLoading, isAuthenticated]);
+
+  // Redirect unauthenticated users before they see the form
+  useEffect(() => {
+    if (!userLoading && isUnauthorized) {
+      router.replace(DRIVER_APPLICATION_LOGIN_PATH);
+    }
+  }, [userLoading, isUnauthorized, router]);
 
   // Redirect approved drivers to their dashboard (middleware handles server-side;
   // this is a belt-and-suspenders client guard)
@@ -273,7 +327,13 @@ export default function DriverApplicationPage() {
       const res = application
         ? await driverApplicationService.resubmit(payload)
         : await driverApplicationService.submit(payload);
-      if (res.data?.application) {
+      if (res.unauthorized) {
+        setFormError('Your session expired. Please sign in again.');
+        router.push(DRIVER_APPLICATION_LOGIN_PATH);
+        return;
+      }
+      const data = res.data as { application?: Application } | undefined;
+      if (data?.application) {
         setFormSuccess('Application submitted successfully. We will review it shortly.');
         loadApplication();
       } else {
@@ -286,6 +346,11 @@ export default function DriverApplicationPage() {
     }
   };
 
+  // Unauthenticated — no form, no parent sidebar
+  if (!userLoading && !isAuthenticated) {
+    return <SignInRequiredCard />;
+  }
+
   // Show loading while either user state or application is being fetched
   if (loading || userLoading) {
     return <AppShell><LoadingState message="Loading your application…" /></AppShell>;
@@ -295,7 +360,6 @@ export default function DriverApplicationPage() {
   const status = application?.status;
 
   // Normal PARENT/FAMILY account — must NOT access driver application
-  // This is the client-side guard; /api/driver-application also enforces server-side
   if (driverState === 'PARENT') {
     return <AppShell><ForbiddenCard /></AppShell>;
   }

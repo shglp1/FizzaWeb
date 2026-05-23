@@ -1,6 +1,19 @@
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
-import { verifyToken, SESSION_COOKIE, type SessionPayload } from './auth';
+import {
+  signToken,
+  verifyToken,
+  SESSION_COOKIE,
+  SESSION_COOKIE_OPTIONS,
+  type SessionPayload,
+} from './auth';
+
+/** Issue JWT and set the httpOnly session cookie (same as login). */
+export async function setSessionCookie(userId: string, role: string): Promise<void> {
+  const token = await signToken(userId, role);
+  const cookieStore = await cookies();
+  cookieStore.set(SESSION_COOKIE, token, SESSION_COOKIE_OPTIONS);
+}
 
 export async function getCurrentUser(): Promise<SessionPayload | null> {
   const cookieStore = await cookies();
