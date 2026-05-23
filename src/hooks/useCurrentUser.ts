@@ -3,24 +3,13 @@
 /**
  * useCurrentUser — lightweight client hook for session/user state.
  *
- * Design:
- *   - Fetches GET /api/me once per page lifecycle using a module-level
- *     Promise singleton, so multiple consumers (Sidebar, MobileNav, …)
- *     share a single HTTP request even though each has its own React state.
- *   - `refetch()` forces a new request and notifies all active instances.
- *   - No React Context or Provider required; the deduplication lives in the
- *     module scope instead.
- *
- * This replaces the old two-call pattern:
- *   1) fetch('/api/me')              → role
- *   2) fetch('/api/driver-application') → application status
- * …with a single call whose response already contains `driverState`.
+ * - Module-level Promise deduplication for concurrent consumers
+ * - Module-level cached user so route transitions do not flash wrong nav
+ * - clearCurrentUserCache() on login/register/logout
  */
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useSyncExternalStore } from 'react';
 import type { DriverState } from '@/lib/roleRoutes';
-
-// ─── Types ────────────────────────────────────────────────────────────────────
 
 export type { DriverState };
 
@@ -38,40 +27,80 @@ export interface CurrentUser {
     adminResponse?: string | null;
     updatedAt?: string;
   } | null;
-  /** Computed UX state — use this to select navigation and chips. */
   driverState: DriverState;
 }
 
-// ─── Module-level request deduplication ──────────────────────────────────────
-// When the first component calls load(), a Promise is stored here.
-// Subsequent calls within the same page lifecycle reuse the same Promise
-// (i.e., zero extra HTTP requests). refetch() replaces it with a fresh one.
+type MeResult = { user: CurrentUser | null; status: number };
 
-let _sharedPromise: Promise<{ user: CurrentUser | null; status: number }> | null = null;
+let _sharedPromise: Promise<MeResult> | null = null;
+let _cachedUser: CurrentUser | null = null;
+let _cachedStatus: number | null = null;
+let _cacheEpoch = 0;
+const _listeners = new Set<() => void>();
 
-async function doFetch(): Promise<{ user: CurrentUser | null; status: number }> {
+function notifyListeners() {
+  _listeners.forEach((l) => l());
+}
+
+async function doFetch(): Promise<MeResult> {
   const res = await fetch('/api/me');
   if (!res.ok) return { user: null, status: res.status };
   const json = (await res.json()) as { data?: CurrentUser };
   return { user: json.data ?? null, status: res.status };
 }
 
-function getOrStartFetch(force?: boolean): Promise<{ user: CurrentUser | null; status: number }> {
+function getOrStartFetch(force?: boolean): Promise<MeResult> {
   if (force || !_sharedPromise) {
-    _sharedPromise = doFetch();
+    _sharedPromise = doFetch().then((result) => {
+      _cachedUser = result.user;
+      _cachedStatus = result.status;
+      notifyListeners();
+      return result;
+    });
   }
   return _sharedPromise;
 }
 
-// ─── Hook ─────────────────────────────────────────────────────────────────────
+/** Clear cached /api/me state — call after login, register, or logout. */
+export function clearCurrentUserCache(): void {
+  _sharedPromise = null;
+  _cachedUser = null;
+  _cachedStatus = null;
+  _cacheEpoch += 1;
+  notifyListeners();
+}
+
+/** Alias for clearCurrentUserCache — forces the next hook mount to refetch. */
+export function refetchCurrentUser(): void {
+  clearCurrentUserCache();
+}
+
+function subscribe(listener: () => void): () => void {
+  _listeners.add(listener);
+  return () => _listeners.delete(listener);
+}
+
+function getSnapshot(): number {
+  return _cacheEpoch;
+}
 
 export function useCurrentUser() {
-  const [user,    setUser]    = useState<CurrentUser | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error,   setError]   = useState<string | null>(null);
-  const [status,  setStatus]  = useState<number | null>(null);
+  useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+
+  const [user, setUser] = useState<CurrentUser | null>(_cachedUser);
+  const [loading, setLoading] = useState(_cachedUser === null);
+  const [error, setError] = useState<string | null>(null);
+  const [status, setStatus] = useState<number | null>(_cachedStatus);
 
   const load = useCallback((force?: boolean) => {
+    if (!force && _cachedUser) {
+      setUser(_cachedUser);
+      setStatus(_cachedStatus);
+      setLoading(false);
+      setError(null);
+      return;
+    }
+
     setLoading(true);
     setError(null);
     getOrStartFetch(force)
@@ -91,8 +120,27 @@ export function useCurrentUser() {
     load();
   }, [load]);
 
-  /** Force a new /api/me request and update all hook instances. */
+  useEffect(() => {
+    const onCacheChange = () => {
+      if (_cachedUser === null && _sharedPromise === null) {
+        setUser(null);
+        setStatus(null);
+        setLoading(true);
+        load(true);
+        return;
+      }
+      setUser(_cachedUser);
+      setStatus(_cachedStatus);
+      if (_cachedUser !== null) setLoading(false);
+    };
+    _listeners.add(onCacheChange);
+    return () => {
+      _listeners.delete(onCacheChange);
+    };
+  }, [load]);
+
   const refetch = useCallback(() => {
+    clearCurrentUserCache();
     load(true);
   }, [load]);
 
