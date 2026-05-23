@@ -31,7 +31,7 @@ type Trip = {
   vehicle: { model: string; plateNumber: string; color: string } | null;
 };
 
-type TabKey = 'today' | 'upcoming' | 'active' | 'completed' | 'cancelled';
+type TabKey = 'today' | 'tomorrow' | 'upcoming' | 'active' | 'completed' | 'cancelled';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -122,6 +122,19 @@ function ActiveTripPanel({
   const nextStatus = NEXT_STATUS[status];
   const actionLabel = ACTION_LABEL[status];
   const canNoShow = status === 'ARRIVED_PICKUP';
+  const canReportRiderLate = status === 'ARRIVED_PICKUP';
+
+  async function handleReportRiderLate() {
+    setUpdating(true);
+    setUpdateError('');
+    const res = await tripService.reportLate(trip.id, 'RIDER', 'Rider not ready at pickup');
+    setUpdating(false);
+    if (res.error) {
+      setUpdateError(res.error.message ?? 'Failed to report rider late.');
+    } else {
+      onStatusUpdate();
+    }
+  }
 
   async function handleAdvance() {
     if (!nextStatus) return;
@@ -137,9 +150,14 @@ function ActiveTripPanel({
   }
 
   async function handleNoShow() {
+    const reason = window.prompt('No-show reason (required):');
+    if (!reason?.trim()) {
+      setUpdateError('No-show requires a reason.');
+      return;
+    }
     setUpdating(true);
     setUpdateError('');
-    const res = await tripService.updateStatus(trip.id, 'NO_SHOW');
+    const res = await tripService.updateStatus(trip.id, 'NO_SHOW', { statusReason: reason.trim() });
     setUpdating(false);
     if (res.error) {
       setUpdateError(res.error.message ?? 'Failed to update status.');
@@ -210,6 +228,11 @@ function ActiveTripPanel({
         {actionLabel && nextStatus && (
           <Button variant="primary" size="sm" loading={updating} onClick={handleAdvance}>
             {actionLabel}
+          </Button>
+        )}
+        {canReportRiderLate && (
+          <Button variant="outline" size="sm" loading={updating} onClick={handleReportRiderLate}>
+            Rider Late
           </Button>
         )}
         {canNoShow && (
@@ -349,22 +372,44 @@ export default function DriverTripsPage() {
   const [pageError, setPageError] = useState('');
   const [activeTab, setActiveTab] = useState<TabKey>('today');
 
-  const today = new Date().toISOString().split('T')[0]!;
+  const [totalCount, setTotalCount] = useState(0);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
 
-  const loadTrips = useCallback(async () => {
-    const res = await tripService.list();
+  const today = new Date().toISOString().split('T')[0]!;
+  const tomorrowDate = (() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    return d.toISOString().split('T')[0]!;
+  })();
+
+  const loadTrips = useCallback(async (pageNum = 1, append = false) => {
+    const from = activeTab === 'today' ? today : activeTab === 'tomorrow' ? tomorrowDate : undefined;
+    const to = activeTab === 'today' ? today : activeTab === 'tomorrow' ? tomorrowDate : undefined;
+    const res = await tripService.list({
+      status: activeTab === 'upcoming' ? 'upcoming' : activeTab === 'active' ? 'active' : activeTab === 'completed' ? 'completed' : activeTab === 'cancelled' ? 'cancelled' : undefined,
+      from,
+      to,
+      page: pageNum,
+      limit: 50,
+    });
     if (res.data) {
-      setTrips(Array.isArray(res.data) ? (res.data as Trip[]) : []);
+      const list = Array.isArray(res.data) ? (res.data as Trip[]) : [];
+      setTrips(append ? (prev) => [...prev, ...list] : list);
+      const meta = res.meta as { total?: number; page?: number; totalPages?: number } | undefined;
+      if (meta?.total != null) setTotalCount(meta.total);
+      setHasMore((meta?.page ?? 1) < (meta?.totalPages ?? 1));
     } else {
       setPageError(res.error?.message ?? 'Failed to load trips.');
     }
     setLoading(false);
-  }, []);
+  }, [activeTab, today, tomorrowDate]);
 
-  useEffect(() => { loadTrips(); }, [loadTrips]);
+  useEffect(() => { setLoading(true); setPage(1); loadTrips(1, false); }, [loadTrips]);
 
   // Categorised views
   const todayTrips    = trips.filter((t) => t.scheduledDate.startsWith(today));
+  const tomorrowTrips = trips.filter((t) => t.scheduledDate.startsWith(tomorrowDate));
   const activeTrips   = trips.filter((t) => ACTIVE_STATUSES.has(t.status));
   const upcomingTrips = trips.filter((t) => UPCOMING_STATUSES.has(t.status));
   const completedTrips= trips.filter((t) => t.status === 'COMPLETED');
@@ -384,6 +429,7 @@ export default function DriverTripsPage() {
   function tabTrips(): Trip[] {
     switch (activeTab) {
       case 'today':     return todayTrips;
+      case 'tomorrow':  return tomorrowTrips;
       case 'upcoming':  return upcomingTrips;
       case 'active':    return activeTrips;
       case 'completed': return completedTrips;
@@ -398,6 +444,7 @@ export default function DriverTripsPage() {
 
   const tabs = [
     { label: 'Today',     value: 'today',     count: todayTrips.length },
+    { label: 'Tomorrow',  value: 'tomorrow',  count: tomorrowTrips.length },
     { label: 'Upcoming',  value: 'upcoming',  count: upcomingTrips.length },
     { label: 'Active',    value: 'active',    count: activeTrips.length },
     { label: 'Completed', value: 'completed', count: completedTrips.length },
@@ -465,6 +512,15 @@ export default function DriverTripsPage() {
             activeTab={activeTab}
             onChange={(v) => setActiveTab(v as TabKey)}
           />
+
+          <p className="text-xs text-gray-500">
+            Showing {displayTrips.length} of {totalCount || trips.length} trips
+          </p>
+          {hasMore && (
+            <Button variant="outline" size="sm" onClick={() => { const n = page + 1; setPage(n); loadTrips(n, true); }}>
+              Load more
+            </Button>
+          )}
 
           {/* Trip List */}
           {displayTrips.length === 0 ? (

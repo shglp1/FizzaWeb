@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireRole } from '@/lib/session';
 import { driverAssignSchema } from '@/lib/validations/trip';
+import { notifyDriverAssigned } from '@/lib/trips/tripNotifications';
 
 function getIp(req: Request): string | null {
   return (
@@ -89,36 +90,6 @@ export async function PATCH(
         },
       });
 
-      // Notify the subscription owner
-      if (trip.subscriptionId) {
-        const sub = await tx.userSubscription.findUnique({
-          where: { id: trip.subscriptionId },
-          select: { userId: true },
-        });
-        if (sub) {
-          await tx.notification.create({
-            data: {
-              userId: sub.userId,
-              title: 'Driver Assigned',
-              message: `${driver.profile?.fullName ?? 'A driver'} has been assigned to your trip on ${new Date(trip.scheduledDate).toLocaleDateString()}.`,
-              type: 'TRIP',
-            },
-          });
-        }
-      }
-
-      // Notify the driver
-      if (driver.profile?.id) {
-        await tx.notification.create({
-          data: {
-            userId: driver.profile.id,
-            title: 'New Trip Assigned',
-            message: `You have been assigned a trip scheduled for ${new Date(trip.scheduledDate).toLocaleDateString()}.`,
-            type: 'TRIP',
-          },
-        });
-      }
-
       await tx.auditLog.create({
         data: {
           userId: auth.userId,
@@ -129,6 +100,21 @@ export async function PATCH(
       });
 
       return t;
+    });
+
+    let parentUserId: string | null = null;
+    if (trip.subscriptionId) {
+      const sub = await prisma.userSubscription.findUnique({
+        where: { id: trip.subscriptionId },
+        select: { userId: true },
+      });
+      parentUserId = sub?.userId ?? null;
+    }
+    await notifyDriverAssigned({
+      tripId: id,
+      parentUserId,
+      driverProfileId: driver.profile?.id ?? null,
+      driverFullName: driver.profile?.fullName ?? 'Driver',
     });
 
     return NextResponse.json({ data: updated, error: null });

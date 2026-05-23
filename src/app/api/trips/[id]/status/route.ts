@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireAuth } from '@/lib/session';
 import { z } from 'zod';
-import { isValidTransition, isChatWindowOpen, haversineMetres } from '@/lib/trips/tripLifecycle';
+import { isValidTransition, isChatWindowOpen, haversineMetres, DRIVER_TRANSITIONS } from '@/lib/trips/tripLifecycle';
 import {
   notifyArrivedPickup,
   notifyRiderPickedUp,
@@ -10,6 +10,9 @@ import {
   notifyCompleted,
   notifyCancelled,
   notifyLocationSharingStarted,
+  notifyLocationSharingStopped,
+  notifyChatOpened,
+  notifyChatClosed,
   notifyNearPickup,
   notifyNearDropoff,
   recordStatusChange,
@@ -89,12 +92,31 @@ export async function PATCH(
       }, { status: 422 });
     }
 
+    if (auth.role === 'ADMIN') {
+      const driverAllowed = DRIVER_TRANSITIONS[trip.status as TripStatus] ?? [];
+      const isAdminOverride = !driverAllowed.includes(newStatus as TripStatus);
+      if (isAdminOverride && !statusReason?.trim()) {
+        return NextResponse.json({
+          data: null,
+          error: { message: 'Admin override requires statusReason' },
+        }, { status: 422 });
+      }
+    }
+
+    if (newStatus === 'NO_SHOW' && !statusReason?.trim()) {
+      return NextResponse.json({
+        data: null,
+        error: { message: 'No-show requires statusReason' },
+      }, { status: 422 });
+    }
+
     // Determine if chat should open
     const parentUserId = trip.subscription?.userId ?? trip.rider?.parentId ?? null;
+    const driverProfileId = trip.driver?.profileId ?? null;
+    const notifInput = { tripId: id, parentUserId, driverProfileId };
     const shouldOpenChat = !trip.chatOpenedAt &&
       isChatWindowOpen(trip.scheduledPickupTime, newStatus as TripStatus, trip.chatOpenedAt, trip.chatClosedAt);
 
-    // Build update data
     const now = new Date();
     const updateData: Record<string, unknown> = {
       status: newStatus,
@@ -103,33 +125,28 @@ export async function PATCH(
     if (shouldOpenChat) updateData.chatOpenedAt = now;
     if (newStatus === 'PICKED_UP') updateData.actualPickupTime = now;
     if (newStatus === 'COMPLETED') updateData.actualDropoffTime = now;
-    if (newStatus === 'CANCELLED' || newStatus === 'NO_SHOW') {
-      updateData.chatClosedAt = now;
-    }
 
     await prisma.trip.update({ where: { id }, data: updateData });
 
-    const driverProfileId = trip.driver?.profileId ?? null;
-    const notifInput = { tripId: id, parentUserId, driverProfileId };
+    if (shouldOpenChat) await notifyChatOpened(notifInput);
 
-    // Record status change
     await recordStatusChange(id, auth.userId, auth.role, trip.status, newStatus);
 
-    // Trigger notifications
     const statusNow = newStatus as TripStatus;
     if (statusNow === 'PRE_TRIP' || statusNow === 'ON_THE_WAY') {
       await notifyLocationSharingStarted(notifInput);
     } else if (statusNow === 'ARRIVED_PICKUP') {
       await notifyArrivedPickup(notifInput);
-      // Geofence: near-pickup already happened if driver is very close
     } else if (statusNow === 'PICKED_UP') {
       await notifyRiderPickedUp(notifInput);
     } else if (statusNow === 'ARRIVED_DROPOFF') {
       await notifyArrivedDropoff(notifInput);
     } else if (statusNow === 'COMPLETED') {
       await notifyCompleted(notifInput);
+      await notifyLocationSharingStopped({ ...notifInput, reason: 'Trip completed' });
     } else if (statusNow === 'CANCELLED' || statusNow === 'NO_SHOW') {
       await notifyCancelled({ ...notifInput, reason: statusReason, cancelledByRole: auth.role });
+      await notifyLocationSharingStopped({ ...notifInput, reason: statusReason ?? statusNow });
     }
 
     // Geofence proximity check (if coordinates provided)

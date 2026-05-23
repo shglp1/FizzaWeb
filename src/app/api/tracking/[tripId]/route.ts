@@ -6,6 +6,8 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireAuth } from '@/lib/session';
+import { isParentLocationVisible } from '@/lib/trips/tripLifecycle';
+import type { TripStatus } from '@/lib/trips/tripLifecycle';
 
 export async function GET(
   _req: Request,
@@ -36,6 +38,8 @@ export async function GET(
         },
         vehicle: { select: { model: true, plateNumber: true, color: true } },
         subscription: { select: { userId: true } },
+        riderId: true,
+        updatedAt: true,
         events: {
           select: { id: true, eventType: true, message: true, actorRole: true, createdAt: true },
           orderBy: { createdAt: 'asc' as const },
@@ -50,49 +54,49 @@ export async function GET(
     // Access control
     if (auth.role !== 'ADMIN') {
       if (auth.role === 'DRIVER') {
-        if (trip.driver?.profile == null) {
-          // driver not assigned or can't verify — look up by driver.profileId
-          const driver = await prisma.driver.findFirst({
-            where: { profileId: auth.userId },
-            select: { id: true },
-          });
-          const thisTrip = await prisma.trip.findFirst({
-            where: { id: tripId, driverId: driver?.id ?? '' },
-            select: { id: true },
-          });
-          if (!thisTrip) return NextResponse.json({ data: null, error: { message: 'Forbidden' } }, { status: 403 });
+        const driver = await prisma.driver.findFirst({
+          where: { profileId: auth.userId },
+          select: { id: true },
+        });
+        const assigned = await prisma.trip.findFirst({
+          where: { id: tripId, driverId: driver?.id ?? '' },
+          select: { id: true },
+        });
+        if (!assigned) {
+          return NextResponse.json({ data: null, error: { message: 'Forbidden' } }, { status: 403 });
         }
       } else {
-        // Parent access
         const parentId = trip.subscription?.userId ?? null;
-        if (parentId !== auth.userId) {
-          // Also check rider parent
-          const riderId = (trip as { riderId?: string | null }).riderId ?? null;
-          if (riderId) {
-            const rider = await prisma.rider.findFirst({
-              where: { id: riderId, parentId: auth.userId },
-              select: { id: true },
-            });
-            if (!rider) return NextResponse.json({ data: null, error: { message: 'Forbidden' } }, { status: 403 });
-          } else {
-            return NextResponse.json({ data: null, error: { message: 'Forbidden' } }, { status: 403 });
-          }
+        let isParent = parentId === auth.userId;
+        if (!isParent && trip.riderId) {
+          const rider = await prisma.rider.findFirst({
+            where: { id: trip.riderId, parentId: auth.userId },
+            select: { id: true },
+          });
+          isParent = !!rider;
+        }
+        if (!isParent) {
+          return NextResponse.json({ data: null, error: { message: 'Forbidden' } }, { status: 403 });
         }
       }
     }
 
-    // Fetch latest driver location (most recent for this trip or by driver)
-    const latestLocation = trip.driver
+    const parentCanSeeLocation =
+      auth.role === 'ADMIN' ||
+      auth.role === 'DRIVER' ||
+      isParentLocationVisible(trip.status as TripStatus, trip.scheduledPickupTime);
+
+    let latestLocation = trip.driver
       ? await prisma.driverLocation.findFirst({
           where: { tripId },
           orderBy: { recordedAt: 'desc' },
           select: { lat: true, lng: true, recordedAt: true },
-        }) ?? await prisma.driverLocation.findFirst({
-          where: { driver: { profile: { id: trip.driver.profile?.fullName ? undefined : undefined } } },
-          orderBy: { recordedAt: 'desc' },
-          select: { lat: true, lng: true, recordedAt: true },
         })
       : null;
+
+    if (!parentCanSeeLocation) {
+      latestLocation = null;
+    }
 
     // Determine if GPS is stale (> 60 seconds old)
     const gpsStale = latestLocation

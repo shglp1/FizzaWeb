@@ -134,6 +134,8 @@ model Profile {
   driverApplications    DriverApplication[]            @relation("ApplicationApplicant")
   reviewedApplications  DriverApplication[]            @relation("ApplicationReviewer")
   driverAssignmentsMade SubscriptionDriverAssignment[] @relation("AssignedBy")
+  chatBlocksReceived    ChatBlock[]                    @relation("ChatBlockUser")
+  chatBlocksIssued      ChatBlock[]                    @relation("ChatBlockAdmin")
 
   @@map("profiles")
 }
@@ -347,6 +349,7 @@ model Driver {
   locations             DriverLocation[]
   assignedSubscriptions UserSubscription[]             @relation("SubscriptionAssignedDriver")
   driverAssignments     SubscriptionDriverAssignment[] @relation("DriverAssignments")
+  chatBlocks            ChatBlock[]
 
   @@index([profileId])
   @@index([isSuspended])
@@ -660,4 +663,28 @@ model TripChatMessage {
   @@index([moderationStatus])
   @@index([createdAt])
   @@map("trip_chat_messages")
+}
+
+/// Admin-imposed chat restriction for safety/moderation.
+model ChatBlock {
+  id               String    @id @default(cuid())
+  userId           String?   @map("user_id")
+  driverId         String?   @map("driver_id")
+  /// USER | DRIVER | GLOBAL
+  targetType       String    @map("target_type")
+  reason           String    @db.Text
+  blockedByAdminId String    @map("blocked_by_admin_id")
+  startsAt         DateTime  @default(now()) @map("starts_at")
+  endsAt           DateTime? @map("ends_at")
+  active           Boolean   @default(true)
+  createdAt        DateTime  @default(now()) @map("created_at")
+  user             Profile?  @relation("ChatBlockUser", fields: [userId], references: [id], onDelete: SetNull)
+  driver           Driver?   @relation(fields: [driverId], references: [id], onDelete: SetNull)
+  blockedBy        Profile   @relation("ChatBlockAdmin", fields: [blockedByAdminId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([driverId])
+  @@index([active])
+  @@index([targetType])
+  @@map("chat_blocks")
 }

@@ -25,6 +25,7 @@ import { SubscriptionsSection } from './sections/SubscriptionsSection';
 import { FinancialsSection } from './sections/FinancialsSection';
 import { SystemConfigSection } from './sections/SystemConfigSection';
 import { PackagesSection } from './sections/PackagesSection';
+import { TripOperationsBoard } from './sections/TripOperationsBoard';
 import { AuditLogsSection } from './sections/AuditLogsSection';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -633,6 +634,128 @@ function TripCard({
   );
 }
 
+type OpsOverview = {
+  today: {
+    total: number; active: number; unassigned: number; completed: number;
+    cancelled: number; noShow: number; gpsStale: number; chatFlagged: number;
+  };
+  driverCount: number;
+  driverWorkload: {
+    driverId: string; fullName: string; tripsToday: number;
+    activeTrip: { id: string; status: string } | null;
+    completedToday: number;
+  }[];
+};
+
+type FlaggedMessage = {
+  id: string; tripId: string; body: string; moderationStatus: string;
+  senderRole: string; createdAt: string;
+  trip: { scheduledDate: string; rider: { name: string } | null } | null;
+};
+
+function TripOperationsOverview() {
+  const [ops, setOps] = useState<OpsOverview | null>(null);
+  const [opsError, setOpsError] = useState('');
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(() => {
+    tripService.adminOperations().then((res) => {
+      if (res.data) setOps(res.data as OpsOverview);
+      else setOpsError(res.error?.message ?? 'Failed to load operations overview.');
+      setLoading(false);
+    });
+  }, []);
+
+  useEffect(() => { load(); const id = setInterval(load, 30_000); return () => clearInterval(id); }, [load]);
+
+  if (loading) return <LoadingState message="Loading operations overview…" />;
+  if (opsError) return <Alert variant="error">{opsError}</Alert>;
+  if (!ops) return null;
+
+  const cards = [
+    { label: 'Trips Today', value: ops.today.total, variant: 'default' as const },
+    { label: 'Active', value: ops.today.active, variant: 'purple' as const },
+    { label: 'Unassigned', value: ops.today.unassigned, variant: 'warning' as const },
+    { label: 'GPS Stale', value: ops.today.gpsStale, variant: 'danger' as const },
+    { label: 'No Show', value: ops.today.noShow, variant: 'danger' as const },
+    { label: 'Chat Flags', value: ops.today.chatFlagged, variant: 'orange' as const },
+  ];
+
+  return (
+    <div className="mb-6 space-y-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        {cards.map((c) => (
+          <Card key={c.label} padding="sm" className="text-center">
+            <p className="text-2xl font-bold text-gray-900">{c.value}</p>
+            <p className="text-xs text-gray-500 mt-0.5">{c.label}</p>
+          </Card>
+        ))}
+      </div>
+      {ops.driverWorkload.length > 0 && (
+        <Card padding="sm">
+          <p className="text-sm font-semibold text-gray-800 mb-2">Driver workload today</p>
+          <div className="space-y-2 max-h-48 overflow-y-auto">
+            {ops.driverWorkload.slice(0, 10).map((d) => (
+              <div key={d.driverId} className="flex justify-between text-xs border-b border-gray-50 pb-1">
+                <span className="font-medium text-gray-700">{d.fullName}</span>
+                <span className="text-gray-500">
+                  {d.tripsToday} trips · {d.completedToday} done
+                  {d.activeTrip ? ` · active: ${d.activeTrip.status}` : ''}
+                </span>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+function ChatFlagsPanel() {
+  const [messages, setMessages] = useState<FlaggedMessage[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  const load = useCallback(() => {
+    tripService.adminChatFlags(1).then((res) => {
+      if (res.data?.messages) setMessages(res.data.messages);
+      else setError(res.error?.message ?? 'Failed to load flagged messages.');
+      setLoading(false);
+    });
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  async function moderate(id: string, status: 'CLEAN' | 'BLOCKED') {
+    const res = await tripService.adminModerateMessage(id, { moderationStatus: status });
+    if (res.data) load();
+  }
+
+  if (loading) return null;
+  if (error) return <Alert variant="error" className="mb-4">{error}</Alert>;
+  if (messages.length === 0) return null;
+
+  return (
+    <Card className="mb-5 border-amber-200 bg-amber-50/30">
+      <h3 className="text-sm font-semibold text-gray-800 mb-2">Flagged chat ({messages.length})</h3>
+      <div className="space-y-2 max-h-56 overflow-y-auto">
+        {messages.map((m) => (
+          <div key={m.id} className="text-xs border border-amber-100 rounded-lg p-2 bg-white">
+            <p className="text-gray-700 line-clamp-2">{m.body}</p>
+            <p className="text-gray-400 mt-1">
+              Trip {m.tripId.slice(0, 8)}… · {m.moderationStatus} · {m.senderRole}
+            </p>
+            <div className="flex gap-2 mt-2">
+              <Button variant="ghost" size="sm" onClick={() => moderate(m.id, 'CLEAN')}>Clear</Button>
+              <Button variant="danger-outline" size="sm" onClick={() => moderate(m.id, 'BLOCKED')}>Block</Button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </Card>
+  );
+}
+
 function TripsSection() {
   const [trips, setTrips]           = useState<AdminTrip[]>([]);
   const [meta, setMeta]             = useState<PaginationMeta | null>(null);
@@ -724,8 +847,12 @@ function TripsSection() {
 
   return (
     <>
+      <TripOperationsOverview />
+      <ChatFlagsPanel />
+      <TripOperationsBoard />
+
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-base font-semibold text-gray-900">Trip Operations</h2>
+        <h2 className="text-base font-semibold text-gray-900">Trip Board</h2>
         <div className="flex items-center gap-3">
           {lastUpdated && (
             <span className="text-xs text-gray-400 flex items-center gap-1">

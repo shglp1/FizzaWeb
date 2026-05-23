@@ -4,14 +4,25 @@ import { requireAuth } from '@/lib/session';
 import { z } from 'zod';
 import { isChatWindowOpen } from '@/lib/trips/tripLifecycle';
 import { moderateMessage } from '@/lib/trips/chatModeration';
-import { notifyMessageFlagged } from '@/lib/trips/tripNotifications';
+import { isUserChatBlocked } from '@/lib/trips/tripProximity';
+import { notifyChatOpened, notifyMessageFlagged } from '@/lib/trips/tripNotifications';
 import type { TripStatus } from '@/lib/trips/tripLifecycle';
 
 const chatMessageSchema = z.object({
   body: z.string().min(1).max(2000),
-  messageType: z.enum(['TEXT', 'QUICK_REPLY']).default('TEXT'),
+  messageType: z.enum(['TEXT', 'QUICK_REPLY', 'IMAGE']).default('TEXT'),
   attachmentUrl: z.string().url().optional(),
 });
+
+function tripEndedAt(trip: {
+  status: string;
+  actualDropoffTime: Date | null;
+  updatedAt: Date;
+}): Date | null {
+  if (trip.status === 'COMPLETED') return trip.actualDropoffTime;
+  if (trip.status === 'CANCELLED' || trip.status === 'NO_SHOW') return trip.updatedAt;
+  return null;
+}
 
 async function checkChatAccess(tripId: string, auth: { userId: string; role: string }) {
   const trip = await prisma.trip.findUnique({
@@ -19,6 +30,7 @@ async function checkChatAccess(tripId: string, auth: { userId: string; role: str
     select: {
       id: true, status: true, scheduledPickupTime: true,
       chatOpenedAt: true, chatClosedAt: true,
+      actualDropoffTime: true, updatedAt: true,
       driver: { select: { profileId: true } },
       subscription: { select: { userId: true } },
       rider: { select: { parentId: true } },
@@ -26,15 +38,16 @@ async function checkChatAccess(tripId: string, auth: { userId: string; role: str
   });
   if (!trip) return { trip: null, allowed: false, windowOpen: false };
   const parentUserId = trip.subscription?.userId ?? trip.rider?.parentId ?? null;
-  if (auth.role === 'ADMIN') return { trip, allowed: true, windowOpen: true };
-  if (auth.role === 'DRIVER') {
-    return { trip, allowed: trip.driver?.profileId === auth.userId, windowOpen: true };
-  }
-  const allowed = parentUserId === auth.userId;
+  const endedAt = tripEndedAt(trip);
   const windowOpen = isChatWindowOpen(
     trip.scheduledPickupTime, trip.status as TripStatus,
-    trip.chatOpenedAt, trip.chatClosedAt,
+    trip.chatOpenedAt, trip.chatClosedAt, Date.now(), endedAt,
   );
+  if (auth.role === 'ADMIN') return { trip, allowed: true, windowOpen: true };
+  if (auth.role === 'DRIVER') {
+    return { trip, allowed: trip.driver?.profileId === auth.userId, windowOpen };
+  }
+  const allowed = parentUserId === auth.userId;
   return { trip, allowed, windowOpen };
 }
 
@@ -59,7 +72,10 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
         messages: visible,
         chatOpenedAt: trip.chatOpenedAt,
         chatClosedAt: trip.chatClosedAt,
-        windowOpen: isChatWindowOpen(trip.scheduledPickupTime, trip.status as TripStatus, trip.chatOpenedAt, trip.chatClosedAt),
+        windowOpen: isChatWindowOpen(
+          trip.scheduledPickupTime, trip.status as TripStatus,
+          trip.chatOpenedAt, trip.chatClosedAt, Date.now(), tripEndedAt(trip),
+        ),
       },
       error: null,
     });
@@ -76,6 +92,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const { trip, allowed, windowOpen } = await checkChatAccess(id, auth);
     if (!trip) return NextResponse.json({ data: null, error: { message: 'Trip not found' } }, { status: 404 });
     if (!allowed) return NextResponse.json({ data: null, error: { message: 'Forbidden' } }, { status: 403 });
+    if (auth.role !== 'ADMIN' && await isUserChatBlocked(auth.userId)) {
+      return NextResponse.json({
+        data: null,
+        error: { message: 'Your chat access is restricted due to FIZZA safety rules.' },
+      }, { status: 403 });
+    }
     if (!windowOpen && auth.role !== 'ADMIN') {
       return NextResponse.json({ data: null, error: { message: 'Chat is not open yet. It opens 20 minutes before pickup.' } }, { status: 422 });
     }
@@ -89,8 +111,21 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const moderation = moderateMessage(msgBody);
     const moderationStatus = moderation.status;
 
+    if (moderationStatus === 'BLOCKED') {
+      return NextResponse.json({
+        data: null,
+        error: { message: 'Message blocked by moderation policy', matchedWords: moderation.matchedWords },
+      }, { status: 422 });
+    }
+
     if (!trip.chatOpenedAt) {
       await prisma.trip.update({ where: { id }, data: { chatOpenedAt: new Date() } });
+      const parentUserId = trip.subscription?.userId ?? trip.rider?.parentId ?? null;
+      await notifyChatOpened({
+        tripId: id,
+        parentUserId,
+        driverProfileId: trip.driver?.profileId ?? null,
+      });
     }
 
     const message = await prisma.tripChatMessage.create({
@@ -99,6 +134,15 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     });
 
     if (moderationStatus !== 'CLEAN') {
+      await prisma.tripEvent.create({
+        data: {
+          tripId: id,
+          eventType: 'MODERATION_FLAGGED',
+          actorUserId: auth.userId,
+          actorRole: auth.role,
+          message: `Flagged words: ${moderation.matchedWords.join(', ')}`,
+        },
+      });
       const admin = await prisma.user.findFirst({ where: { role: 'ADMIN' }, select: { id: true } });
       await notifyMessageFlagged({ tripId: id, adminUserId: admin?.id ?? null, messagePreview: msgBody });
     }

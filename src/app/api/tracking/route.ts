@@ -33,9 +33,8 @@ export async function GET(_req: Request) {
           rider: { select: { name: true } },
         },
         orderBy: [{ scheduledDate: 'asc' }, { scheduledPickupTime: 'asc' }],
-        take: 10,
       });
-      return NextResponse.json({ data: { trips }, error: null });
+      return NextResponse.json({ data: { trips, total: trips.length }, error: null });
     }
 
     // Parents see trips linked to their subscriptions or riders
@@ -62,10 +61,9 @@ export async function GET(_req: Request) {
         driver: { select: { profile: { select: { fullName: true } } } },
       },
       orderBy: [{ scheduledDate: 'asc' }, { scheduledPickupTime: 'asc' }],
-      take: 20,
     });
 
-    return NextResponse.json({ data: { trips }, error: null });
+    return NextResponse.json({ data: { trips, total: trips.length }, error: null });
   } catch {
     return NextResponse.json({ data: null, error: { message: 'Internal Server Error' } }, { status: 500 });
   }
