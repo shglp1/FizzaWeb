@@ -167,6 +167,13 @@ export const RATE_LIMITS = {
    */
   subscriptionQuote: { max: 20, windowMs: 60 * 1000 } satisfies RateLimitConfig,
 
+  /**
+   * 60 geocode/location searches per minute per IP.
+   * Each keystroke (debounced at 350ms) triggers one search — generous limit
+   * to avoid blocking legitimate autocomplete usage.
+   */
+  geocode: { max: 60, windowMs: 60 * 1000 } satisfies RateLimitConfig,
+
   /** 10 safety reports per hour per IP. */
   safetyReport: { max: 10, windowMs: 60 * 60 * 1000 } satisfies RateLimitConfig,
 } as const;

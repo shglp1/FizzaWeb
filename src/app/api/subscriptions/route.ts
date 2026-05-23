@@ -5,9 +5,12 @@ import { subscriptionCreateSchema } from '@/lib/validations/subscription';
 import { getPricingConfig, calculateSubscriptionQuote } from '@/lib/pricing/subscriptionPricing';
 import {
   calculateRouteDistanceKm,
+  calculateRouteDistanceKmFromCoords,
   calculateChargeableDistanceKm,
   DistanceError,
 } from '@/lib/maps/distance';
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function getIp(req: Request): string | null {
   return (
@@ -16,6 +19,26 @@ function getIp(req: Request): string | null {
     null
   );
 }
+
+/**
+ * Normalise a location value that may be either a plain string (legacy) or
+ * a coordinate object from LocationPicker (new flow).
+ */
+function resolveLocationInput(
+  loc: string | { label: string; latitude: number; longitude: number },
+): { label: string; lat: number | null; lng: number | null; hasCoords: boolean } {
+  if (typeof loc === 'string') {
+    return { label: loc, lat: null, lng: null, hasCoords: false };
+  }
+  return {
+    label: loc.label,
+    lat: loc.latitude,
+    lng: loc.longitude,
+    hasCoords: true,
+  };
+}
+
+// ─── SELECT shape ─────────────────────────────────────────────────────────────
 
 const SUBSCRIPTION_SELECT = {
   id: true,
@@ -68,6 +91,8 @@ const SUBSCRIPTION_SELECT = {
   },
 } as const;
 
+// ─── GET /api/subscriptions ───────────────────────────────────────────────────
+
 export async function GET() {
   try {
     const auth = await requireAuth();
@@ -88,6 +113,8 @@ export async function GET() {
   }
 }
 
+// ─── POST /api/subscriptions ──────────────────────────────────────────────────
+
 export async function POST(req: Request) {
   try {
     const auth = await requireAuth();
@@ -107,8 +134,8 @@ export async function POST(req: Request) {
       riderId,
       riderIds,
       subscriptionType,
-      pickupLocation,
-      dropoffLocation,
+      pickupLocation: pickupLocationRaw,
+      dropoffLocation: dropoffLocationRaw,
       tripDirection,
       pickupTime,
       returnTime,
@@ -119,6 +146,10 @@ export async function POST(req: Request) {
       autoRenewal,
       startsOn,
     } = parsed.data;
+
+    // Normalise location inputs — accept both coord-objects and plain strings
+    const pickup = resolveLocationInput(pickupLocationRaw);
+    const dropoff = resolveLocationInput(dropoffLocationRaw);
 
     // Resolve which rider IDs to use: prefer riderIds array, fall back to single riderId
     const resolvedRiderIds: string[] =
@@ -173,7 +204,7 @@ export async function POST(req: Request) {
       packagePriceSar = Number(pkg.priceSar);
     }
 
-    // ── Calculate road distance server-side (never trust the client) ────────────
+    // ── Calculate road distance server-side (never trust the client's quoted price) ──
     let oneWayDistanceKm = 0;
     let chargeableDistanceKm = 0;
     let distanceProvider: string | null = null;
@@ -185,7 +216,18 @@ export async function POST(req: Request) {
     let normalizedDropoffLabel: string | null = null;
 
     try {
-      const routeResult = await calculateRouteDistanceKm(pickupLocation, dropoffLocation);
+      let routeResult;
+      if (pickup.hasCoords && dropoff.hasCoords) {
+        // New flow: user selected precise locations via LocationPicker
+        routeResult = await calculateRouteDistanceKmFromCoords(
+          { lat: pickup.lat!, lng: pickup.lng!, label: pickup.label },
+          { lat: dropoff.lat!, lng: dropoff.lng!, label: dropoff.label },
+        );
+      } else {
+        // Legacy flow: geocode plain text addresses
+        routeResult = await calculateRouteDistanceKm(pickup.label, dropoff.label);
+      }
+
       oneWayDistanceKm = routeResult.oneWayDistanceKm;
       chargeableDistanceKm = calculateChargeableDistanceKm(oneWayDistanceKm, tripDirection);
       distanceProvider = routeResult.providerUsed;
@@ -198,19 +240,25 @@ export async function POST(req: Request) {
     } catch (err) {
       if (err instanceof DistanceError) {
         const status =
-          err.code === 'NOT_CONFIGURED' || err.code === 'PROVIDER_NOT_IMPLEMENTED' ? 503 : 400;
+          err.code === 'NOT_CONFIGURED' || err.code === 'PROVIDER_NOT_IMPLEMENTED' ? 503 : 422;
+        const message =
+          err.code === 'NOT_CONFIGURED'
+            ? 'Location pricing is currently unavailable because distance calculation is not configured. Please contact support.'
+            : err.code === 'ROUTE_FAILED'
+            ? 'We could not calculate a route between these two locations. Try selecting more specific addresses.'
+            : err.message;
         return NextResponse.json(
-          { data: null, error: { message: err.message } },
+          { data: null, error: { message } },
           { status },
         );
       }
       return NextResponse.json(
-        { data: null, error: { message: 'Could not calculate route distance. Please try again.' } },
+        { data: null, error: { message: 'Could not reach the pricing service. Check your connection and try again.' } },
         { status: 503 },
       );
     }
 
-    // ── Server-side pricing calculation (final, never trust client) ─────────────
+    // ── Server-side pricing calculation (final price, never trust the client) ──
     const config = await getPricingConfig();
     const extraRiderCount = Math.max(0, resolvedRiderIds.length - 1);
     const pricing = calculateSubscriptionQuote(
@@ -224,6 +272,10 @@ export async function POST(req: Request) {
     // Primary rider = first in list (backward compat riderId field)
     const primaryRiderId = resolvedRiderIds[0] ?? null;
 
+    // Store the human-readable label as the string location field in the DB
+    const pickupLocationStr = pickup.label;
+    const dropoffLocationStr = dropoff.label;
+
     const subscription = await prisma.$transaction(async (tx) => {
       const sub = await tx.userSubscription.create({
         data: {
@@ -231,8 +283,8 @@ export async function POST(req: Request) {
           riderId: primaryRiderId,
           packageId: packageId ?? null,
           subscriptionType,
-          pickupLocation,
-          dropoffLocation,
+          pickupLocation: pickupLocationStr,
+          dropoffLocation: dropoffLocationStr,
           tripDirection,
           pickupTime,
           returnTime,
@@ -241,7 +293,7 @@ export async function POST(req: Request) {
           status: 'PENDING',
           paymentStatus: 'PENDING',
           startsOn: startsOn ? new Date(startsOn) : null,
-          // Distance snapshots
+          // Distance & coordinate snapshots (immutable after creation)
           oneWayDistanceKm,
           chargeableDistanceKm,
           distanceProvider,
@@ -252,7 +304,7 @@ export async function POST(req: Request) {
           normalizedPickupLabel,
           normalizedDropoffLabel,
           pricePerKmSarSnapshot: config.pricePerKmSar,
-          // Price snapshots
+          // Price snapshots (payment always uses these, never live recalculation)
           packagePriceSar: pricing.packagePriceSar,
           addOnsPriceSar: pricing.addOnsPriceSar,
           distancePriceSar: pricing.distancePriceSar,
@@ -304,6 +356,12 @@ export async function POST(req: Request) {
             packageId,
             riderIds: resolvedRiderIds,
             tripDirection,
+            pickupLabel: pickupLocationStr,
+            dropoffLabel: dropoffLocationStr,
+            pickupLat,
+            pickupLng,
+            dropoffLat,
+            dropoffLng,
             oneWayDistanceKm,
             chargeableDistanceKm,
             distanceProvider,
