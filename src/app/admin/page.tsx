@@ -1,8 +1,10 @@
 'use client';
+import { Suspense } from 'react';
 import { useEffect, useState, useCallback } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { AppShell } from '@/components/layout/AppShell';
 import {
-  PageHeader, Card, Alert, Badge, StatusBadge, Button, Textarea,
+  PageHeader, Card, Alert, StatusBadge, Button, Textarea,
   Tabs, Pagination, LoadingState, ErrorState, EmptyState,
 } from '@/components/ui';
 import { driverApplicationService } from '@/services/driverApplicationService';
@@ -16,6 +18,7 @@ import { SubscriptionsSection } from './sections/SubscriptionsSection';
 import { FinancialsSection } from './sections/FinancialsSection';
 import { SystemConfigSection } from './sections/SystemConfigSection';
 import { PackagesSection } from './sections/PackagesSection';
+import { AuditLogsSection } from './sections/AuditLogsSection';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -131,28 +134,82 @@ function fmtTime(dt: string | null): string {
   return new Date(dt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
-// ─── Section tabs ─────────────────────────────────────────────────────────────
+// ─── Section rail ─────────────────────────────────────────────────────────────
 
-type Section = 'overview' | 'users' | 'riders' | 'drivers' | 'applications' | 'subscriptions' | 'trips' | 'financials' | 'safety' | 'packages' | 'sysconfig';
+type Section = 'overview' | 'users' | 'riders' | 'drivers' | 'applications' | 'subscriptions' | 'trips' | 'financials' | 'safety' | 'packages' | 'sysconfig' | 'audit';
 
-const SECTION_TABS: { label: string; value: string }[] = [
-  { label: 'Overview',     value: 'overview'      },
-  { label: 'Users',        value: 'users'         },
-  { label: 'Riders',       value: 'riders'        },
-  { label: 'Drivers',      value: 'drivers'       },
-  { label: 'Applications', value: 'applications'  },
-  { label: 'Subscriptions',value: 'subscriptions' },
-  { label: 'Trips',        value: 'trips'         },
-  { label: 'Financials',   value: 'financials'    },
-  { label: 'Safety',       value: 'safety'        },
-  { label: 'Packages',     value: 'packages'      },
-  { label: 'Config',       value: 'sysconfig'     },
+const SECTIONS: { label: string; value: Section; icon: string }[] = [
+  { label: 'Overview',      value: 'overview',      icon: '📊' },
+  { label: 'Users',         value: 'users',         icon: '👤' },
+  { label: 'Riders',        value: 'riders',        icon: '🧒' },
+  { label: 'Drivers',       value: 'drivers',       icon: '🚗' },
+  { label: 'Applications',  value: 'applications',  icon: '📝' },
+  { label: 'Subscriptions', value: 'subscriptions', icon: '📋' },
+  { label: 'Trips',         value: 'trips',         icon: '🗓️' },
+  { label: 'Financials',    value: 'financials',    icon: '💰' },
+  { label: 'Safety',        value: 'safety',        icon: '🛡️' },
+  { label: 'Packages',      value: 'packages',      icon: '📦' },
+  { label: 'Config',        value: 'sysconfig',     icon: '⚙️' },
+  { label: 'Audit Logs',    value: 'audit',         icon: '📋' },
 ];
 
-// ─── Main page ────────────────────────────────────────────────────────────────
+// Desktop vertical section rail
+function SectionRail({ active, onChange }: { active: Section; onChange: (s: Section) => void }) {
+  return (
+    <aside className="hidden lg:flex flex-col w-48 shrink-0 gap-0.5">
+      {SECTIONS.map((s) => (
+        <button
+          key={s.value}
+          onClick={() => onChange(s.value)}
+          className={`flex items-center gap-2.5 rounded-xl px-3 py-2 text-sm font-medium text-left transition-all ${
+            active === s.value
+              ? 'bg-fizza-primary text-white'
+              : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+          }`}
+        >
+          <span className="text-base">{s.icon}</span>
+          <span className="truncate">{s.label}</span>
+        </button>
+      ))}
+    </aside>
+  );
+}
 
-export default function AdminPage() {
-  const [section, setSection] = useState<Section>('overview');
+// Mobile horizontal scroll picker
+function MobileSectionPicker({ active, onChange }: { active: Section; onChange: (s: Section) => void }) {
+  return (
+    <div className="lg:hidden -mx-4 mb-5">
+      <div className="flex gap-2 overflow-x-auto px-4 pb-2 scrollbar-none">
+        {SECTIONS.map((s) => (
+          <button
+            key={s.value}
+            onClick={() => onChange(s.value)}
+            className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold whitespace-nowrap transition-all ${
+              active === s.value
+                ? 'bg-fizza-primary text-white shadow-sm'
+                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            }`}
+          >
+            <span>{s.icon}</span>
+            <span>{s.label}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── Admin content (uses useSearchParams — must be inside Suspense) ────────────
+
+function AdminContent() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+
+  const activeSection = (searchParams.get('section') ?? 'overview') as Section;
+
+  const navigate = (s: Section) => {
+    router.push(`/admin?section=${s}`, { scroll: false });
+  };
 
   return (
     <AppShell>
@@ -161,25 +218,39 @@ export default function AdminPage() {
         subtitle="Platform management and operations"
       />
 
-      <Tabs
-        tabs={SECTION_TABS}
-        activeTab={section}
-        onChange={(val) => setSection(val as Section)}
-        className="mb-6"
-      />
+      {/* Mobile section picker */}
+      <MobileSectionPicker active={activeSection} onChange={navigate} />
 
-      {section === 'overview'      && <OverviewSection onNavigate={(s) => setSection(s as Section)} />}
-      {section === 'users'         && <UsersSection />}
-      {section === 'riders'        && <RidersSection />}
-      {section === 'drivers'       && <DriversSection />}
-      {section === 'applications'  && <ApplicationsSection />}
-      {section === 'subscriptions' && <SubscriptionsSection />}
-      {section === 'trips'         && <TripsSection />}
-      {section === 'financials'    && <FinancialsSection />}
-      {section === 'safety'        && <SafetySection />}
-      {section === 'packages'      && <PackagesSection />}
-      {section === 'sysconfig'     && <SystemConfigSection />}
+      {/* Desktop: rail + content side-by-side */}
+      <div className="flex gap-6">
+        <SectionRail active={activeSection} onChange={navigate} />
+
+        <div className="flex-1 min-w-0">
+          {activeSection === 'overview'      && <OverviewSection onNavigate={(s) => navigate(s as Section)} />}
+          {activeSection === 'users'         && <UsersSection />}
+          {activeSection === 'riders'        && <RidersSection />}
+          {activeSection === 'drivers'       && <DriversSection />}
+          {activeSection === 'applications'  && <ApplicationsSection />}
+          {activeSection === 'subscriptions' && <SubscriptionsSection />}
+          {activeSection === 'trips'         && <TripsSection />}
+          {activeSection === 'financials'    && <FinancialsSection />}
+          {activeSection === 'safety'        && <SafetySection />}
+          {activeSection === 'packages'      && <PackagesSection />}
+          {activeSection === 'sysconfig'     && <SystemConfigSection />}
+          {activeSection === 'audit'         && <AuditLogsSection />}
+        </div>
+      </div>
     </AppShell>
+  );
+}
+
+// ─── Page export (Suspense required for useSearchParams) ──────────────────────
+
+export default function AdminPage() {
+  return (
+    <Suspense fallback={<AppShell><LoadingState message="Loading admin dashboard…" /></AppShell>}>
+      <AdminContent />
+    </Suspense>
   );
 }
 
