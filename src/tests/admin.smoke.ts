@@ -18,27 +18,34 @@ import {
 // Distance is no longer user-entered — ORS calculates it server-side.
 // Schema now uses pickupLocation / dropoffLocation / tripDirection.
 
+// Task 10.10: subscriptionQuoteSchema now requires coordinate-based location objects.
+// Plain text strings are no longer accepted by the quote endpoint.
+
 describe('subscriptionQuoteSchema', () => {
   const RIDER_A = '22222222-2222-2222-2222-222222222222';
   const RIDER_B = '11111111-1111-1111-1111-111111111111';
 
-  it('accepts valid quote with pickup/dropoff and single rider', () => {
+  // Coordinate-based locations (from LocationPicker)
+  const PICKUP = { label: 'Al-Nakheel District, Riyadh', latitude: 24.6877, longitude: 46.7219 };
+  const DROPOFF = { label: 'King Faisal School, Riyadh', latitude: 24.7200, longitude: 46.8000 };
+
+  it('accepts valid quote with coordinate-based pickup/dropoff and single rider', () => {
     const r = subscriptionQuoteSchema.safeParse({
       packageId: RIDER_B,
       addOnIds: [],
-      pickupLocation: 'Al-Nakheel District, Riyadh',
-      dropoffLocation: 'King Faisal School, Riyadh',
+      pickupLocation: PICKUP,
+      dropoffLocation: DROPOFF,
       tripDirection: 'ROUND_TRIP',
       riderIds: [RIDER_A],
     });
-    assert.ok(r.success);
+    assert.ok(r.success, `Expected success, got: ${r.success ? '' : JSON.stringify(r.error?.issues)}`);
     assert.equal(r.data?.tripDirection, 'ROUND_TRIP');
   });
 
   it('accepts valid quote with multiple riders', () => {
     const r = subscriptionQuoteSchema.safeParse({
-      pickupLocation: 'Al-Nakheel District, Riyadh',
-      dropoffLocation: 'King Faisal School, Riyadh',
+      pickupLocation: PICKUP,
+      dropoffLocation: DROPOFF,
       riderIds: [RIDER_B, RIDER_A],
     });
     assert.ok(r.success);
@@ -47,8 +54,8 @@ describe('subscriptionQuoteSchema', () => {
 
   it('defaults tripDirection to ROUND_TRIP when omitted', () => {
     const r = subscriptionQuoteSchema.safeParse({
-      pickupLocation: 'Al-Nakheel District, Riyadh',
-      dropoffLocation: 'King Faisal School, Riyadh',
+      pickupLocation: PICKUP,
+      dropoffLocation: DROPOFF,
       riderIds: [RIDER_A],
     });
     assert.ok(r.success);
@@ -57,7 +64,7 @@ describe('subscriptionQuoteSchema', () => {
 
   it('rejects missing pickupLocation', () => {
     const r = subscriptionQuoteSchema.safeParse({
-      dropoffLocation: 'King Faisal School, Riyadh',
+      dropoffLocation: DROPOFF,
       riderIds: [RIDER_A],
     });
     assert.ok(!r.success);
@@ -65,7 +72,34 @@ describe('subscriptionQuoteSchema', () => {
 
   it('rejects missing dropoffLocation', () => {
     const r = subscriptionQuoteSchema.safeParse({
+      pickupLocation: PICKUP,
+      riderIds: [RIDER_A],
+    });
+    assert.ok(!r.success);
+  });
+
+  it('rejects plain string pickupLocation (requires coordinates)', () => {
+    const r = subscriptionQuoteSchema.safeParse({
       pickupLocation: 'Al-Nakheel District, Riyadh',
+      dropoffLocation: DROPOFF,
+      riderIds: [RIDER_A],
+    });
+    assert.ok(!r.success, 'Plain string location should be rejected by quote schema');
+  });
+
+  it('rejects missing latitude in pickup', () => {
+    const r = subscriptionQuoteSchema.safeParse({
+      pickupLocation: { label: 'Somewhere', longitude: 46.7 },
+      dropoffLocation: DROPOFF,
+      riderIds: [RIDER_A],
+    });
+    assert.ok(!r.success);
+  });
+
+  it('rejects missing longitude in dropoff', () => {
+    const r = subscriptionQuoteSchema.safeParse({
+      pickupLocation: PICKUP,
+      dropoffLocation: { label: 'Somewhere', latitude: 24.7 },
       riderIds: [RIDER_A],
     });
     assert.ok(!r.success);
@@ -73,8 +107,8 @@ describe('subscriptionQuoteSchema', () => {
 
   it('rejects empty riderIds', () => {
     const r = subscriptionQuoteSchema.safeParse({
-      pickupLocation: 'Al-Nakheel District, Riyadh',
-      dropoffLocation: 'King Faisal School, Riyadh',
+      pickupLocation: PICKUP,
+      dropoffLocation: DROPOFF,
       riderIds: [],
     });
     assert.ok(!r.success);
@@ -82,8 +116,8 @@ describe('subscriptionQuoteSchema', () => {
 
   it('rejects non-UUID riderIds', () => {
     const r = subscriptionQuoteSchema.safeParse({
-      pickupLocation: 'Al-Nakheel District, Riyadh',
-      dropoffLocation: 'King Faisal School, Riyadh',
+      pickupLocation: PICKUP,
+      dropoffLocation: DROPOFF,
       riderIds: ['not-a-uuid'],
     });
     assert.ok(!r.success);
@@ -91,8 +125,8 @@ describe('subscriptionQuoteSchema', () => {
 
   it('rejects invalid tripDirection', () => {
     const r = subscriptionQuoteSchema.safeParse({
-      pickupLocation: 'Al-Nakheel District, Riyadh',
-      dropoffLocation: 'King Faisal School, Riyadh',
+      pickupLocation: PICKUP,
+      dropoffLocation: DROPOFF,
       tripDirection: 'BOTH',
       riderIds: [RIDER_A],
     });

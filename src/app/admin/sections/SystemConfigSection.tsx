@@ -3,10 +3,16 @@ import { useEffect, useState, useCallback } from 'react';
 import { systemConfigService } from '@/services/adminService';
 import { Card, Alert, Button, LoadingState, ErrorState } from '@/components/ui';
 
+type DistanceStatus = {
+  configured: boolean;
+  provider: string;
+  providerLabel: string;
+};
+
 type ConfigRow = { key: string; value: unknown; updatedAt: string };
 
 const CONFIG_META: Record<string, { label: string; type: 'number' | 'text'; hint: string }> = {
-  pricePerKmSar:                    { label: 'Price per KM (SAR)',                type: 'number', hint: 'Distance charge per kilometre added to subscription price.' },
+  pricePerKmSar:                    { label: 'Price per KM (SAR)',                type: 'number', hint: 'Distance charge per kilometre added to subscription price. Changing this affects new quotes only — existing subscriptions keep their saved price snapshot.' },
   extraRiderSameDropoffMultiplier:   { label: 'Extra Rider Multiplier',            type: 'number', hint: 'Fraction of primary price charged for each additional rider. Default: 0.5 (50%).' },
   maxTripGenerationDays:            { label: 'Max Trip Generation Days',           type: 'number', hint: 'Max days ahead that trips are auto-generated.' },
   supportPhone:                     { label: 'Support Phone',                      type: 'text',   hint: 'Customer-facing support phone number.' },
@@ -23,6 +29,7 @@ export function SystemConfigSection() {
   const [form, setForm]       = useState<Record<string, string>>({});
   const [saving, setSaving]   = useState(false);
   const [saveMsg, setSaveMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+  const [distanceStatus, setDistanceStatus] = useState<DistanceStatus | null>(null);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -42,6 +49,16 @@ export function SystemConfigSection() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  // Load distance provider status separately (fire-and-forget; failure is non-blocking)
+  useEffect(() => {
+    fetch('/api/admin/system/distance-status')
+      .then((r) => r.json())
+      .then((json) => {
+        if (json.data) setDistanceStatus(json.data as DistanceStatus);
+      })
+      .catch(() => { /* silently ignore — status panel degrades gracefully */ });
+  }, []);
 
   const handleSave = async () => {
     setSaving(true);
@@ -127,18 +144,50 @@ export function SystemConfigSection() {
           </p>
         </Card>
 
-        <Card className="bg-blue-50 border-blue-100">
-          <p className="text-xs font-semibold text-blue-800 mb-2">Distance Provider</p>
-          <p className="text-xs text-blue-700">
-            Active provider:{' '}
-            <span className="font-mono font-semibold">
-              {typeof process !== 'undefined' ? (process.env.NEXT_PUBLIC_DISTANCE_PROVIDER ?? 'OPENROUTESERVICE') : 'OPENROUTESERVICE'}
-            </span>
-          </p>
-          <p className="text-xs text-blue-600 mt-1">
-            API key is configured via server environment variables and never exposed to the client. Update <code>DISTANCE_PROVIDER</code> and the corresponding key in the server environment to switch providers.
-          </p>
-        </Card>
+        {/* Distance Provider Status */}
+        {distanceStatus ? (
+          <Card className={distanceStatus.configured ? 'bg-blue-50 border-blue-100' : 'bg-red-50 border-red-200'}>
+            <div className="flex items-center gap-2 mb-2">
+              <span
+                className={`inline-block h-2 w-2 rounded-full ${distanceStatus.configured ? 'bg-emerald-500' : 'bg-red-500'}`}
+                aria-hidden="true"
+              />
+              <p className={`text-xs font-semibold ${distanceStatus.configured ? 'text-blue-800' : 'text-red-800'}`}>
+                Distance Provider: {distanceStatus.configured ? 'Configured' : 'Not Configured'}
+              </p>
+            </div>
+            <p className="text-xs text-gray-600 mb-1">
+              Provider: <span className="font-semibold">{distanceStatus.providerLabel}</span>
+            </p>
+            {distanceStatus.configured ? (
+              <p className="text-xs text-blue-700">
+                API key is active. Users can calculate subscription quotes.
+                The key is stored server-side only and never exposed to the browser.
+              </p>
+            ) : (
+              <p className="text-xs text-red-700 font-medium">
+                Distance calculation is not configured. Users cannot calculate subscription quotes.
+                Set the <code className="bg-red-100 px-0.5 rounded">OPENROUTESERVICE_API_KEY</code> environment variable to enable pricing.
+              </p>
+            )}
+            <p className="text-xs text-gray-400 mt-2 italic">
+              Note: Changing Price per KM affects new quotes only. Existing subscriptions retain their saved final price snapshot.
+            </p>
+          </Card>
+        ) : (
+          <Card className="bg-blue-50 border-blue-100">
+            <p className="text-xs font-semibold text-blue-800 mb-2">Distance Provider</p>
+            <p className="text-xs text-blue-700">
+              Provider: <span className="font-semibold">OpenRouteService</span>
+            </p>
+            <p className="text-xs text-blue-600 mt-1">
+              API key is configured via server environment variables and never exposed to the client.
+            </p>
+            <p className="text-xs text-gray-400 mt-2 italic">
+              Note: Changing Price per KM affects new quotes only. Existing subscriptions retain their saved final price snapshot.
+            </p>
+          </Card>
+        )}
       </div>
     </>
   );

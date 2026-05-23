@@ -4,7 +4,7 @@ import { requireAuth } from '@/lib/session';
 import { subscriptionQuoteSchema } from '@/lib/validations/subscription';
 import { getPricingConfig, calculateSubscriptionQuote } from '@/lib/pricing/subscriptionPricing';
 import {
-  calculateRouteDistanceKm,
+  calculateRouteDistanceKmFromCoords,
   calculateChargeableDistanceKm,
   DistanceError,
 } from '@/lib/maps/distance';
@@ -80,23 +80,63 @@ export async function POST(req: Request) {
       );
     }
 
-    // Calculate road distance using OpenRouteService (server-side only)
-    let routeResult: Awaited<ReturnType<typeof calculateRouteDistanceKm>>;
+    // Calculate road distance using pre-selected coordinates (server-side only)
+    // The LocationPicker already resolved addresses to precise lat/lng client-side
+    // via /api/maps/geocode. We skip geocoding and go straight to routing.
+    let routeResult: Awaited<ReturnType<typeof calculateRouteDistanceKmFromCoords>>;
     try {
-      routeResult = await calculateRouteDistanceKm(pickupLocation, dropoffLocation);
+      routeResult = await calculateRouteDistanceKmFromCoords(
+        {
+          lat: pickupLocation.latitude,
+          lng: pickupLocation.longitude,
+          label: pickupLocation.label,
+        },
+        {
+          lat: dropoffLocation.latitude,
+          lng: dropoffLocation.longitude,
+          label: dropoffLocation.label,
+        },
+      );
     } catch (err) {
       if (err instanceof DistanceError) {
-        const status =
-          err.code === 'NOT_CONFIGURED' || err.code === 'PROVIDER_NOT_IMPLEMENTED' ? 503 : 400;
+        if (err.code === 'NOT_CONFIGURED' || err.code === 'PROVIDER_NOT_IMPLEMENTED') {
+          return NextResponse.json(
+            {
+              data: null,
+              error: {
+                message:
+                  'Location pricing is currently unavailable because distance calculation is not configured. Please contact support.',
+              },
+            },
+            { status: 503 },
+          );
+        }
+        if (err.code === 'ROUTE_FAILED') {
+          return NextResponse.json(
+            {
+              data: null,
+              error: {
+                message:
+                  'We could not calculate a route between these two locations. Try selecting more specific addresses.',
+              },
+            },
+            { status: 422 },
+          );
+        }
         return NextResponse.json(
-          { data: null, error: { message: err.message } },
-          { status },
+          {
+            data: null,
+            error: {
+              message: 'Location service is temporarily unavailable. Please try again later.',
+            },
+          },
+          { status: 503 },
         );
       }
       return NextResponse.json(
         {
           data: null,
-          error: { message: 'Could not calculate route distance. Please try again.' },
+          error: { message: 'Could not reach the pricing service. Check your connection and try again.' },
         },
         { status: 503 },
       );

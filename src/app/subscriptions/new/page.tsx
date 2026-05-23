@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { AppShell } from '@/components/layout/AppShell';
 import { subscriptionService } from '@/services/subscriptionService';
 import { riderService } from '@/services/riderService';
+import { LocationPicker, type SelectedLocation } from '@/components/location/LocationPicker';
 import {
   Alert,
   Button,
@@ -36,6 +37,8 @@ type PriceQuote = {
   distanceProvider: string;
   normalizedPickupLabel: string;
   normalizedDropoffLabel: string;
+  packageName: string | null;
+  addOns: { id: string; name: string; priceSar: number }[];
 };
 
 // 0=Sun 1=Mon 2=Tue 3=Wed 4=Thu 5=Fri 6=Sat
@@ -58,6 +61,26 @@ const STEP_META = [
   { label: 'Review', number: 4 },
 ];
 
+// ─── Quote key helper ─────────────────────────────────────────────────────────
+
+function makeQuoteKey(
+  packageId: string | null,
+  addOnIds: string[],
+  riderIds: string[],
+  pickup: SelectedLocation | null,
+  dropoff: SelectedLocation | null,
+  direction: TripDirection,
+): string {
+  return [
+    packageId ?? '',
+    [...addOnIds].sort().join(','),
+    [...riderIds].sort().join(','),
+    pickup ? `${pickup.latitude.toFixed(6)},${pickup.longitude.toFixed(6)}` : '',
+    dropoff ? `${dropoff.latitude.toFixed(6)},${dropoff.longitude.toFixed(6)}` : '',
+    direction,
+  ].join('|');
+}
+
 // ─── Stepper ──────────────────────────────────────────────────────────────────
 
 function Stepper({ step }: { step: number }) {
@@ -67,11 +90,9 @@ function Stepper({ step }: { step: number }) {
         {STEP_META.map((s, i) => {
           const isCompleted = i < step;
           const isCurrent = i === step;
-          const isUpcoming = i > step;
 
           return (
             <li key={s.label} className="flex items-center flex-1 last:flex-none">
-              {/* Step circle + label */}
               <div className="flex flex-col items-center gap-1.5 min-w-0">
                 <div
                   className={[
@@ -102,7 +123,6 @@ function Stepper({ step }: { step: number }) {
                 </span>
               </div>
 
-              {/* Connector line between steps */}
               {i < STEP_META.length - 1 && (
                 <div
                   className={[
@@ -127,33 +147,74 @@ function QuoteBreakdown({ quote }: { quote: PriceQuote }) {
     <Card className="!bg-emerald-50 !border-emerald-200 space-y-2 text-sm">
       <p className="font-semibold text-emerald-800 text-base mb-3">Price Breakdown</p>
 
-      <div className="flex justify-between">
-        <span className="text-gray-600">Package</span>
-        <span className="font-medium">SAR {quote.packagePriceSar.toFixed(2)}</span>
+      {/* Route summary */}
+      <div className="flex items-start gap-2 pb-3 border-b border-emerald-200">
+        <div className="min-w-0 flex-1 text-xs text-gray-500 leading-relaxed">
+          <span className="font-medium text-gray-700">{quote.normalizedPickupLabel}</span>
+          <span className="mx-1.5 text-emerald-400">→</span>
+          <span className="font-medium text-gray-700">{quote.normalizedDropoffLabel}</span>
+        </div>
       </div>
+
+      {/* Distance row */}
+      <div className="flex justify-between">
+        <span className="text-gray-600">
+          One-way distance
+        </span>
+        <span className="font-medium">{quote.oneWayDistanceKm} km</span>
+      </div>
+
+      <div className="flex justify-between">
+        <span className="text-gray-600">
+          Trip direction
+        </span>
+        <span className="font-medium">
+          {quote.tripDirection === 'ROUND_TRIP' ? 'Round-trip (×2)' : 'One-way'}
+        </span>
+      </div>
+
+      <div className="flex justify-between">
+        <span className="text-gray-600">Chargeable distance</span>
+        <span className="font-medium">{quote.chargeableDistanceKm} km</span>
+      </div>
+
+      <div className="flex justify-between border-t border-emerald-100 pt-2">
+        <span className="text-gray-600">
+          Distance charge
+          <span className="ml-1 text-xs text-gray-400">
+            ({quote.chargeableDistanceKm} km × SAR {quote.pricePerKmSar}/km)
+          </span>
+        </span>
+        <span className="font-medium">SAR {quote.distanceChargeSar.toFixed(2)}</span>
+      </div>
+
+      {quote.packagePriceSar > 0 && (
+        <div className="flex justify-between">
+          <span className="text-gray-600">
+            Package{quote.packageName ? ` (${quote.packageName})` : ''}
+          </span>
+          <span className="font-medium">SAR {quote.packagePriceSar.toFixed(2)}</span>
+        </div>
+      )}
 
       {quote.addOnsPriceSar > 0 && (
         <div className="flex justify-between">
-          <span className="text-gray-600">Add-ons</span>
+          <span className="text-gray-600">
+            Add-ons
+            {quote.addOns.length > 0 && (
+              <span className="ml-1 text-xs text-gray-400">
+                ({quote.addOns.map((a) => a.name).join(', ')})
+              </span>
+            )}
+          </span>
           <span className="font-medium">SAR {quote.addOnsPriceSar.toFixed(2)}</span>
         </div>
       )}
 
-      <div className="flex justify-between">
-        <span className="text-gray-600">
-          Distance ({quote.oneWayDistanceKm} km one-way
-          {quote.tripDirection === 'ROUND_TRIP' ? `, ${quote.chargeableDistanceKm} km chargeable` : ''})
-        </span>
-        <span className="font-medium">SAR {quote.distanceChargeSar.toFixed(2)}</span>
-      </div>
-      <div className="flex text-gray-500 text-xs pl-2">
-        <span>@ SAR {quote.pricePerKmSar}/km &times; {quote.chargeableDistanceKm} km</span>
-      </div>
-
       {quote.extraRiderChargeSar > 0 && (
         <div className="flex justify-between">
           <span className="text-gray-600">
-            Extra rider{quote.extraRiderCount > 1 ? 's' : ''} ({quote.extraRiderCount} &times;{' '}
+            Extra rider{quote.extraRiderCount > 1 ? 's' : ''} ({quote.extraRiderCount} ×{' '}
             {(quote.extraRiderSameDropoffMultiplier * 100).toFixed(0)}%)
           </span>
           <span className="font-medium">SAR {quote.extraRiderChargeSar.toFixed(2)}</span>
@@ -166,10 +227,8 @@ function QuoteBreakdown({ quote }: { quote: PriceQuote }) {
       </div>
 
       <p className="text-xs text-gray-400 pt-1">
-        Route: {quote.normalizedPickupLabel} &rarr; {quote.normalizedDropoffLabel}
-        <br />
-        Distance via {quote.distanceProvider.replace('_', ' ').toLowerCase()}.
-        {quote.tripDirection === 'ROUND_TRIP' && ' Round-trip counts both ways.'}
+        Calculated via {quote.distanceProvider.replace('_', ' ').toLowerCase()}.
+        {quote.tripDirection === 'ROUND_TRIP' ? ' Round-trip counts both directions.' : ''}
       </p>
     </Card>
   );
@@ -198,8 +257,10 @@ export default function NewSubscriptionPage() {
   const [offDays, setOffDays] = useState<number[]>([]);
   const [startsOn, setStartsOn] = useState('');
   const [autoRenewal, setAutoRenewal] = useState(true);
-  const [pickupLocation, setPickupLocation] = useState('');
-  const [dropoffLocation, setDropoffLocation] = useState('');
+  /** Pickup location — null until user selects from LocationPicker autocomplete. */
+  const [pickupLocation, setPickupLocation] = useState<SelectedLocation | null>(null);
+  /** Drop-off location — null until user selects from LocationPicker autocomplete. */
+  const [dropoffLocation, setDropoffLocation] = useState<SelectedLocation | null>(null);
   const [pickupTime, setPickupTime] = useState('07:00');
   const [returnTime, setReturnTime] = useState('15:00');
   const [femaleDriver, setFemaleDriver] = useState(false);
@@ -209,7 +270,7 @@ export default function NewSubscriptionPage() {
   const [quote, setQuote] = useState<PriceQuote | null>(null);
   const [quoteLoading, setQuoteLoading] = useState(false);
   const [quoteError, setQuoteError] = useState('');
-  /** Tracks inputs at quote-time so changes invalidate it */
+  /** Snapshot of inputs at the time the last successful quote was fetched. */
   const [quoteKey, setQuoteKey] = useState('');
 
   useEffect(() => {
@@ -225,15 +286,15 @@ export default function NewSubscriptionPage() {
     });
   }, []);
 
-  // Invalidate quote whenever any pricing-relevant input changes
-  const currentQuoteKey = [
-    selectedPackageId ?? '',
-    selectedAddOnIds.join(','),
-    selectedRiderIds.join(','),
-    pickupLocation.trim(),
-    dropoffLocation.trim(),
+  // ── Quote invalidation ──
+  const currentQuoteKey = makeQuoteKey(
+    selectedPackageId,
+    selectedAddOnIds,
+    selectedRiderIds,
+    pickupLocation,
+    dropoffLocation,
     tripDirection,
-  ].join('|');
+  );
 
   useEffect(() => {
     if (quoteKey && currentQuoteKey !== quoteKey) {
@@ -242,14 +303,21 @@ export default function NewSubscriptionPage() {
     }
   }, [currentQuoteKey, quoteKey]);
 
+  // ── Calculate Price ──
+  const canCalculate =
+    selectedRiderIds.length > 0 &&
+    pickupLocation !== null &&
+    dropoffLocation !== null;
+
   const handleCalculatePrice = useCallback(async () => {
     setQuoteError('');
-    if (pickupLocation.trim().length < 5) {
-      setQuoteError('Please enter a more detailed pickup location.');
+
+    if (!pickupLocation) {
+      setQuoteError('Please select a pickup location from the search suggestions.');
       return;
     }
-    if (dropoffLocation.trim().length < 5) {
-      setQuoteError('Please enter a more detailed drop-off location.');
+    if (!dropoffLocation) {
+      setQuoteError('Please select a drop-off location from the search suggestions.');
       return;
     }
     if (selectedRiderIds.length === 0) {
@@ -260,33 +328,47 @@ export default function NewSubscriptionPage() {
     setQuoteLoading(true);
     setQuote(null);
 
-    const res = await fetch('/api/subscriptions/quote', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        packageId: selectedPackageId ?? undefined,
-        addOnIds: selectedAddOnIds,
-        pickupLocation: pickupLocation.trim(),
-        dropoffLocation: dropoffLocation.trim(),
-        tripDirection,
-        riderIds: selectedRiderIds,
-      }),
-    });
+    try {
+      const res = await fetch('/api/subscriptions/quote', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          packageId: selectedPackageId ?? undefined,
+          addOnIds: selectedAddOnIds,
+          pickupLocation: {
+            label: pickupLocation.label,
+            latitude: pickupLocation.latitude,
+            longitude: pickupLocation.longitude,
+          },
+          dropoffLocation: {
+            label: dropoffLocation.label,
+            latitude: dropoffLocation.latitude,
+            longitude: dropoffLocation.longitude,
+          },
+          tripDirection,
+          riderIds: selectedRiderIds,
+        }),
+      });
 
-    const json = await res.json();
-    setQuoteLoading(false);
+      const json = await res.json();
 
-    if (json.data?.quote) {
-      setQuote(json.data.quote as PriceQuote);
-      setQuoteKey(currentQuoteKey);
-    } else {
-      setQuoteError(json.error?.message ?? 'Could not calculate price. Please try again.');
+      if (json.data?.quote) {
+        setQuote(json.data.quote as PriceQuote);
+        setQuoteKey(currentQuoteKey);
+      } else {
+        setQuoteError(json.error?.message ?? 'Could not calculate price. Please try again.');
+      }
+    } catch {
+      setQuoteError('Could not reach the pricing service. Check your connection and try again.');
+    } finally {
+      setQuoteLoading(false);
     }
   }, [
     pickupLocation, dropoffLocation, selectedRiderIds, selectedPackageId,
     selectedAddOnIds, tripDirection, currentQuoteKey,
   ]);
 
+  // ── Form helpers ──
   const toggleRider = (id: string) => {
     setSelectedRiderIds((prev) =>
       prev.includes(id) ? prev.filter((r) => r !== id) : [...prev, id],
@@ -320,10 +402,19 @@ export default function NewSubscriptionPage() {
       if (selectedRiderIds.length === 0) { setStepError('Please select at least one rider.'); return false; }
     }
     if (step === 2) {
-      if (pickupLocation.trim().length < 5) { setStepError('Pickup location must be at least 5 characters.'); return false; }
-      if (dropoffLocation.trim().length < 5) { setStepError('Dropoff location must be at least 5 characters.'); return false; }
+      if (!pickupLocation) {
+        setStepError('Please select a pickup location from the search suggestions.');
+        return false;
+      }
+      if (!dropoffLocation) {
+        setStepError('Please select a drop-off location from the search suggestions.');
+        return false;
+      }
       if (!pickupTime) { setStepError('Pickup time is required.'); return false; }
-      if (!returnTime) { setStepError('Return time is required.'); return false; }
+      if (tripDirection === 'ROUND_TRIP' && !returnTime) {
+        setStepError('Return time is required for round-trip.');
+        return false;
+      }
     }
     if (step === 3) {
       if (!quote) { setStepError('Please calculate the price before confirming.'); return false; }
@@ -344,6 +435,11 @@ export default function NewSubscriptionPage() {
       setSubmitError('Please calculate the price first.');
       return;
     }
+    if (!pickupLocation || !dropoffLocation) {
+      setSubmitError('Pickup and drop-off locations are required.');
+      return;
+    }
+
     setSubmitting(true);
     setSubmitError('');
 
@@ -351,8 +447,17 @@ export default function NewSubscriptionPage() {
       packageId: selectedPackageId ?? undefined,
       riderIds: selectedRiderIds.length > 0 ? selectedRiderIds : undefined,
       subscriptionType,
-      pickupLocation: pickupLocation.trim(),
-      dropoffLocation: dropoffLocation.trim(),
+      // Send coordinate objects — the API recalculates price server-side
+      pickupLocation: {
+        label: pickupLocation.label,
+        latitude: pickupLocation.latitude,
+        longitude: pickupLocation.longitude,
+      },
+      dropoffLocation: {
+        label: dropoffLocation.label,
+        latitude: dropoffLocation.latitude,
+        longitude: dropoffLocation.longitude,
+      },
       tripDirection,
       pickupTime,
       returnTime,
@@ -403,7 +508,6 @@ export default function NewSubscriptionPage() {
                   : 'border-gray-200 bg-white hover:border-emerald-300 hover:shadow-sm',
               ].join(' ')}
             >
-              {/* Checkmark indicator */}
               {isSelected && (
                 <span className="absolute top-3 right-3 flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500 text-white" aria-hidden="true">
                   <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
@@ -411,7 +515,6 @@ export default function NewSubscriptionPage() {
                   </svg>
                 </span>
               )}
-
               <p className="font-semibold text-sm text-gray-800 pr-6">{pkg.name}</p>
               <p className="text-emerald-700 font-bold text-base mt-1">
                 {Number(pkg.priceSar).toLocaleString()} SAR
@@ -424,7 +527,6 @@ export default function NewSubscriptionPage() {
           );
         })}
 
-        {/* Skip option */}
         <button
           type="button"
           onClick={() => setSelectedPackageId(null)}
@@ -489,7 +591,6 @@ export default function NewSubscriptionPage() {
                       : 'border-gray-200 bg-white hover:border-emerald-300',
                   ].join(' ')}
                 >
-                  {/* Checkmark */}
                   {isSelected && (
                     <span className="absolute top-2.5 right-2.5 flex h-4 w-4 items-center justify-center rounded-full bg-emerald-500 text-white" aria-hidden="true">
                       <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
@@ -590,38 +691,42 @@ export default function NewSubscriptionPage() {
     </div>
   );
 
-  // ── Step 2: Route + trip direction + price calculator ──
+  // ── Step 2: Route + location picker + price calculator ──
   const renderStep2 = () => (
     <div className="space-y-5">
       <div>
         <h2 className="font-semibold text-lg mb-1">Route &amp; Pricing</h2>
         <p className="text-sm text-gray-400">
-          Enter your pickup and drop-off locations. The system will calculate the real road distance automatically.
+          Search for and select your pickup and drop-off locations. The system will calculate the
+          exact road distance automatically.
         </p>
       </div>
 
-      <Input
+      {/* Location pickers */}
+      <LocationPicker
         label="Pickup Location"
-        required
-        placeholder="e.g. Al-Nakheel District, Riyadh, Saudi Arabia"
         value={pickupLocation}
-        onChange={(e) => setPickupLocation(e.target.value)}
+        onChange={setPickupLocation}
+        placeholder="e.g. Al-Nakheel District, Riyadh…"
+        required
       />
 
-      <Input
+      <LocationPicker
         label="Drop-off Location"
-        required
-        placeholder="e.g. King Faisal School, Riyadh, Saudi Arabia"
         value={dropoffLocation}
-        onChange={(e) => setDropoffLocation(e.target.value)}
+        onChange={setDropoffLocation}
+        placeholder="e.g. King Faisal School, Riyadh…"
+        required
       />
 
       {/* Trip direction */}
       <div>
-        <p className="label mb-2">Trip Direction</p>
+        <p className="text-sm font-medium text-gray-700 mb-2">
+          Trip Direction <span className="text-red-500">*</span>
+        </p>
         <div className="flex gap-3">
           {([
-            { value: 'ROUND_TRIP', label: 'Round Trip', hint: 'Distance counted both ways (recommended for school)' },
+            { value: 'ROUND_TRIP', label: 'Round Trip', hint: 'Distance counted both ways — recommended for school' },
             { value: 'ONE_WAY', label: 'One Way', hint: 'Distance counted once' },
           ] as { value: TripDirection; label: string; hint: string }[]).map(({ value, label, hint }) => {
             const isActive = tripDirection === value;
@@ -630,6 +735,7 @@ export default function NewSubscriptionPage() {
                 key={value}
                 type="button"
                 onClick={() => setTripDirection(value)}
+                aria-pressed={isActive}
                 className={[
                   'flex-1 p-3 rounded-xl border-2 text-left transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400',
                   isActive
@@ -655,35 +761,64 @@ export default function NewSubscriptionPage() {
           onChange={(e) => setPickupTime(e.target.value)}
         />
         <Input
-          label="Return Time"
-          required
+          label={tripDirection === 'ROUND_TRIP' ? 'Return Time' : 'Return Time (optional)'}
+          required={tripDirection === 'ROUND_TRIP'}
           type="time"
           value={returnTime}
           onChange={(e) => setReturnTime(e.target.value)}
+          helpText={tripDirection === 'ONE_WAY' ? 'Not required for one-way trips' : undefined}
         />
       </div>
 
       {/* Calculate Price button */}
-      <Button
-        type="button"
-        variant="outline"
-        className="w-full"
-        onClick={handleCalculatePrice}
-        loading={quoteLoading}
-        disabled={quoteLoading}
-      >
-        {quoteLoading ? 'Calculating...' : quote ? 'Recalculate Price' : 'Calculate Price'}
-      </Button>
+      <div className="relative group">
+        <Button
+          type="button"
+          variant="outline"
+          className="w-full"
+          onClick={handleCalculatePrice}
+          loading={quoteLoading}
+          disabled={quoteLoading || !canCalculate}
+          title={
+            !canCalculate
+              ? !pickupLocation
+                ? 'Select a pickup location first'
+                : !dropoffLocation
+                ? 'Select a drop-off location first'
+                : 'Select at least one rider first'
+              : undefined
+          }
+        >
+          {quoteLoading ? 'Calculating…' : quote ? 'Recalculate Price' : 'Calculate Price'}
+        </Button>
 
-      {quoteError && (
-        <Alert variant="error">{quoteError}</Alert>
+        {/* Tooltip when disabled */}
+        {!canCalculate && (
+          <div className="pointer-events-none absolute bottom-full left-1/2 mb-2 hidden w-56 -translate-x-1/2 rounded-lg bg-gray-800 px-3 py-1.5 text-center text-xs text-white shadow-lg group-hover:block z-10">
+            {!pickupLocation
+              ? 'Select pickup location first'
+              : !dropoffLocation
+              ? 'Select drop-off location first'
+              : 'Select at least one rider first'}
+            <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-800" />
+          </div>
+        )}
+      </div>
+
+      {/* Quote stale warning */}
+      {quote && quoteKey && currentQuoteKey !== quoteKey && (
+        <Alert variant="warning">
+          Route or pricing changed. Please recalculate before confirming.
+        </Alert>
       )}
 
-      {quote && <QuoteBreakdown quote={quote} />}
+      {quoteError && <Alert variant="error">{quoteError}</Alert>}
+
+      {quote && currentQuoteKey === quoteKey && <QuoteBreakdown quote={quote} />}
     </div>
   );
 
-  // ── Step 3: Preferences, Add-ons & confirmation ──
+  // ── Step 3: Preferences, Add-ons & Review ──
   const renderStep3 = () => (
     <div className="space-y-6">
       {/* Preferences */}
@@ -770,14 +905,18 @@ export default function NewSubscriptionPage() {
             )}
             <div className="flex gap-2">
               <dt className="text-gray-400 w-24 shrink-0">Route</dt>
-              <dd className="font-medium text-gray-700">
-                {pickupLocation} &rarr; {dropoffLocation}{' '}
-                <span className="text-gray-400 font-normal">({tripDirection === 'ROUND_TRIP' ? 'Round-trip' : 'One-way'})</span>
+              <dd className="font-medium text-gray-700 leading-snug">
+                {pickupLocation?.label ?? '—'} &rarr; {dropoffLocation?.label ?? '—'}{' '}
+                <span className="text-gray-400 font-normal">
+                  ({tripDirection === 'ROUND_TRIP' ? 'Round-trip' : 'One-way'})
+                </span>
               </dd>
             </div>
             <div className="flex gap-2">
               <dt className="text-gray-400 w-24 shrink-0">Times</dt>
-              <dd className="font-medium text-gray-700">{pickupTime} pickup &middot; {returnTime} return</dd>
+              <dd className="font-medium text-gray-700">
+                {pickupTime} pickup{tripDirection === 'ROUND_TRIP' ? ` · ${returnTime} return` : ''}
+              </dd>
             </div>
             <div className="flex gap-2">
               <dt className="text-gray-400 w-24 shrink-0">Days</dt>
@@ -801,9 +940,29 @@ export default function NewSubscriptionPage() {
       {quote ? (
         <QuoteBreakdown quote={quote} />
       ) : (
-        <Alert variant="warning">
-          Price not yet calculated. Please go back and click <strong>Calculate Price</strong> before confirming.
-        </Alert>
+        <Card className="!border-amber-200 !bg-amber-50">
+          <div className="flex items-start gap-3">
+            <svg className="shrink-0 text-amber-500 mt-0.5" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+              <line x1="12" y1="9" x2="12" y2="13" />
+              <line x1="12" y1="17" x2="12.01" y2="17" />
+            </svg>
+            <div>
+              <p className="text-sm font-semibold text-amber-800">Price not calculated yet</p>
+              <p className="mt-1 text-sm text-amber-700">
+                Please go back to Step 3, select your pickup and drop-off locations, and click{' '}
+                <strong>Calculate Price</strong> before confirming.
+              </p>
+              <button
+                type="button"
+                onClick={() => setStep(2)}
+                className="mt-2 text-xs font-semibold text-amber-700 underline underline-offset-2 hover:text-amber-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+              >
+                Go back and calculate price →
+              </button>
+            </div>
+          </div>
+        </Card>
       )}
 
       {submitError && (
@@ -872,7 +1031,7 @@ export default function NewSubscriptionPage() {
                 disabled={submitting || !canConfirm}
                 title={!quote ? 'Calculate price first to confirm' : undefined}
               >
-                {submitting ? 'Submitting...' : 'Confirm Subscription'}
+                {submitting ? 'Submitting…' : 'Confirm Subscription'}
               </Button>
               {!quote && (
                 <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block z-10">

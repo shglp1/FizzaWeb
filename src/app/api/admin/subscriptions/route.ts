@@ -5,10 +5,21 @@ import { subscriptionCreateSchema } from '@/lib/validations/subscription';
 import { getPricingConfig, calculateSubscriptionQuote } from '@/lib/pricing/subscriptionPricing';
 import {
   calculateRouteDistanceKm,
+  calculateRouteDistanceKmFromCoords,
   calculateChargeableDistanceKm,
   DistanceError,
 } from '@/lib/maps/distance';
 import { z } from 'zod';
+
+/** Normalise a location that may be a plain string or a coordinate object. */
+function resolveLocationInput(
+  loc: string | { label: string; latitude: number; longitude: number },
+): { label: string; lat: number | null; lng: number | null; hasCoords: boolean } {
+  if (typeof loc === 'string') {
+    return { label: loc, lat: null, lng: null, hasCoords: false };
+  }
+  return { label: loc.label, lat: loc.latitude, lng: loc.longitude, hasCoords: true };
+}
 
 /** Admin-only fields added on top of the regular create schema. */
 const adminSubscriptionCreateSchema = subscriptionCreateSchema.extend({
@@ -193,8 +204,8 @@ export async function POST(req: NextRequest) {
       riderId,
       riderIds,
       subscriptionType,
-      pickupLocation,
-      dropoffLocation,
+      pickupLocation: pickupLocationRaw,
+      dropoffLocation: dropoffLocationRaw,
       tripDirection,
       pickupTime,
       returnTime,
@@ -206,6 +217,10 @@ export async function POST(req: NextRequest) {
       startsOn,
       endsOn,
     } = parsed.data;
+
+    // Normalise location inputs — accept both coord-objects (new) and plain strings (legacy)
+    const pickup = resolveLocationInput(pickupLocationRaw);
+    const dropoff = resolveLocationInput(dropoffLocationRaw);
 
     // Verify the target user exists
     const targetUser = await prisma.profile.findUnique({
@@ -284,7 +299,12 @@ export async function POST(req: NextRequest) {
     let normalizedDropoffLabel: string | null = null;
 
     try {
-      const routeResult = await calculateRouteDistanceKm(pickupLocation, dropoffLocation);
+      const routeResult = pickup.hasCoords && dropoff.hasCoords
+        ? await calculateRouteDistanceKmFromCoords(
+            { lat: pickup.lat!, lng: pickup.lng!, label: pickup.label },
+            { lat: dropoff.lat!, lng: dropoff.lng!, label: dropoff.label },
+          )
+        : await calculateRouteDistanceKm(pickup.label, dropoff.label);
       oneWayDistanceKm = routeResult.oneWayDistanceKm;
       chargeableDistanceKm = calculateChargeableDistanceKm(oneWayDistanceKm, tripDirection);
       distanceProvider = routeResult.providerUsed;
@@ -326,8 +346,8 @@ export async function POST(req: NextRequest) {
           riderId: primaryRiderId,
           packageId: packageId ?? null,
           subscriptionType,
-          pickupLocation,
-          dropoffLocation,
+          pickupLocation: pickup.label,
+          dropoffLocation: dropoff.label,
           tripDirection,
           pickupTime,
           returnTime,
