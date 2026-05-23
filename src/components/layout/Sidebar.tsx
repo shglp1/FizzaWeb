@@ -3,7 +3,7 @@
 import { usePathname, useRouter } from 'next/navigation';
 import { useCallback, useState } from 'react';
 import { Logo } from './Logo';
-import { useCurrentUser, type DriverState } from '@/hooks/useCurrentUser';
+import { clearCurrentUserCache, useCurrentUser, type DriverState } from '@/hooks/useCurrentUser';
 import { getNavigationForDriverState, type NavItem } from '@/lib/roleRoutes';
 
 // ─── Icon paths ───────────────────────────────────────────────────────────────
@@ -90,18 +90,24 @@ export function Sidebar() {
   const handleLogout = async () => {
     setLoggingOut(true);
     await fetch('/api/auth/logout', { method: 'POST' });
+    clearCurrentUserCache();
     router.push('/login');
   };
-
-  const resolvedState: DriverState = user?.driverState ?? 'PARENT';
-  const { main, secondary } = loading && !user
-    ? { main: [] as NavItem[], secondary: [] as NavItem[] }
-    : getNavigationForDriverState(resolvedState);
-  const chip = ROLE_CHIP[resolvedState];
 
   if (pathname === '/admin' || pathname.startsWith('/admin/')) {
     return null;
   }
+
+  const driverState: DriverState | undefined = user?.driverState;
+  const { main, secondary } =
+    loading || !driverState
+      ? { main: [] as NavItem[], secondary: [] as NavItem[] }
+      : getNavigationForDriverState(driverState);
+  const chip = loading
+    ? { label: '…', cls: 'bg-white/10 text-white/40' }
+    : driverState
+    ? ROLE_CHIP[driverState]
+    : { label: '…', cls: 'bg-white/10 text-white/40' };
 
   return (
     <aside className="hidden md:flex flex-col w-64 min-h-screen bg-fizza-primary shrink-0">
@@ -132,7 +138,7 @@ export function Sidebar() {
           )}
 
           {/* Driver portal link for applicants */}
-          {resolvedState === 'DRIVER_APPLICANT' && (
+          {!loading && driverState === 'DRIVER_APPLICANT' && (
             <>
               <div className="my-3 border-t border-white/10" />
               <a
