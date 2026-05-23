@@ -174,6 +174,12 @@ export const RATE_LIMITS = {
    */
   geocode: { max: 60, windowMs: 60 * 1000 } satisfies RateLimitConfig,
 
+  /**
+   * 30 payment callback/verify calls per minute per IP.
+   * Browser redirects and manual Verify-Payment taps share this limit.
+   */
+  paymentCallback: { max: 30, windowMs: 60 * 1000 } satisfies RateLimitConfig,
+
   /** 10 safety reports per hour per IP. */
   safetyReport: { max: 10, windowMs: 60 * 60 * 1000 } satisfies RateLimitConfig,
 } as const;

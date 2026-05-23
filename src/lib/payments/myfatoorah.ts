@@ -65,8 +65,13 @@ export async function createInvoice(params: CreateInvoiceParams): Promise<Invoic
     );
   }
 
-  const callbackUrl = `${appUrl.trim()}/api/payments/webhook`;
-  const errorUrl = `${appUrl.trim()}/wallet`;
+  // Prefer explicit env vars so webhook URL is never used as browser redirect
+  const callbackUrl =
+    process.env.MYFATOORAH_CALLBACK_URL?.trim() ||
+    `${appUrl.trim()}/payment/callback`;
+  const errorUrl =
+    process.env.MYFATOORAH_ERROR_URL?.trim() ||
+    `${appUrl.trim()}/payment/error`;
 
   // Email fallback — MyFatoorah requires a non-empty email
   const customerEmail = params.customerEmail?.trim() || 'noreply@example.com';
@@ -209,7 +214,10 @@ export type PaymentStatusResult = {
   customerReference: string | null;
 };
 
-export async function getPaymentStatus(paymentId: string): Promise<PaymentStatusResult> {
+export async function getPaymentStatus(
+  key: string,
+  keyType: 'PaymentId' | 'InvoiceId' = 'PaymentId',
+): Promise<PaymentStatusResult> {
   if (!isConfigured()) {
     throw new Error('MyFatoorah is not configured. Set MYFATOORAH_API_KEY and MYFATOORAH_BASE_URL.');
   }
@@ -223,7 +231,7 @@ export async function getPaymentStatus(paymentId: string): Promise<PaymentStatus
       'Content-Type': 'application/json',
       Authorization: `Bearer ${apiKey}`,
     },
-    body: JSON.stringify({ Key: paymentId, KeyType: 'PaymentId' }),
+    body: JSON.stringify({ Key: key, KeyType: keyType }),
   });
 
   if (!response.ok) {

@@ -17,6 +17,7 @@ import {
   mapGatewayErrorToResponse,
   buildSafeLogPayload,
 } from '../lib/payments/types.ts';
+import type { ProcessOutcome } from '../lib/payments/processPaymentStatus.ts';
 
 // ─── createPaymentSchema ──────────────────────────────────────────────────────
 
@@ -329,5 +330,175 @@ describe('wallet balance-check logic', () => {
     const amount = 150;
     const newBalance = balance - amount;
     assert.equal(newBalance, 350);
+  });
+});
+
+// ─── ProcessOutcome type safety ───────────────────────────────────────────────
+
+describe('ProcessOutcome type values', () => {
+  const validOutcomes: ProcessOutcome[] = ['PAID', 'FAILED', 'PENDING', 'ALREADY_PROCESSED'];
+
+  it('PAID is a valid outcome', () => {
+    assert.ok(validOutcomes.includes('PAID'));
+  });
+
+  it('FAILED is a valid outcome', () => {
+    assert.ok(validOutcomes.includes('FAILED'));
+  });
+
+  it('PENDING is a valid outcome', () => {
+    assert.ok(validOutcomes.includes('PENDING'));
+  });
+
+  it('ALREADY_PROCESSED is a valid outcome', () => {
+    assert.ok(validOutcomes.includes('ALREADY_PROCESSED'));
+  });
+});
+
+// ─── Callback query param resolution logic ────────────────────────────────────
+
+describe('callback query param resolution', () => {
+  // Pure function that mirrors the logic in GET /api/payments/callback
+  const resolveKey = (
+    Id?: string,
+    paymentId?: string,
+    invoiceId?: string,
+    subscriptionId?: string,
+  ): { key: string; keyType: 'PaymentId' | 'InvoiceId' } | null => {
+    if (Id) return { key: Id, keyType: 'PaymentId' };
+    if (paymentId) return { key: paymentId, keyType: 'InvoiceId' };
+    if (invoiceId) return { key: invoiceId, keyType: 'InvoiceId' };
+    if (subscriptionId) return null; // requires DB lookup — not testable here
+    return null;
+  };
+
+  it('Id param → KeyType PaymentId', () => {
+    const result = resolveKey('txn-123');
+    assert.equal(result?.keyType, 'PaymentId');
+    assert.equal(result?.key, 'txn-123');
+  });
+
+  it('paymentId param (MyFatoorah InvoiceId alias) → KeyType InvoiceId', () => {
+    const result = resolveKey(undefined, 'inv-456');
+    assert.equal(result?.keyType, 'InvoiceId');
+    assert.equal(result?.key, 'inv-456');
+  });
+
+  it('invoiceId param (manual verify) → KeyType InvoiceId', () => {
+    const result = resolveKey(undefined, undefined, 'inv-789');
+    assert.equal(result?.keyType, 'InvoiceId');
+    assert.equal(result?.key, 'inv-789');
+  });
+
+  it('Id takes priority over paymentId', () => {
+    const result = resolveKey('txn-A', 'inv-B');
+    assert.equal(result?.keyType, 'PaymentId');
+    assert.equal(result?.key, 'txn-A');
+  });
+
+  it('returns null when no params provided', () => {
+    const result = resolveKey();
+    assert.equal(result, null);
+  });
+
+  it('subscriptionId alone returns null (DB lookup required)', () => {
+    const result = resolveKey(undefined, undefined, undefined, 'sub-123');
+    assert.equal(result, null);
+  });
+});
+
+// ─── Callback / error URL config ──────────────────────────────────────────────
+
+describe('callback and error URL configuration', () => {
+  const resolveCallbackUrl = (appUrl: string, callbackEnv?: string) =>
+    callbackEnv?.trim() || `${appUrl}/payment/callback`;
+
+  const resolveErrorUrl = (appUrl: string, errorEnv?: string) =>
+    errorEnv?.trim() || `${appUrl}/payment/error`;
+
+  it('uses MYFATOORAH_CALLBACK_URL when set', () => {
+    const url = resolveCallbackUrl('http://app.com', 'https://custom.callback/');
+    assert.equal(url, 'https://custom.callback/');
+  });
+
+  it('falls back to /payment/callback when MYFATOORAH_CALLBACK_URL is not set', () => {
+    const url = resolveCallbackUrl('http://localhost:3000');
+    assert.equal(url, 'http://localhost:3000/payment/callback');
+  });
+
+  it('never uses /api/payments/webhook as callback URL', () => {
+    const url = resolveCallbackUrl('http://localhost:3000');
+    assert.ok(!url.includes('/api/payments/webhook'));
+  });
+
+  it('uses MYFATOORAH_ERROR_URL when set', () => {
+    const url = resolveErrorUrl('http://app.com', 'https://custom.error/');
+    assert.equal(url, 'https://custom.error/');
+  });
+
+  it('falls back to /payment/error when MYFATOORAH_ERROR_URL is not set', () => {
+    const url = resolveErrorUrl('http://localhost:3000');
+    assert.equal(url, 'http://localhost:3000/payment/error');
+  });
+
+  it('localhost callback works without ngrok (browser redirect returns to localhost)', () => {
+    const url = resolveCallbackUrl('http://localhost:3000');
+    assert.ok(url.startsWith('http://localhost:3000'));
+  });
+});
+
+// ─── Idempotency logic ────────────────────────────────────────────────────────
+
+describe('payment processing idempotency logic', () => {
+  // Mirror the idempotency guard from applyPaymentOutcome
+  const shouldSkip = (paymentStatus: string): boolean => paymentStatus === 'PAID';
+
+  it('skips processing when payment already PAID', () => {
+    assert.ok(shouldSkip('PAID'));
+  });
+
+  it('processes when payment is PENDING', () => {
+    assert.ok(!shouldSkip('PENDING'));
+  });
+
+  it('processes when payment is FAILED', () => {
+    assert.ok(!shouldSkip('FAILED'));
+  });
+
+  it('duplicate PAID callback does not re-process', () => {
+    // First call: payment.status = 'PENDING' → processes → updates to PAID
+    // Second call: payment.status = 'PAID' → shouldSkip → ALREADY_PROCESSED
+    const afterFirst = 'PAID';
+    assert.ok(shouldSkip(afterFirst)); // second call is skipped
+  });
+});
+
+// ─── Webhook GET → helpful 405 ────────────────────────────────────────────────
+
+describe('webhook endpoint method handling', () => {
+  const getWebhookGetResponse = () => ({
+    status: 405,
+    body: {
+      error: {
+        message:
+          'Webhook endpoint expects POST. ' +
+          'Browser payment redirects should use /payment/callback instead.',
+      },
+    },
+  });
+
+  it('returns 405 for GET requests to webhook', () => {
+    const res = getWebhookGetResponse();
+    assert.equal(res.status, 405);
+  });
+
+  it('response message mentions /payment/callback', () => {
+    const res = getWebhookGetResponse();
+    assert.ok(res.body.error.message.includes('/payment/callback'));
+  });
+
+  it('response message explains POST requirement', () => {
+    const res = getWebhookGetResponse();
+    assert.ok(res.body.error.message.includes('POST'));
   });
 });

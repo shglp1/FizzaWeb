@@ -11,6 +11,20 @@ export const paymentService = {
     });
     return res.json();
   },
+
+  /**
+   * Verify a payment's status against MyFatoorah.
+   * Pass exactly one of: invoiceId (our stored ID) or subscriptionId.
+   * Used by the "Verify Payment" button on the subscriptions page.
+   */
+  verifyPayment: async (params: { invoiceId?: string; subscriptionId?: string }) => {
+    const qs = new URLSearchParams();
+    if (params.invoiceId) qs.set('invoiceId', params.invoiceId);
+    if (params.subscriptionId) qs.set('subscriptionId', params.subscriptionId);
+    const res = await fetch(`/api/payments/callback?${qs.toString()}`);
+    return res.json();
+  },
+
   getPayment: async (id: string) => {
     const res = await fetch(`/api/payments/${encodeURIComponent(id)}`);
     return res.json();
