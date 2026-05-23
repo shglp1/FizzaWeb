@@ -1,8 +1,24 @@
 'use client';
+
 import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { AppShell } from '@/components/layout/AppShell';
+import {
+  PageHeader,
+  Card,
+  Input,
+  Textarea,
+  Button,
+  Alert,
+  Badge,
+  LoadingState,
+  ErrorState,
+  ConfirmDialog,
+  EmptyState,
+} from '@/components/ui';
 import { riderService } from '@/services/riderService';
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 type Rider = {
   id: string;
@@ -16,7 +32,7 @@ type Rider = {
   isActive: boolean;
 };
 
-type RiderFormValues = {
+type FormValues = {
   name: string;
   relationship: string;
   school: string;
@@ -25,6 +41,8 @@ type RiderFormValues = {
   specialNeeds: boolean;
   notes: string;
 };
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function RidersPage() {
   const [riders, setRiders] = useState<Rider[]>([]);
@@ -35,8 +53,9 @@ export default function RidersPage() {
   const [actionError, setActionError] = useState('');
   const [actionSuccess, setActionSuccess] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [confirmToggle, setConfirmToggle] = useState<Rider | null>(null);
 
-  const { register, handleSubmit, reset, formState: { errors } } = useForm<RiderFormValues>();
+  const { register, handleSubmit, reset, formState: { errors } } = useForm<FormValues>();
 
   const loadRiders = () => {
     setLoading(true);
@@ -73,7 +92,7 @@ export default function RidersPage() {
     setShowForm(true);
   };
 
-  const onSubmit = async (values: RiderFormValues) => {
+  const onSubmit = async (values: FormValues) => {
     setSubmitting(true);
     setActionError('');
     setActionSuccess('');
@@ -87,11 +106,9 @@ export default function RidersPage() {
         specialNeeds: values.specialNeeds,
         notes: values.notes || undefined,
       };
-
       const res = editingRider
         ? await riderService.update(editingRider.id, payload)
         : await riderService.create(payload);
-
       if (res.data) {
         setActionSuccess(editingRider ? 'Rider updated.' : 'Rider added.');
         setShowForm(false);
@@ -106,9 +123,10 @@ export default function RidersPage() {
     }
   };
 
-  const toggleActive = async (rider: Rider) => {
-    setActionError('');
-    setActionSuccess('');
+  const confirmToggleActive = async () => {
+    if (!confirmToggle) return;
+    const rider = confirmToggle;
+    setConfirmToggle(null);
     try {
       const res = rider.isActive
         ? await riderService.deactivate(rider.id)
@@ -126,143 +144,200 @@ export default function RidersPage() {
 
   return (
     <AppShell>
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-semibold">Family Riders</h1>
-        <button className="btn-primary text-sm" onClick={openAdd}>+ Add Rider</button>
-      </div>
+      <PageHeader
+        title="Family Riders"
+        subtitle={`${riders.length} rider${riders.length !== 1 ? 's' : ''} registered`}
+        action={
+          <Button variant="primary" size="sm" onClick={openAdd}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <line x1="12" y1="5" x2="12" y2="19" />
+              <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+            Add Rider
+          </Button>
+        }
+      />
 
+      {/* Action feedback */}
       {actionSuccess && (
-        <p className="text-emerald-700 bg-emerald-50 rounded-lg px-3 py-2 text-sm mb-4">
+        <Alert variant="success" className="mb-4" onClose={() => setActionSuccess('')}>
           {actionSuccess}
-        </p>
+        </Alert>
       )}
       {actionError && (
-        <p className="text-red-600 bg-red-50 rounded-lg px-3 py-2 text-sm mb-4">{actionError}</p>
+        <Alert variant="error" className="mb-4" onClose={() => setActionError('')}>
+          {actionError}
+        </Alert>
       )}
 
-      {/* Add / Edit form */}
+      {/* Add / Edit form panel */}
       {showForm && (
-        <div className="card mb-6 border-emerald-300">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="font-semibold">{editingRider ? 'Edit Rider' : 'Add Rider'}</h2>
+        <Card className="mb-5 border-fizza-secondary/30 bg-emerald-50/30">
+          <div className="flex items-center justify-between mb-5">
+            <h2 className="text-base font-semibold text-gray-900">
+              {editingRider ? 'Edit Rider' : 'Add New Rider'}
+            </h2>
             <button
-              className="text-gray-400 hover:text-gray-600 text-sm"
+              className="text-gray-400 hover:text-gray-600 transition-colors p-1 rounded-lg hover:bg-gray-100"
               onClick={() => setShowForm(false)}
+              aria-label="Close form"
             >
-              ✕ Cancel
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
             </button>
           </div>
-          <form onSubmit={handleSubmit(onSubmit)} className="grid md:grid-cols-2 gap-3">
-            <div>
-              <input
-                className="input"
-                placeholder="Full Name *"
-                {...register('name', { required: 'Name is required' })}
-              />
-              {errors.name && <p className="text-red-500 text-xs mt-1">{errors.name.message}</p>}
-            </div>
-            <div>
-              <input
-                className="input"
-                placeholder="Relationship (e.g. Son, Daughter) *"
-                {...register('relationship', { required: 'Relationship is required' })}
-              />
-              {errors.relationship && (
-                <p className="text-red-500 text-xs mt-1">{errors.relationship.message}</p>
-              )}
-            </div>
-            <input className="input" placeholder="School" {...register('school')} />
-            <input className="input" placeholder="Grade" {...register('grade')} />
-            <input className="input" placeholder="Phone" {...register('phone')} />
-            <label className="flex items-center gap-2 px-3 py-3 border border-emerald-200 rounded-xl cursor-pointer">
-              <input type="checkbox" {...register('specialNeeds')} className="w-4 h-4" />
-              <span className="text-sm">Has special needs</span>
-            </label>
-            <textarea
-              className="input md:col-span-2 h-20 resize-none"
-              placeholder="Notes (optional)"
-              {...register('notes')}
+
+          <form onSubmit={handleSubmit(onSubmit)} className="grid sm:grid-cols-2 gap-4">
+            <Input
+              label="Full name"
+              placeholder="e.g. Ahmad Al-Rashidi"
+              required
+              error={errors.name?.message}
+              {...register('name', { required: 'Name is required' })}
             />
-            <button
-              type="submit"
-              className="btn-primary md:col-span-2"
-              disabled={submitting}
+            <Input
+              label="Relationship"
+              placeholder="Son, Daughter, etc."
+              required
+              error={errors.relationship?.message}
+              {...register('relationship', { required: 'Relationship is required' })}
+            />
+            <Input label="School" placeholder="School name" {...register('school')} />
+            <Input label="Grade" placeholder="e.g. Grade 5" {...register('grade')} />
+            <Input label="Phone" type="tel" placeholder="+966 5X XXX XXXX" {...register('phone')} />
+            <div className="flex items-center gap-3 px-3 py-3 rounded-xl border border-gray-200 bg-white cursor-pointer"
+              onClick={() => {
+                const el = document.getElementById('specialNeeds') as HTMLInputElement;
+                if (el) el.click();
+              }}
             >
-              {submitting ? 'Saving…' : editingRider ? 'Update Rider' : 'Add Rider'}
-            </button>
+              <input
+                id="specialNeeds"
+                type="checkbox"
+                className="w-4 h-4 accent-fizza-secondary"
+                {...register('specialNeeds')}
+              />
+              <div>
+                <label htmlFor="specialNeeds" className="text-sm font-medium text-gray-700 cursor-pointer">
+                  Has special needs
+                </label>
+                <p className="text-xs text-gray-400">Requires additional support</p>
+              </div>
+            </div>
+            <div className="sm:col-span-2">
+              <Textarea
+                label="Notes"
+                placeholder="Any additional information for the driver…"
+                rows={3}
+                {...register('notes')}
+              />
+            </div>
+            <div className="sm:col-span-2 flex items-center gap-3">
+              <Button type="submit" variant="primary" loading={submitting} className="flex-1 sm:flex-none">
+                {editingRider ? 'Update Rider' : 'Add Rider'}
+              </Button>
+              <Button type="button" variant="ghost" onClick={() => setShowForm(false)}>
+                Cancel
+              </Button>
+            </div>
           </form>
-        </div>
+        </Card>
       )}
 
       {/* Riders list */}
       {loading ? (
-        <div className="flex items-center justify-center h-32 text-gray-400">Loading riders…</div>
+        <LoadingState message="Loading riders…" />
       ) : pageError ? (
-        <div className="card text-red-600 text-sm">{pageError}</div>
+        <ErrorState message={pageError} onRetry={loadRiders} />
       ) : riders.length === 0 ? (
-        <div className="card text-center py-12">
-          <p className="text-gray-400 text-lg mb-2">No riders yet</p>
-          <p className="text-gray-400 text-sm mb-4">
-            Add a family member to manage their school transport.
-          </p>
-          <button className="btn-primary" onClick={openAdd}>+ Add Your First Rider</button>
-        </div>
+        <EmptyState
+          icon="👤"
+          title="No riders yet"
+          description="Add your family members to start scheduling trips."
+          action={{ label: 'Add First Rider', onClick: openAdd }}
+        />
       ) : (
-        <div className="grid md:grid-cols-2 gap-4">
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {riders.map((rider) => (
-            <div
-              key={rider.id}
-              className={`card ${!rider.isActive ? 'opacity-60' : ''}`}
-            >
-              <div className="flex items-start justify-between mb-2">
-                <div>
-                  <h3 className="font-semibold text-base">{rider.name}</h3>
-                  <p className="text-sm text-gray-500">{rider.relationship}</p>
+            <Card key={rider.id} variant="interactive">
+              <div className="flex items-start gap-3 mb-3">
+                <div className={`h-11 w-11 rounded-full flex items-center justify-center text-lg font-bold shrink-0 ${rider.isActive ? 'bg-emerald-100 text-fizza-primary' : 'bg-gray-100 text-gray-400'}`}>
+                  {rider.name.charAt(0).toUpperCase()}
                 </div>
-                <span
-                  className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
-                    rider.isActive
-                      ? 'bg-emerald-100 text-emerald-700'
-                      : 'bg-gray-100 text-gray-500'
-                  }`}
-                >
+                <div className="flex-1 min-w-0">
+                  <p className="font-semibold text-gray-900 truncate">{rider.name}</p>
+                  <p className="text-xs text-gray-500">{rider.relationship}</p>
+                </div>
+                <Badge variant={rider.isActive ? 'success' : 'gray'}>
                   {rider.isActive ? 'Active' : 'Inactive'}
-                </span>
+                </Badge>
               </div>
 
-              <div className="text-sm text-gray-600 space-y-1 mb-3">
+              {/* Details */}
+              <div className="space-y-1.5 text-sm text-gray-600 mb-4">
                 {rider.school && (
-                  <p>🏫 {rider.school}{rider.grade ? ` · Grade ${rider.grade}` : ''}</p>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-base">🏫</span>
+                    <span className="truncate">{rider.school}{rider.grade ? ` · ${rider.grade}` : ''}</span>
+                  </div>
                 )}
-                {rider.phone && <p>📱 {rider.phone}</p>}
+                {rider.phone && (
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-base">📞</span>
+                    <span>{rider.phone}</span>
+                  </div>
+                )}
                 {rider.specialNeeds && (
-                  <p className="text-amber-600 font-medium">⚠ Special needs</p>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-base">♿</span>
+                    <span className="text-amber-700 font-medium">Special needs</span>
+                  </div>
                 )}
-                {rider.notes && <p className="text-gray-400 italic">{rider.notes}</p>}
+                {rider.notes && (
+                  <p className="text-gray-400 text-xs line-clamp-2 mt-1 italic">&ldquo;{rider.notes}&rdquo;</p>
+                )}
               </div>
 
-              <div className="flex gap-2">
-                <button
-                  className="btn-outline text-sm flex-1 py-2"
+              {/* Actions */}
+              <div className="flex gap-2 pt-3 border-t border-gray-50">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="flex-1"
                   onClick={() => openEdit(rider)}
                 >
                   Edit
-                </button>
-                <button
-                  className={`text-sm flex-1 py-2 rounded-xl font-semibold border ${
-                    rider.isActive
-                      ? 'border-red-200 text-red-600 hover:bg-red-50'
-                      : 'border-emerald-200 text-emerald-600 hover:bg-emerald-50'
-                  }`}
-                  onClick={() => toggleActive(rider)}
+                </Button>
+                <Button
+                  variant={rider.isActive ? 'danger-outline' : 'ghost'}
+                  size="sm"
+                  className="flex-1"
+                  onClick={() => setConfirmToggle(rider)}
                 >
                   {rider.isActive ? 'Deactivate' : 'Reactivate'}
-                </button>
+                </Button>
               </div>
-            </div>
+            </Card>
           ))}
         </div>
       )}
+
+      {/* Confirm toggle dialog */}
+      <ConfirmDialog
+        isOpen={!!confirmToggle}
+        title={confirmToggle?.isActive ? 'Deactivate Rider?' : 'Reactivate Rider?'}
+        message={
+          confirmToggle?.isActive
+            ? `${confirmToggle.name} won't be assigned to future trips until reactivated.`
+            : `${confirmToggle?.name ?? 'This rider'} will be available for future trips again.`
+        }
+        confirmLabel={confirmToggle?.isActive ? 'Deactivate' : 'Reactivate'}
+        confirmVariant={confirmToggle?.isActive ? 'danger' : 'primary'}
+        onConfirm={confirmToggleActive}
+        onCancel={() => setConfirmToggle(null)}
+      />
     </AppShell>
   );
 }

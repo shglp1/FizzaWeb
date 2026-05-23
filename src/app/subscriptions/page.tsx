@@ -1,10 +1,25 @@
 'use client';
+
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { AppShell } from '@/components/layout/AppShell';
+import {
+  PageHeader,
+  Card,
+  Badge,
+  StatusBadge,
+  Button,
+  Alert,
+  LoadingState,
+  ErrorState,
+  EmptyState,
+  ConfirmDialog,
+} from '@/components/ui';
 import { subscriptionService } from '@/services/subscriptionService';
 import { walletService } from '@/services/walletService';
 import { paymentService } from '@/services/paymentService';
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 type SubscriptionStatus = 'PENDING' | 'ACTIVE' | 'PAUSED' | 'EXPIRED' | 'CANCELLED';
 type PaymentStatus = 'PENDING' | 'PAID' | 'FAILED' | 'REFUNDED';
@@ -29,15 +44,156 @@ type Subscription = {
   addOns: { id: string; addOn: { id: string; name: string; priceSar: string } }[];
 };
 
-const STATUS_CFG: Record<SubscriptionStatus, { label: string; color: string; bg: string; border: string }> = {
-  PENDING:   { label: 'Pending Payment', color: 'text-amber-700',   bg: 'bg-amber-50',   border: 'border-amber-200' },
-  ACTIVE:    { label: 'Active',          color: 'text-emerald-700', bg: 'bg-emerald-50', border: 'border-emerald-200' },
-  PAUSED:    { label: 'Paused',          color: 'text-blue-700',    bg: 'bg-blue-50',    border: 'border-blue-200' },
-  EXPIRED:   { label: 'Expired',         color: 'text-gray-600',    bg: 'bg-gray-50',    border: 'border-gray-200' },
-  CANCELLED: { label: 'Cancelled',       color: 'text-red-700',     bg: 'bg-red-50',     border: 'border-red-200' },
+const STATUS_VARIANT: Record<SubscriptionStatus, 'success' | 'warning' | 'info' | 'gray' | 'danger'> = {
+  ACTIVE: 'success',
+  PENDING: 'warning',
+  PAUSED: 'info',
+  EXPIRED: 'gray',
+  CANCELLED: 'danger',
+};
+
+const STATUS_LABEL: Record<SubscriptionStatus, string> = {
+  ACTIVE: 'Active',
+  PENDING: 'Pending Payment',
+  PAUSED: 'Paused',
+  EXPIRED: 'Expired',
+  CANCELLED: 'Cancelled',
 };
 
 const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+// ─── Subscription card ────────────────────────────────────────────────────────
+
+function SubCard({
+  sub,
+  onCancel,
+  onPayWallet,
+  onPayOnline,
+  cancelling,
+  paying,
+}: {
+  sub: Subscription;
+  onCancel: () => void;
+  onPayWallet: () => void;
+  onPayOnline: () => void;
+  cancelling: boolean;
+  paying: boolean;
+}) {
+  const activeDays = sub.schedules
+    .filter((s) => !s.isOffDay)
+    .map((s) => WEEKDAY_LABELS[s.weekday])
+    .join(', ');
+
+  const canPay = sub.paymentStatus === 'PENDING';
+  const canCancel = ['PENDING', 'ACTIVE', 'PAUSED'].includes(sub.status);
+  const busy = cancelling || paying;
+
+  return (
+    <Card>
+      {/* Header */}
+      <div className="flex items-start justify-between gap-4 mb-4">
+        <div className="flex items-start gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50 text-lg shrink-0">
+            {sub.subscriptionType === 'SCHOOL' ? '🏫' : '🎓'}
+          </div>
+          <div>
+            <h2 className="font-semibold text-gray-900 capitalize">{sub.subscriptionType.toLowerCase()} Subscription</h2>
+            {sub.package && (
+              <p className="text-sm text-gray-500">
+                {sub.package.name} · <span className="font-medium text-gray-700">SAR {Number(sub.package.priceSar).toLocaleString()}</span>
+                <span className="text-gray-400"> / {sub.package.billingCycle.toLowerCase()}</span>
+              </p>
+            )}
+          </div>
+        </div>
+        <div className="flex flex-col items-end gap-1.5 shrink-0">
+          <StatusBadge variant={STATUS_VARIANT[sub.status]}>
+            {STATUS_LABEL[sub.status]}
+          </StatusBadge>
+          {sub.paymentStatus !== 'PAID' && sub.status !== 'CANCELLED' && (
+            <Badge variant="warning" className="text-[10px]">
+              Payment {sub.paymentStatus.toLowerCase()}
+            </Badge>
+          )}
+        </div>
+      </div>
+
+      {/* Details grid */}
+      <div className="grid sm:grid-cols-2 gap-x-6 gap-y-2 text-sm text-gray-700 mb-4">
+        {sub.rider && (
+          <div className="flex gap-1.5">
+            <span className="text-gray-400 shrink-0">Rider</span>
+            <span className="font-medium">{sub.rider.name} <span className="text-gray-400 font-normal">({sub.rider.relationship})</span></span>
+          </div>
+        )}
+        <div className="flex gap-1.5">
+          <span className="text-gray-400 shrink-0">Pickup</span>
+          <span>{sub.pickupTime} · {sub.pickupLocation}</span>
+        </div>
+        <div className="flex gap-1.5">
+          <span className="text-gray-400 shrink-0">Return</span>
+          <span>{sub.returnTime} · {sub.dropoffLocation}</span>
+        </div>
+        {activeDays && (
+          <div className="flex gap-1.5">
+            <span className="text-gray-400 shrink-0">Days</span>
+            <span>{activeDays}</span>
+          </div>
+        )}
+        {sub.startsOn && (
+          <div className="flex gap-1.5">
+            <span className="text-gray-400 shrink-0">Starts</span>
+            <span>{new Date(sub.startsOn).toLocaleDateString()}</span>
+          </div>
+        )}
+        {sub.femaleDriverPreference && (
+          <div className="flex gap-1.5 text-fizza-secondary">
+            <span>✓</span>
+            <span className="font-medium">Female driver preferred</span>
+          </div>
+        )}
+      </div>
+
+      {/* Add-ons */}
+      {sub.addOns.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 mb-4">
+          {sub.addOns.map((a) => (
+            <Badge key={a.id} variant="info">
+              {a.addOn.name} · +SAR {Number(a.addOn.priceSar)}
+            </Badge>
+          ))}
+        </div>
+      )}
+
+      {/* Meta */}
+      <p className="text-xs text-gray-400 mb-4">
+        Created {new Date(sub.createdAt).toLocaleDateString()}
+        {sub.autoRenewal && ' · Auto-renewal enabled'}
+      </p>
+
+      {/* Actions */}
+      {canCancel && (
+        <div className="border-t border-gray-50 pt-3 flex flex-wrap gap-2">
+          {canPay && (
+            <>
+              <Button variant="primary" size="sm" loading={paying} disabled={busy} onClick={onPayWallet}>
+                Pay with Wallet
+              </Button>
+              <Button variant="outline" size="sm" loading={paying} disabled={busy} onClick={onPayOnline}>
+                Pay Online
+              </Button>
+            </>
+          )}
+          <Button variant="danger-outline" size="sm" disabled={busy} loading={cancelling} onClick={onCancel}>
+            Cancel
+          </Button>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function SubscriptionsPage() {
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
@@ -45,7 +201,8 @@ export default function SubscriptionsPage() {
   const [pageError, setPageError] = useState('');
   const [cancelling, setCancelling] = useState<string | null>(null);
   const [paying, setPaying] = useState<string | null>(null);
-  const [actionMsg, setActionMsg] = useState('');
+  const [actionMsg, setActionMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+  const [confirmCancel, setConfirmCancel] = useState<Subscription | null>(null);
 
   const loadSubscriptions = () => {
     setLoading(true);
@@ -58,179 +215,108 @@ export default function SubscriptionsPage() {
 
   useEffect(() => { loadSubscriptions(); }, []);
 
-  const handleCancel = async (sub: Subscription) => {
-    if (!confirm(`Cancel your ${sub.subscriptionType} subscription?`)) return;
+  const doCancel = async () => {
+    if (!confirmCancel) return;
+    const sub = confirmCancel;
+    setConfirmCancel(null);
     setCancelling(sub.id);
-    setActionMsg('');
     const res = await subscriptionService.cancel(sub.id);
     setCancelling(null);
     if (res.data) {
-      setActionMsg('Subscription cancelled successfully.');
+      setActionMsg({ text: 'Subscription cancelled.', type: 'success' });
       loadSubscriptions();
     } else {
-      setActionMsg(res.error?.message ?? 'Cancel failed.');
+      setActionMsg({ text: res.error?.message ?? 'Cancel failed.', type: 'error' });
     }
   };
 
   const handlePayWithWallet = async (sub: Subscription) => {
-    if (!confirm(`Pay for your ${sub.subscriptionType} subscription using wallet balance?`)) return;
     setPaying(sub.id);
-    setActionMsg('');
+    setActionMsg(null);
     const res = await walletService.paySubscription(sub.id);
     setPaying(null);
     if (res.data) {
-      setActionMsg('Subscription paid successfully. It is now active.');
+      setActionMsg({ text: 'Subscription paid — now active!', type: 'success' });
       loadSubscriptions();
     } else {
-      setActionMsg(res.error?.message ?? 'Payment failed. Please try again.');
+      setActionMsg({ text: res.error?.message ?? 'Payment failed.', type: 'error' });
     }
   };
 
   const handlePayOnline = async (sub: Subscription) => {
     setPaying(sub.id);
-    setActionMsg('');
+    setActionMsg(null);
     const res = await paymentService.createPayment({ purpose: 'SUBSCRIPTION_PAYMENT', subscriptionId: sub.id });
     setPaying(null);
     if (res.data?.invoiceUrl) {
       window.location.href = res.data.invoiceUrl;
-    } else if (res.data?.message === 'Payment already initiated' && res.data?.invoiceId) {
-      setActionMsg('A payment is already in progress. Please check your email or contact support.');
+    } else if (res.data?.invoiceId) {
+      setActionMsg({ text: 'A payment is already in progress. Check your email.', type: 'error' });
     } else {
-      setActionMsg(res.error?.message ?? 'Failed to initiate online payment. Please try again.');
+      setActionMsg({ text: res.error?.message ?? 'Failed to initiate payment.', type: 'error' });
     }
   };
 
+  const active = subscriptions.filter((s) => s.status === 'ACTIVE').length;
+
   return (
     <AppShell>
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-semibold">My Subscriptions</h1>
-        <Link href="/subscriptions/new" className="btn-primary text-sm px-4 py-2 rounded-xl">
-          + New Subscription
-        </Link>
-      </div>
+      <PageHeader
+        title="My Subscriptions"
+        subtitle={subscriptions.length > 0 ? `${active} active · ${subscriptions.length} total` : 'Manage your transport plans'}
+        action={
+          <Link href="/subscriptions/new" className="btn-primary btn-sm">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <line x1="12" y1="5" x2="12" y2="19" />
+              <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+            New Subscription
+          </Link>
+        }
+      />
 
       {actionMsg && (
-        <p className={`rounded-xl px-4 py-3 text-sm mb-4 ${
-          actionMsg.includes('failed') || actionMsg.includes('Failed')
-            ? 'text-red-700 bg-red-50'
-            : 'text-emerald-700 bg-emerald-50'
-        }`}>
-          {actionMsg}
-        </p>
+        <Alert variant={actionMsg.type} className="mb-4" onClose={() => setActionMsg(null)}>
+          {actionMsg.text}
+        </Alert>
       )}
 
       {loading ? (
-        <div className="flex items-center justify-center h-32 text-gray-400">Loading subscriptions…</div>
+        <LoadingState message="Loading subscriptions…" />
       ) : pageError ? (
-        <div className="card text-red-600 text-sm">{pageError}</div>
+        <ErrorState message={pageError} onRetry={loadSubscriptions} />
       ) : subscriptions.length === 0 ? (
-        <div className="card text-center py-12">
-          <p className="text-gray-400 text-lg mb-2">No subscriptions yet</p>
-          <p className="text-gray-400 text-sm mb-4">
-            Set up a school or university transport subscription for your family.
-          </p>
-          <Link href="/subscriptions/new" className="btn-primary text-sm px-4 py-2 rounded-xl">
-            Create First Subscription
-          </Link>
-        </div>
+        <EmptyState
+          icon="📋"
+          title="No subscriptions yet"
+          description="Set up a school or university transport plan for your family."
+          action={{ label: 'Create First Subscription', onClick: () => window.location.assign('/subscriptions/new') }}
+        />
       ) : (
         <div className="space-y-4">
-          {subscriptions.map((sub) => {
-            const cfg = STATUS_CFG[sub.status];
-            const activeDays = sub.schedules
-              .filter((s) => !s.isOffDay)
-              .map((s) => WEEKDAY_LABELS[s.weekday])
-              .join(', ');
-
-            return (
-              <div key={sub.id} className="card">
-                <div className="flex items-start justify-between gap-4 mb-3">
-                  <div>
-                    <h2 className="font-semibold text-base capitalize">{sub.subscriptionType} Subscription</h2>
-                    {sub.package && (
-                      <p className="text-sm text-gray-500">
-                        {sub.package.name} — {Number(sub.package.priceSar).toLocaleString()} SAR / {sub.package.billingCycle}
-                      </p>
-                    )}
-                  </div>
-                  <div className="flex flex-col items-end gap-1.5 shrink-0">
-                    <span className={`px-2 py-0.5 rounded-full text-xs font-semibold border ${cfg.bg} ${cfg.color} ${cfg.border}`}>
-                      {cfg.label}
-                    </span>
-                    {sub.paymentStatus !== 'PAID' && sub.status !== 'CANCELLED' && (
-                      <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200">
-                        Payment {sub.paymentStatus.toLowerCase()}
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                <div className="grid sm:grid-cols-2 gap-x-6 gap-y-1.5 text-sm text-gray-700 mb-3">
-                  {sub.rider && (
-                    <p><span className="text-gray-400">Rider:</span> {sub.rider.name} ({sub.rider.relationship})</p>
-                  )}
-                  <p><span className="text-gray-400">Pickup:</span> {sub.pickupTime} — {sub.pickupLocation}</p>
-                  <p><span className="text-gray-400">Return:</span> {sub.returnTime} — {sub.dropoffLocation}</p>
-                  {activeDays && (
-                    <p><span className="text-gray-400">Days:</span> {activeDays}</p>
-                  )}
-                  {sub.startsOn && (
-                    <p><span className="text-gray-400">Starts:</span> {new Date(sub.startsOn).toLocaleDateString()}</p>
-                  )}
-                  {sub.femaleDriverPreference && (
-                    <p className="text-emerald-600 font-medium">Female driver preferred ✓</p>
-                  )}
-                </div>
-
-                {sub.addOns.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5 mb-3">
-                    {sub.addOns.map((a) => (
-                      <span key={a.id} className="px-2 py-0.5 rounded-full text-xs bg-blue-50 text-blue-700 border border-blue-200">
-                        {a.addOn.name} (+{Number(a.addOn.priceSar)} SAR)
-                      </span>
-                    ))}
-                  </div>
-                )}
-
-                <p className="text-xs text-gray-400 mb-3">
-                  Created {new Date(sub.createdAt).toLocaleDateString()}
-                  {sub.autoRenewal && ' · Auto-renewal on'}
-                </p>
-
-                {(sub.status === 'PENDING' || sub.status === 'ACTIVE' || sub.status === 'PAUSED') && (
-                  <div className="border-t border-gray-100 pt-3 flex flex-wrap gap-2">
-                    {sub.paymentStatus === 'PENDING' && (
-                      <>
-                        <button
-                          onClick={() => handlePayWithWallet(sub)}
-                          disabled={paying === sub.id || cancelling === sub.id}
-                          className="text-sm px-4 py-2 rounded-xl font-semibold bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
-                        >
-                          {paying === sub.id ? 'Processing…' : 'Pay with Wallet'}
-                        </button>
-                        <button
-                          onClick={() => handlePayOnline(sub)}
-                          disabled={paying === sub.id || cancelling === sub.id}
-                          className="text-sm px-4 py-2 rounded-xl font-semibold border border-blue-300 text-blue-700 hover:bg-blue-50 disabled:opacity-50"
-                        >
-                          {paying === sub.id ? 'Redirecting…' : 'Pay Online'}
-                        </button>
-                      </>
-                    )}
-                    <button
-                      onClick={() => handleCancel(sub)}
-                      disabled={cancelling === sub.id || paying === sub.id}
-                      className="text-sm px-4 py-2 rounded-xl font-semibold border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-50"
-                    >
-                      {cancelling === sub.id ? 'Cancelling…' : 'Cancel Subscription'}
-                    </button>
-                  </div>
-                )}
-              </div>
-            );
-          })}
+          {subscriptions.map((sub) => (
+            <SubCard
+              key={sub.id}
+              sub={sub}
+              onCancel={() => setConfirmCancel(sub)}
+              onPayWallet={() => handlePayWithWallet(sub)}
+              onPayOnline={() => handlePayOnline(sub)}
+              cancelling={cancelling === sub.id}
+              paying={paying === sub.id}
+            />
+          ))}
         </div>
       )}
+
+      <ConfirmDialog
+        isOpen={!!confirmCancel}
+        title="Cancel Subscription?"
+        message={`This will cancel your ${confirmCancel?.subscriptionType?.toLowerCase() ?? ''} subscription. This action cannot be undone.`}
+        confirmLabel="Cancel Subscription"
+        confirmVariant="danger"
+        onConfirm={doCancel}
+        onCancel={() => setConfirmCancel(null)}
+      />
     </AppShell>
   );
 }

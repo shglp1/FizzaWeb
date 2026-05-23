@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState, useCallback } from 'react';
 import { adminFinancialService } from '@/services/adminService';
+import { Card, Badge, StatCard, LoadingState, ErrorState, EmptyState, Pagination } from '@/components/ui';
 
 type Overview = {
   totalRevenueSar: number;
@@ -29,25 +30,22 @@ type Payment = {
 
 type PayMeta = { page: number; totalPages: number; total: number };
 
-const PAY_STATUS_CFG: Record<string, { color: string }> = {
-  PAID: { color: 'text-emerald-600' },
-  PENDING: { color: 'text-amber-600' },
-  FAILED: { color: 'text-red-600' },
-  REFUNDED: { color: 'text-gray-500' },
+const PAY_VARIANT: Record<string, 'success' | 'warning' | 'danger' | 'gray'> = {
+  PAID: 'success', PENDING: 'warning', FAILED: 'danger', REFUNDED: 'gray',
 };
 
 export function FinancialsSection() {
-  const [overview, setOverview] = useState<Overview | null>(null);
+  const [overview, setOverview]   = useState<Overview | null>(null);
   const [ovLoading, setOvLoading] = useState(true);
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
+  const [dateFrom, setDateFrom]   = useState('');
+  const [dateTo, setDateTo]       = useState('');
 
-  const [payments, setPayments] = useState<Payment[]>([]);
-  const [payMeta, setPayMeta] = useState<PayMeta | null>(null);
+  const [payments, setPayments]   = useState<Payment[]>([]);
+  const [payMeta, setPayMeta]     = useState<PayMeta | null>(null);
   const [payLoading, setPayLoading] = useState(true);
   const [payStatus, setPayStatus] = useState('');
-  const [payPage, setPayPage] = useState(1);
-  const [payError, setPayError] = useState('');
+  const [payPage, setPayPage]     = useState(1);
+  const [payError, setPayError]   = useState('');
 
   const loadOverview = useCallback((df: string, dt: string) => {
     setOvLoading(true);
@@ -76,102 +74,110 @@ export function FinancialsSection() {
 
   return (
     <>
-      <h2 className="text-lg font-semibold mb-4">Financial Overview</h2>
+      <h2 className="text-base font-semibold text-gray-900 mb-4">Financial Overview</h2>
 
       {/* Date filter */}
-      <div className="flex flex-wrap gap-3 mb-6 items-end">
+      <div className="flex flex-wrap gap-3 mb-5 items-end">
         <div>
           <label className="block text-xs text-gray-400 mb-1">From</label>
-          <input type="date" className="input text-sm" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
+          <input type="date" className="input text-sm h-10" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
         </div>
         <div>
           <label className="block text-xs text-gray-400 mb-1">To</label>
-          <input type="date" className="input text-sm" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
+          <input type="date" className="input text-sm h-10" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
         </div>
         {(dateFrom || dateTo) && (
-          <button onClick={() => { setDateFrom(''); setDateTo(''); }} className="text-xs text-gray-500 hover:text-gray-700 underline self-end pb-2">Clear dates</button>
+          <button onClick={() => { setDateFrom(''); setDateTo(''); }} className="text-xs text-gray-500 hover:text-gray-700 underline pb-1">
+            Clear dates
+          </button>
         )}
       </div>
 
       {/* KPI cards */}
       {ovLoading ? (
-        <div className="flex items-center justify-center h-24 text-gray-400">Loading…</div>
+        <LoadingState message="Loading financials…" />
       ) : overview ? (
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 mb-8">
-          {[
-            { label: 'Total Revenue', value: `SAR ${overview.totalRevenueSar.toFixed(2)}`, color: 'text-emerald-700' },
-            { label: 'Paid Payments', value: overview.paidPaymentsCount, color: 'text-emerald-600' },
-            { label: 'Pending Revenue', value: `SAR ${overview.pendingRevenueSar.toFixed(2)}`, color: 'text-amber-700' },
-            { label: 'Pending Payments', value: overview.pendingPaymentsCount, color: 'text-amber-600' },
-            { label: 'Failed Payments', value: overview.failedPaymentsCount, color: 'text-red-600' },
-            { label: 'Wallet Top-ups', value: `SAR ${overview.walletTopUpRevenueSar.toFixed(2)}`, color: 'text-blue-700' },
-            { label: 'Subscription Rev.', value: `SAR ${overview.subscriptionRevenueSar.toFixed(2)}`, color: 'text-indigo-700' },
-            { label: 'Total Wallet Balance', value: `SAR ${overview.totalWalletBalanceSar.toFixed(2)}`, color: 'text-purple-700' },
-          ].map((k) => (
-            <div key={k.label} className="card">
-              <p className="text-xs text-gray-400 mb-1">{k.label}</p>
-              <p className={`text-xl font-bold ${k.color}`}>{k.value}</p>
-            </div>
-          ))}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 mb-6">
+          <StatCard label="Total Revenue"      value={`SAR ${overview.totalRevenueSar.toLocaleString('en-SA', { minimumFractionDigits: 0 })}`} color="#10B981"
+            icon={<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>} />
+          <StatCard label="Paid Payments"      value={overview.paidPaymentsCount}     color="#10B981"
+            icon={<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>} />
+          <StatCard label="Pending Revenue"    value={`SAR ${overview.pendingRevenueSar.toFixed(0)}`} color="#F59E0B"
+            icon={<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>} />
+          <StatCard label="Pending Payments"   value={overview.pendingPaymentsCount}  color="#F59E0B"
+            icon={<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>} />
+          <StatCard label="Failed Payments"    value={overview.failedPaymentsCount}   color="#EF4444"
+            icon={<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>} />
+          <StatCard label="Wallet Top-ups"     value={`SAR ${overview.walletTopUpRevenueSar.toFixed(0)}`} color="#3B82F6"
+            icon={<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>} />
+          <StatCard label="Subscription Rev."  value={`SAR ${overview.subscriptionRevenueSar.toFixed(0)}`} color="#6366F1"
+            icon={<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>} />
+          <StatCard label="Total Wallet Balance" value={`SAR ${overview.totalWalletBalanceSar.toFixed(0)}`} color="#8B5CF6"
+            icon={<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 12V22H4V12"/><path d="M22 7H2v5h20V7z"/><path d="M12 22V7"/><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"/><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"/></svg>} />
         </div>
       ) : null}
 
-      {/* Payments table */}
+      {/* Payments list */}
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-semibold text-gray-700">Payments</h3>
-        <select className="input text-sm" value={payStatus} onChange={(e) => { setPayStatus(e.target.value); setPayPage(1); }}>
+        <h3 className="text-sm font-semibold text-gray-700">Recent Payments</h3>
+        <select
+          className="input text-sm h-9"
+          value={payStatus}
+          onChange={(e) => { setPayStatus(e.target.value); setPayPage(1); }}
+        >
           <option value="">All Statuses</option>
-          {['PAID', 'PENDING', 'FAILED', 'REFUNDED'].map((s) => (
-            <option key={s} value={s}>{s}</option>
-          ))}
+          {['PAID', 'PENDING', 'FAILED', 'REFUNDED'].map((s) => <option key={s} value={s}>{s}</option>)}
         </select>
       </div>
 
       {payLoading ? (
-        <div className="flex items-center justify-center h-24 text-gray-400">Loading payments…</div>
+        <LoadingState message="Loading payments…" />
       ) : payError ? (
-        <div className="card text-red-600 text-sm">{payError}</div>
+        <ErrorState message={payError} onRetry={() => loadPayments(payStatus, payPage)} />
       ) : payments.length === 0 ? (
-        <div className="card text-center py-8 text-gray-400">No payments found.</div>
+        <EmptyState icon="💳" title="No payments found" description="No payments match your filter." />
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-gray-400 text-xs border-b border-gray-100">
-                <th className="pb-2 font-medium">User</th>
-                <th className="pb-2 font-medium">Purpose</th>
-                <th className="pb-2 font-medium">Amount</th>
-                <th className="pb-2 font-medium">Status</th>
-                <th className="pb-2 font-medium">Date</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-50">
-              {payments.map((p) => {
-                const sc = PAY_STATUS_CFG[p.status] ?? PAY_STATUS_CFG.PENDING;
-                return (
-                  <tr key={p.id} className="hover:bg-gray-50">
-                    <td className="py-2.5 pr-4">
-                      <p className="font-medium">{p.user.fullName}</p>
+        <Card padding="sm">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left border-b border-gray-100">
+                  <th className="pb-2.5 pr-4 text-xs font-semibold text-gray-400 uppercase tracking-wide">User</th>
+                  <th className="pb-2.5 pr-4 text-xs font-semibold text-gray-400 uppercase tracking-wide">Purpose</th>
+                  <th className="pb-2.5 pr-4 text-xs font-semibold text-gray-400 uppercase tracking-wide">Amount</th>
+                  <th className="pb-2.5 pr-4 text-xs font-semibold text-gray-400 uppercase tracking-wide">Status</th>
+                  <th className="pb-2.5 text-xs font-semibold text-gray-400 uppercase tracking-wide">Date</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {payments.map((p) => (
+                  <tr key={p.id} className="hover:bg-gray-50/70 transition-colors">
+                    <td className="py-3 pr-4">
+                      <p className="font-medium text-gray-900">{p.user.fullName}</p>
                       <p className="text-xs text-gray-400">{p.user.user.email}</p>
                     </td>
-                    <td className="py-2.5 pr-4 text-gray-600 capitalize">{p.purpose.toLowerCase().replace('_', ' ')}</td>
-                    <td className="py-2.5 pr-4 font-semibold">SAR {Number(p.amountSar).toFixed(2)}</td>
-                    <td className={`py-2.5 pr-4 font-medium ${sc.color}`}>{p.status}</td>
-                    <td className="py-2.5 text-gray-400 text-xs">{new Date(p.createdAt).toLocaleDateString()}</td>
+                    <td className="py-3 pr-4 text-gray-600 capitalize text-xs">
+                      {p.purpose.toLowerCase().replace(/_/g, ' ')}
+                    </td>
+                    <td className="py-3 pr-4 font-semibold text-gray-900">
+                      SAR {Number(p.amountSar).toFixed(2)}
+                    </td>
+                    <td className="py-3 pr-4">
+                      <Badge variant={PAY_VARIANT[p.status] ?? 'gray'} className="text-[10px]">{p.status}</Badge>
+                    </td>
+                    <td className="py-3 text-gray-400 text-xs whitespace-nowrap">
+                      {new Date(p.createdAt).toLocaleDateString()}
+                    </td>
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
       )}
 
       {payMeta && payMeta.totalPages > 1 && (
-        <div className="flex items-center justify-center gap-3 mt-4">
-          <button onClick={() => setPayPage((p) => Math.max(1, p - 1))} disabled={payPage === 1} className="btn-outline text-sm px-4 py-2 disabled:opacity-40">← Prev</button>
-          <span className="text-sm text-gray-500">Page {payMeta.page} of {payMeta.totalPages} ({payMeta.total})</span>
-          <button onClick={() => setPayPage((p) => Math.min(payMeta.totalPages, p + 1))} disabled={payPage === payMeta.totalPages} className="btn-outline text-sm px-4 py-2 disabled:opacity-40">Next →</button>
-        </div>
+        <Pagination page={payMeta.page} totalPages={payMeta.totalPages} onPageChange={setPayPage} className="mt-4" />
       )}
     </>
   );

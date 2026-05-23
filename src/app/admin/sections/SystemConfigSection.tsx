@@ -1,59 +1,28 @@
 'use client';
 import { useEffect, useState, useCallback } from 'react';
 import { systemConfigService } from '@/services/adminService';
+import { Card, Alert, Button, LoadingState, ErrorState } from '@/components/ui';
 
 type ConfigRow = { key: string; value: unknown; updatedAt: string };
 
 const CONFIG_META: Record<string, { label: string; type: 'number' | 'text'; hint: string }> = {
-  pricePerKmSar: {
-    label: 'Price per KM (SAR)',
-    type: 'number',
-    hint: 'Distance charge per kilometre added to subscription price.',
-  },
-  extraRiderSameDropoffMultiplier: {
-    label: 'Extra Rider Multiplier',
-    type: 'number',
-    hint: 'Fraction of primary price charged for each additional rider. Default: 0.5 (50%).',
-  },
-  maxTripGenerationDays: {
-    label: 'Max Trip Generation Days',
-    type: 'number',
-    hint: 'Max days ahead that trips are auto-generated.',
-  },
-  supportPhone: {
-    label: 'Support Phone',
-    type: 'text',
-    hint: 'Customer-facing support phone number.',
-  },
-  supportWhatsApp: {
-    label: 'Support WhatsApp',
-    type: 'text',
-    hint: 'Customer-facing WhatsApp number.',
-  },
-  notificationLeadTimeMinutes: {
-    label: 'Notification Lead Time (min)',
-    type: 'number',
-    hint: 'Minutes before pickup that pickup reminder is sent.',
-  },
-  loyaltyPointsPerSar: {
-    label: 'Loyalty Points per SAR',
-    type: 'number',
-    hint: 'Points awarded per SAR paid.',
-  },
-  loyaltyPointsOnSafetyApproval: {
-    label: 'Loyalty Points on Safety Approval',
-    type: 'number',
-    hint: 'Points awarded when a safety report is approved.',
-  },
+  pricePerKmSar:                    { label: 'Price per KM (SAR)',                type: 'number', hint: 'Distance charge per kilometre added to subscription price.' },
+  extraRiderSameDropoffMultiplier:   { label: 'Extra Rider Multiplier',            type: 'number', hint: 'Fraction of primary price charged for each additional rider. Default: 0.5 (50%).' },
+  maxTripGenerationDays:            { label: 'Max Trip Generation Days',           type: 'number', hint: 'Max days ahead that trips are auto-generated.' },
+  supportPhone:                     { label: 'Support Phone',                      type: 'text',   hint: 'Customer-facing support phone number.' },
+  supportWhatsApp:                  { label: 'Support WhatsApp',                   type: 'text',   hint: 'Customer-facing WhatsApp number.' },
+  notificationLeadTimeMinutes:      { label: 'Notification Lead Time (min)',       type: 'number', hint: 'Minutes before pickup that pickup reminder is sent.' },
+  loyaltyPointsPerSar:              { label: 'Loyalty Points per SAR',             type: 'number', hint: 'Points awarded per SAR paid.' },
+  loyaltyPointsOnSafetyApproval:   { label: 'Loyalty Points on Safety Approval',  type: 'number', hint: 'Points awarded when a safety report is approved.' },
 };
 
 export function SystemConfigSection() {
   const [configs, setConfigs] = useState<ConfigRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [form, setForm] = useState<Record<string, string>>({});
-  const [saving, setSaving] = useState(false);
-  const [saveMsg, setSaveMsg] = useState('');
+  const [error, setError]     = useState('');
+  const [form, setForm]       = useState<Record<string, string>>({});
+  const [saving, setSaving]   = useState(false);
+  const [saveMsg, setSaveMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -62,13 +31,8 @@ export function SystemConfigSection() {
       if (res.data) {
         setConfigs(res.data as ConfigRow[]);
         const initial: Record<string, string> = {};
-        (res.data as ConfigRow[]).forEach((c) => {
-          initial[c.key] = String(c.value ?? '');
-        });
-        // Set defaults for missing keys
-        Object.keys(CONFIG_META).forEach((k) => {
-          if (!(k in initial)) initial[k] = '';
-        });
+        (res.data as ConfigRow[]).forEach((c) => { initial[c.key] = String(c.value ?? ''); });
+        Object.keys(CONFIG_META).forEach((k) => { if (!(k in initial)) initial[k] = ''; });
         setForm(initial);
       } else {
         setError(res.error?.message ?? 'Failed to load configuration.');
@@ -81,7 +45,7 @@ export function SystemConfigSection() {
 
   const handleSave = async () => {
     setSaving(true);
-    setSaveMsg('');
+    setSaveMsg(null);
     const updates: Record<string, string | number> = {};
     Object.entries(form).forEach(([k, v]) => {
       if (!v.trim()) return;
@@ -93,19 +57,18 @@ export function SystemConfigSection() {
         updates[k] = v.trim();
       }
     });
-
     const res = await systemConfigService.update(updates);
     setSaving(false);
     if (res.data) {
-      setSaveMsg('Configuration saved successfully.');
+      setSaveMsg({ text: 'Configuration saved successfully.', type: 'success' });
       load();
     } else {
-      setSaveMsg(res.error?.message ?? 'Save failed.');
+      setSaveMsg({ text: res.error?.message ?? 'Save failed.', type: 'error' });
     }
   };
 
-  if (loading) return <div className="flex items-center justify-center h-32 text-gray-400">Loading configuration…</div>;
-  if (error) return <div className="card text-red-600 text-sm">{error}</div>;
+  if (loading) return <LoadingState message="Loading configuration…" />;
+  if (error)   return <ErrorState message={error} onRetry={load} />;
 
   const lastUpdated = configs.reduce<string | null>((latest, c) => {
     if (!latest || c.updatedAt > latest) return c.updatedAt;
@@ -114,59 +77,68 @@ export function SystemConfigSection() {
 
   return (
     <>
-      <div className="flex items-center justify-between mb-6">
-        <h2 className="text-lg font-semibold">System Configuration</h2>
+      <div className="flex items-center justify-between mb-5">
+        <h2 className="text-base font-semibold text-gray-900">System Configuration</h2>
         {lastUpdated && (
           <p className="text-xs text-gray-400">Last updated {new Date(lastUpdated).toLocaleString()}</p>
         )}
       </div>
 
-      <div className="space-y-4 max-w-xl">
-        {Object.entries(CONFIG_META).map(([key, meta]) => (
-          <div key={key}>
-            <label className="block text-sm font-medium text-gray-700 mb-1">{meta.label}</label>
-            <input
-              type={meta.type === 'number' ? 'number' : 'text'}
-              step={meta.type === 'number' ? 'any' : undefined}
-              className="input w-full text-sm"
-              value={form[key] ?? ''}
-              onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}
-              placeholder={meta.type === 'number' ? 'Enter number…' : 'Enter value…'}
-            />
-            <p className="text-xs text-gray-400 mt-0.5">{meta.hint}</p>
-          </div>
-        ))}
-      </div>
+      <Card className="max-w-xl mb-5">
+        <div className="space-y-5">
+          {Object.entries(CONFIG_META).map(([key, meta]) => (
+            <div key={key}>
+              <label className="block text-sm font-medium text-gray-700 mb-1">{meta.label}</label>
+              <input
+                type={meta.type === 'number' ? 'number' : 'text'}
+                step={meta.type === 'number' ? 'any' : undefined}
+                className="input w-full text-sm"
+                value={form[key] ?? ''}
+                onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}
+                placeholder={meta.type === 'number' ? 'Enter number…' : 'Enter value…'}
+              />
+              <p className="text-xs text-gray-400 mt-1">{meta.hint}</p>
+            </div>
+          ))}
+        </div>
+      </Card>
 
       {saveMsg && (
-        <p className={`mt-4 text-sm rounded-xl px-4 py-2.5 w-fit ${
-          saveMsg.includes('fail') || saveMsg.includes('Fail') ? 'text-red-700 bg-red-50' : 'text-emerald-700 bg-emerald-50'
-        }`}>
-          {saveMsg}
-        </p>
+        <Alert variant={saveMsg.type} className="mb-4 max-w-xl" onClose={() => setSaveMsg(null)}>
+          {saveMsg.text}
+        </Alert>
       )}
 
-      <button onClick={handleSave} disabled={saving} className="btn-primary mt-6 px-6 py-2.5">
-        {saving ? 'Saving…' : 'Save Configuration'}
-      </button>
+      <Button variant="primary" loading={saving} onClick={handleSave} className="px-8">
+        Save Configuration
+      </Button>
 
-      <div className="mt-8 p-4 bg-amber-50 border border-amber-100 rounded-xl text-xs text-amber-700 max-w-xl space-y-1.5">
-        <p className="font-semibold mb-1">Pricing formula</p>
-        <p><code>chargeableKm = oneWayKm × 2 (ROUND_TRIP) or × 1 (ONE_WAY)</code></p>
-        <p><code>primaryPrice = packagePrice + addOns + (chargeableKm × pricePerKmSar)</code></p>
-        <p><code>finalPrice = primaryPrice + (numExtraRiders × primaryPrice × extraRiderMultiplier)</code></p>
-        <p className="mt-1 text-amber-600 font-medium">Distance is calculated automatically using real road routing (OpenRouteService). The user does not enter distance manually.</p>
-      </div>
+      {/* Formula reference */}
+      <div className="mt-6 max-w-xl space-y-3">
+        <Card className="bg-amber-50 border-amber-100">
+          <p className="text-xs font-semibold text-amber-800 mb-2">Pricing Formula</p>
+          <div className="space-y-1 text-xs text-amber-700 font-mono">
+            <p>chargeableKm = oneWayKm × 2 (ROUND_TRIP) or × 1 (ONE_WAY)</p>
+            <p>primaryPrice = packagePrice + addOns + (chargeableKm × pricePerKmSar)</p>
+            <p>finalPrice = primaryPrice + (numExtraRiders × primaryPrice × extraRiderMultiplier)</p>
+          </div>
+          <p className="text-xs text-amber-600 mt-2 font-sans">
+            Distance is calculated automatically using real road routing (OpenRouteService). Users do not enter distance manually.
+          </p>
+        </Card>
 
-      <div className="mt-4 p-4 bg-blue-50 border border-blue-100 rounded-xl text-xs text-blue-700 max-w-xl space-y-1">
-        <p className="font-semibold mb-1">Distance provider</p>
-        <p>
-          Active provider:{' '}
-          <span className="font-mono font-semibold">
-            {typeof process !== 'undefined' ? (process.env.NEXT_PUBLIC_DISTANCE_PROVIDER ?? 'OPENROUTESERVICE') : 'OPENROUTESERVICE'}
-          </span>
-        </p>
-        <p className="text-blue-600">The API key is configured via server environment variables and is never exposed in the UI. To switch providers, update <code>DISTANCE_PROVIDER</code> and the corresponding API key in the server environment.</p>
+        <Card className="bg-blue-50 border-blue-100">
+          <p className="text-xs font-semibold text-blue-800 mb-2">Distance Provider</p>
+          <p className="text-xs text-blue-700">
+            Active provider:{' '}
+            <span className="font-mono font-semibold">
+              {typeof process !== 'undefined' ? (process.env.NEXT_PUBLIC_DISTANCE_PROVIDER ?? 'OPENROUTESERVICE') : 'OPENROUTESERVICE'}
+            </span>
+          </p>
+          <p className="text-xs text-blue-600 mt-1">
+            API key is configured via server environment variables and never exposed to the client. Update <code>DISTANCE_PROVIDER</code> and the corresponding key in the server environment to switch providers.
+          </p>
+        </Card>
       </div>
     </>
   );

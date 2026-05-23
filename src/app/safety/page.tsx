@@ -1,16 +1,31 @@
 'use client';
+
 import { useEffect, useState } from 'react';
 import { AppShell } from '@/components/layout/AppShell';
+import {
+  PageHeader,
+  Card,
+  Button,
+  Alert,
+  Badge,
+  StatusBadge,
+  LoadingState,
+  ErrorState,
+  EmptyState,
+  Textarea,
+} from '@/components/ui';
 import { safetyService } from '@/services/safetyService';
 
+// ─── Constants ────────────────────────────────────────────────────────────────
+
 const CATEGORIES = [
-  { value: 'UNSAFE_DRIVING', label: 'Unsafe Driving' },
-  { value: 'HARASSMENT', label: 'Harassment' },
-  { value: 'VEHICLE_CONDITION', label: 'Vehicle Condition' },
-  { value: 'ROUTE_DEVIATION', label: 'Route Deviation' },
-  { value: 'LATE_PICKUP', label: 'Late Pickup' },
-  { value: 'BEHAVIOUR', label: 'Behaviour Issue' },
-  { value: 'OTHER', label: 'Other' },
+  { value: 'UNSAFE_DRIVING',    label: 'Unsafe Driving',    emoji: '🚗' },
+  { value: 'HARASSMENT',        label: 'Harassment',        emoji: '⚠️' },
+  { value: 'VEHICLE_CONDITION', label: 'Vehicle Condition', emoji: '🔧' },
+  { value: 'ROUTE_DEVIATION',   label: 'Route Deviation',   emoji: '📍' },
+  { value: 'LATE_PICKUP',       label: 'Late Pickup',       emoji: '⏰' },
+  { value: 'BEHAVIOUR',         label: 'Behaviour Issue',   emoji: '🗣️' },
+  { value: 'OTHER',             label: 'Other',             emoji: '📋' },
 ];
 
 type SafetyStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'RESOLVED';
@@ -26,30 +41,37 @@ type Report = {
   attachments: { id: string; filePath: string }[];
 };
 
-const STATUS_CFG: Record<SafetyStatus, { label: string; color: string; bg: string; border: string }> = {
-  PENDING:  { label: 'Pending Review', color: 'text-amber-700',   bg: 'bg-amber-50',   border: 'border-amber-200' },
-  APPROVED: { label: 'Approved',       color: 'text-emerald-700', bg: 'bg-emerald-50', border: 'border-emerald-200' },
-  REJECTED: { label: 'Rejected',       color: 'text-red-700',     bg: 'bg-red-50',     border: 'border-red-200' },
-  RESOLVED: { label: 'Resolved',       color: 'text-blue-700',    bg: 'bg-blue-50',    border: 'border-blue-200' },
+const STATUS_VARIANT: Record<SafetyStatus, 'warning' | 'success' | 'danger' | 'info'> = {
+  PENDING:  'warning',
+  APPROVED: 'success',
+  REJECTED: 'danger',
+  RESOLVED: 'info',
+};
+
+const STATUS_LABEL: Record<SafetyStatus, string> = {
+  PENDING:  'Pending Review',
+  APPROVED: 'Approved',
+  REJECTED: 'Rejected',
+  RESOLVED: 'Resolved',
 };
 
 const EMPTY_FORM = { category: '', description: '', tripId: '', attachmentUrl: '' };
 
+// ─── Page ─────────────────────────────────────────────────────────────────────
+
 export default function SafetyPage() {
-  const [reports, setReports] = useState<Report[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [pageError, setPageError] = useState('');
-
-  const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState(EMPTY_FORM);
-  const [submitting, setSubmitting] = useState(false);
-  const [formError, setFormError] = useState('');
-  const [formSuccess, setFormSuccess] = useState('');
-
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editDesc, setEditDesc] = useState('');
+  const [reports, setReports]           = useState<Report[]>([]);
+  const [loading, setLoading]           = useState(true);
+  const [pageError, setPageError]       = useState('');
+  const [showForm, setShowForm]         = useState(false);
+  const [form, setForm]                 = useState(EMPTY_FORM);
+  const [submitting, setSubmitting]     = useState(false);
+  const [formError, setFormError]       = useState('');
+  const [formSuccess, setFormSuccess]   = useState('');
+  const [editingId, setEditingId]       = useState<string | null>(null);
+  const [editDesc, setEditDesc]         = useState('');
   const [editSubmitting, setEditSubmitting] = useState(false);
-  const [editError, setEditError] = useState('');
+  const [editError, setEditError]       = useState('');
 
   const loadReports = () => {
     setLoading(true);
@@ -63,21 +85,21 @@ export default function SafetyPage() {
   useEffect(() => { loadReports(); }, []);
 
   const handleSubmit = async () => {
-    if (!form.category) { setFormError('Please select a category.'); return; }
-    if (form.description.length < 20) { setFormError('Description must be at least 20 characters.'); return; }
+    if (!form.category)                 { setFormError('Please select a category.'); return; }
+    if (form.description.length < 20)   { setFormError('Description must be at least 20 characters.'); return; }
     setFormError('');
     setSubmitting(true);
     const payload: { category: string; description: string; tripId?: string; attachmentUrls?: string[] } = {
       category: form.category,
       description: form.description,
     };
-    if (form.tripId.trim()) payload.tripId = form.tripId.trim();
+    if (form.tripId.trim())        payload.tripId = form.tripId.trim();
     if (form.attachmentUrl.trim()) payload.attachmentUrls = [form.attachmentUrl.trim()];
 
     const res = await safetyService.createReport(payload);
     setSubmitting(false);
     if (res.data?.reportId) {
-      setFormSuccess('Safety report submitted successfully. Our team will review it shortly.');
+      setFormSuccess('Safety report submitted. Our team will review it shortly.');
       setForm(EMPTY_FORM);
       setShowForm(false);
       loadReports();
@@ -101,171 +123,222 @@ export default function SafetyPage() {
   };
 
   const catLabel = (val: string) => CATEGORIES.find((c) => c.value === val)?.label ?? val;
+  const catEmoji = (val: string) => CATEGORIES.find((c) => c.value === val)?.emoji ?? '📋';
 
   return (
     <AppShell>
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-semibold">Safety Reports</h1>
-        <button
-          onClick={() => { setShowForm((p) => !p); setFormError(''); setFormSuccess(''); }}
-          className="btn-primary text-sm px-4 py-2 rounded-xl"
-        >
-          {showForm ? 'Cancel' : '+ New Report'}
-        </button>
-      </div>
+      <PageHeader
+        title="Safety Reports"
+        subtitle={`${reports.length} report${reports.length !== 1 ? 's' : ''} submitted`}
+        action={
+          <Button
+            variant={showForm ? 'ghost' : 'primary'}
+            size="sm"
+            onClick={() => { setShowForm((p) => !p); setFormError(''); setFormSuccess(''); }}
+          >
+            {showForm ? 'Cancel' : (
+              <>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
+                </svg>
+                New Report
+              </>
+            )}
+          </Button>
+        }
+      />
 
+      {/* Success feedback */}
       {formSuccess && (
-        <div className="rounded-xl bg-emerald-50 border border-emerald-200 px-4 py-3 text-sm text-emerald-700 mb-4">
+        <Alert variant="success" className="mb-4" onClose={() => setFormSuccess('')}>
           {formSuccess}
-        </div>
+        </Alert>
       )}
 
       {/* Submit form */}
       {showForm && (
-        <div className="card mb-6">
-          <h2 className="font-semibold mb-4">Submit a Safety Report</h2>
-          {formError && <p className="text-sm text-red-600 mb-3">{formError}</p>}
+        <Card className="mb-5 border-fizza-secondary/30 bg-emerald-50/20">
+          <h2 className="text-base font-semibold text-gray-900 mb-4">Submit a Safety Report</h2>
 
-          <label className="block text-sm font-medium text-gray-700 mb-1">Category *</label>
-          <select
-            value={form.category}
-            onChange={(e) => setForm((p) => ({ ...p, category: e.target.value }))}
-            className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-emerald-400"
-          >
-            <option value="">Select a category</option>
-            {CATEGORIES.map((c) => (
-              <option key={c.value} value={c.value}>{c.label}</option>
-            ))}
-          </select>
+          {formError && (
+            <Alert variant="error" className="mb-4" onClose={() => setFormError('')}>{formError}</Alert>
+          )}
 
-          <label className="block text-sm font-medium text-gray-700 mb-1">Description * (min 20 characters)</label>
-          <textarea
+          {/* Category selector */}
+          <div className="field mb-4">
+            <label className="label">Category <span className="text-red-500 ml-0.5">*</span></label>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              {CATEGORIES.map((c) => (
+                <button
+                  key={c.value}
+                  type="button"
+                  onClick={() => setForm((p) => ({ ...p, category: c.value }))}
+                  className={`flex items-center gap-2 px-3 py-2.5 rounded-xl border-2 text-sm font-medium text-left transition-all ${
+                    form.category === c.value
+                      ? 'border-fizza-secondary bg-emerald-50 text-fizza-primary'
+                      : 'border-gray-200 text-gray-600 hover:border-emerald-200'
+                  }`}
+                >
+                  <span>{c.emoji}</span>
+                  <span className="truncate">{c.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <Textarea
+            label="Description"
+            required
             rows={4}
+            placeholder="Describe what happened in detail (at least 20 characters)…"
             value={form.description}
+            helpText={`${form.description.length} / 20 minimum`}
             onChange={(e) => setForm((p) => ({ ...p, description: e.target.value }))}
-            placeholder="Describe what happened in detail…"
-            className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-emerald-400 resize-none"
           />
 
-          <label className="block text-sm font-medium text-gray-700 mb-1">Trip ID (optional)</label>
-          <input
-            type="text"
-            value={form.tripId}
-            onChange={(e) => setForm((p) => ({ ...p, tripId: e.target.value }))}
-            placeholder="Leave blank if not related to a specific trip"
-            className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-emerald-400"
-          />
+          <div className="grid sm:grid-cols-2 gap-4 mt-4">
+            <div className="field">
+              <label className="label">Trip ID <span className="text-gray-400 font-normal">(optional)</span></label>
+              <input
+                type="text"
+                value={form.tripId}
+                onChange={(e) => setForm((p) => ({ ...p, tripId: e.target.value }))}
+                placeholder="Leave blank if not trip-related"
+                className="input"
+              />
+            </div>
+            <div className="field">
+              <label className="label">Attachment URL <span className="text-gray-400 font-normal">(optional)</span></label>
+              <input
+                type="url"
+                value={form.attachmentUrl}
+                onChange={(e) => setForm((p) => ({ ...p, attachmentUrl: e.target.value }))}
+                placeholder="https://…"
+                className="input"
+              />
+            </div>
+          </div>
 
-          <label className="block text-sm font-medium text-gray-700 mb-1">Attachment URL (optional)</label>
-          <input
-            type="url"
-            value={form.attachmentUrl}
-            onChange={(e) => setForm((p) => ({ ...p, attachmentUrl: e.target.value }))}
-            placeholder="https://…"
-            className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm mb-4 focus:outline-none focus:ring-2 focus:ring-emerald-400"
-          />
-
-          <button
-            onClick={handleSubmit}
-            disabled={submitting}
-            className="btn-primary text-sm px-5 py-2 rounded-xl disabled:opacity-50"
-          >
-            {submitting ? 'Submitting…' : 'Submit Report'}
-          </button>
-        </div>
+          <div className="flex gap-2 mt-5">
+            <Button variant="primary" loading={submitting} onClick={handleSubmit}>
+              Submit Report
+            </Button>
+            <Button variant="ghost" onClick={() => { setShowForm(false); setFormError(''); }}>
+              Cancel
+            </Button>
+          </div>
+        </Card>
       )}
 
+      {/* Reports list */}
       {loading ? (
-        <div className="flex items-center justify-center h-32 text-gray-400">Loading safety reports…</div>
+        <LoadingState message="Loading safety reports…" />
       ) : pageError ? (
-        <div className="card text-red-600 text-sm">{pageError}</div>
+        <ErrorState message={pageError} onRetry={loadReports} />
       ) : reports.length === 0 ? (
-        <div className="card text-center py-12">
-          <p className="text-gray-400 text-lg mb-2">No safety reports yet</p>
-          <p className="text-gray-400 text-sm">
-            If you experienced a safety concern, please submit a report.
-          </p>
-        </div>
+        <EmptyState
+          icon="🛡️"
+          title="No safety reports yet"
+          description="If you experienced a safety concern on a trip, please submit a report."
+          action={{ label: 'Submit First Report', onClick: () => setShowForm(true) }}
+        />
       ) : (
         <div className="space-y-4">
-          {reports.map((report) => {
-            const cfg = STATUS_CFG[report.status];
-            return (
-              <div key={report.id} className="card">
-                <div className="flex items-start justify-between gap-3 mb-3">
+          {reports.map((report) => (
+            <Card key={report.id}>
+              {/* Header */}
+              <div className="flex items-start justify-between gap-3 mb-3">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-red-50 text-xl shrink-0">
+                    {catEmoji(report.category)}
+                  </div>
                   <div>
-                    <p className="font-semibold text-base">{catLabel(report.category)}</p>
-                    <p className="text-xs text-gray-400">{new Date(report.createdAt).toLocaleDateString()}</p>
+                    <p className="font-semibold text-gray-900">{catLabel(report.category)}</p>
+                    <p className="text-xs text-gray-400">
+                      {new Date(report.createdAt).toLocaleDateString('en-SA', {
+                        year: 'numeric', month: 'short', day: 'numeric',
+                      })}
+                    </p>
                   </div>
-                  <span className={`px-2 py-0.5 rounded-full text-xs font-semibold border whitespace-nowrap ${cfg.bg} ${cfg.color} ${cfg.border}`}>
-                    {cfg.label}
-                  </span>
                 </div>
-
-                {editingId === report.id ? (
-                  <div className="mb-3">
-                    <textarea
-                      rows={3}
-                      value={editDesc}
-                      onChange={(e) => setEditDesc(e.target.value)}
-                      className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-emerald-400"
-                    />
-                    {editError && <p className="text-xs text-red-600 mt-1">{editError}</p>}
-                    <div className="flex gap-2 mt-2">
-                      <button
-                        onClick={() => handleEditSave(report.id)}
-                        disabled={editSubmitting}
-                        className="text-sm px-3 py-1.5 rounded-lg bg-emerald-600 text-white disabled:opacity-50"
-                      >
-                        {editSubmitting ? 'Saving…' : 'Save'}
-                      </button>
-                      <button
-                        onClick={() => setEditingId(null)}
-                        className="text-sm px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <p className="text-sm text-gray-700 mb-3">{report.description}</p>
-                )}
-
-                {report.trip && (
-                  <p className="text-xs text-gray-500 mb-2">
-                    Trip: {new Date(report.trip.scheduledDate).toLocaleDateString()} — {report.trip.pickupLocation}
-                  </p>
-                )}
-
-                {report.attachments.length > 0 && (
-                  <div className="flex flex-wrap gap-2 mb-3">
-                    {report.attachments.map((a) => (
-                      <a key={a.id} href={a.filePath} target="_blank" rel="noopener noreferrer"
-                        className="text-xs text-blue-600 underline">
-                        Attachment
-                      </a>
-                    ))}
-                  </div>
-                )}
-
-                {report.adminResponse && (
-                  <div className="bg-gray-50 rounded-lg px-3 py-2 text-sm text-gray-700 mb-3">
-                    <span className="font-medium text-gray-500 text-xs block mb-0.5">Admin Response:</span>
-                    {report.adminResponse}
-                  </div>
-                )}
-
-                {report.status === 'PENDING' && editingId !== report.id && (
-                  <button
-                    onClick={() => { setEditingId(report.id); setEditDesc(report.description); setEditError(''); }}
-                    className="text-xs px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50"
-                  >
-                    Edit Report
-                  </button>
-                )}
+                <StatusBadge variant={STATUS_VARIANT[report.status]}>
+                  {STATUS_LABEL[report.status]}
+                </StatusBadge>
               </div>
-            );
-          })}
+
+              {/* Description (edit or read) */}
+              {editingId === report.id ? (
+                <div className="mb-3">
+                  <Textarea
+                    rows={3}
+                    value={editDesc}
+                    error={editError}
+                    onChange={(e) => setEditDesc(e.target.value)}
+                  />
+                  <div className="flex gap-2 mt-2">
+                    <Button variant="primary" size="sm" loading={editSubmitting} onClick={() => handleEditSave(report.id)}>
+                      Save
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => setEditingId(null)}>
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-sm text-gray-700 mb-3 leading-relaxed">{report.description}</p>
+              )}
+
+              {/* Trip link */}
+              {report.trip && (
+                <div className="flex items-center gap-2 text-xs text-gray-500 mb-3">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" />
+                  </svg>
+                  Trip on {new Date(report.trip.scheduledDate).toLocaleDateString()} · {report.trip.pickupLocation}
+                </div>
+              )}
+
+              {/* Attachments */}
+              {report.attachments.length > 0 && (
+                <div className="flex flex-wrap gap-2 mb-3">
+                  {report.attachments.map((a, i) => (
+                    <a
+                      key={a.id}
+                      href={a.filePath}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-xs text-blue-600 underline hover:text-blue-800"
+                    >
+                      📎 Attachment {i + 1}
+                    </a>
+                  ))}
+                </div>
+              )}
+
+              {/* Admin response */}
+              {report.adminResponse && (
+                <div className="rounded-xl bg-gray-50 border border-gray-100 px-3 py-2.5 mb-3">
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Admin Response</p>
+                  <p className="text-sm text-gray-700">{report.adminResponse}</p>
+                </div>
+              )}
+
+              {/* Edit button (pending only) */}
+              {report.status === 'PENDING' && editingId !== report.id && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => { setEditingId(report.id); setEditDesc(report.description); setEditError(''); }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                  </svg>
+                  Edit Report
+                </Button>
+              )}
+            </Card>
+          ))}
         </div>
       )}
     </AppShell>
