@@ -1,7 +1,21 @@
+type DriverApplicationJson = {
+  data?: unknown;
+  error?: { message?: string };
+  unauthorized?: boolean;
+};
+
+async function parseResponse(res: Response): Promise<DriverApplicationJson> {
+  const json = (await res.json()) as DriverApplicationJson;
+  if (res.status === 401) {
+    return { ...json, unauthorized: true };
+  }
+  return json;
+}
+
 export const driverApplicationService = {
   get: async () => {
     const res = await fetch('/api/driver-application');
-    return res.json();
+    return parseResponse(res);
   },
   submit: async (payload: Record<string, unknown>) => {
     const res = await fetch('/api/driver-application', {
@@ -9,7 +23,7 @@ export const driverApplicationService = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    return res.json();
+    return parseResponse(res);
   },
   resubmit: async (payload: Record<string, unknown>) => {
     const res = await fetch('/api/driver-application', {
@@ -17,7 +31,7 @@ export const driverApplicationService = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    return res.json();
+    return parseResponse(res);
   },
   // Admin
   adminList: async (status?: string, page = 1) => {

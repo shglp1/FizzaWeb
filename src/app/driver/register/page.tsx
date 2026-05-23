@@ -1,7 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { Logo } from '@/components/layout/Logo';
 import { Button, Input, Alert } from '@/components/ui';
@@ -16,7 +15,6 @@ type FormValues = {
 };
 
 export default function DriverRegisterPage() {
-  const router = useRouter();
   const [serverError, setServerError] = useState('');
 
   const {
@@ -38,8 +36,8 @@ export default function DriverRegisterPage() {
       'DRIVER_PORTAL', // marks this account as a driver applicant, not a family user
     );
     if (res.data) {
-      // New driver accounts start as PARENT role; go straight to the application form
-      router.push('/driver-application');
+      // Session cookie is set by the API — full navigation ensures /api/me is authenticated
+      window.location.href = '/driver-application';
     } else {
       setServerError(res.error?.message ?? 'Registration failed. Please try again.');
     }

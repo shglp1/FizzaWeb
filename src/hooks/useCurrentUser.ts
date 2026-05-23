@@ -47,16 +47,16 @@ export interface CurrentUser {
 // Subsequent calls within the same page lifecycle reuse the same Promise
 // (i.e., zero extra HTTP requests). refetch() replaces it with a fresh one.
 
-let _sharedPromise: Promise<CurrentUser | null> | null = null;
+let _sharedPromise: Promise<{ user: CurrentUser | null; status: number }> | null = null;
 
-async function doFetch(): Promise<CurrentUser | null> {
+async function doFetch(): Promise<{ user: CurrentUser | null; status: number }> {
   const res = await fetch('/api/me');
-  if (!res.ok) return null;
+  if (!res.ok) return { user: null, status: res.status };
   const json = (await res.json()) as { data?: CurrentUser };
-  return json.data ?? null;
+  return { user: json.data ?? null, status: res.status };
 }
 
-function getOrStartFetch(force?: boolean): Promise<CurrentUser | null> {
+function getOrStartFetch(force?: boolean): Promise<{ user: CurrentUser | null; status: number }> {
   if (force || !_sharedPromise) {
     _sharedPromise = doFetch();
   }
@@ -69,17 +69,20 @@ export function useCurrentUser() {
   const [user,    setUser]    = useState<CurrentUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState<string | null>(null);
+  const [status,  setStatus]  = useState<number | null>(null);
 
   const load = useCallback((force?: boolean) => {
     setLoading(true);
     setError(null);
     getOrStartFetch(force)
-      .then((u) => {
+      .then(({ user: u, status: s }) => {
         setUser(u);
+        setStatus(s);
         setLoading(false);
       })
       .catch(() => {
         setError('Failed to load session.');
+        setStatus(null);
         setLoading(false);
       });
   }, []);
@@ -93,5 +96,8 @@ export function useCurrentUser() {
     load(true);
   }, [load]);
 
-  return { user, loading, error, refetch };
+  const isAuthenticated = !loading && user !== null;
+  const isUnauthorized = !loading && status === 401;
+
+  return { user, loading, error, status, isAuthenticated, isUnauthorized, refetch };
 }

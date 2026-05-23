@@ -73,34 +73,78 @@ export default function DashboardPage() {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    // Client-side role guard (middleware already handles server-side redirect)
-    fetch('/api/me')
-      .then((r) => r.json())
-      .then(({ data }) => {
-        if (data?.role === 'ADMIN')  { router.replace('/admin'); return; }
-        if (data?.role === 'DRIVER') { router.replace('/driver/dashboard'); return; }
-      })
-      .catch(() => {});
+    let cancelled = false;
 
-    Promise.all([
-      tripService.list('upcoming'),
-      walletService.getWallet(),
-      subscriptionService.list(),
-      riderService.list(),
-    ])
-      .then(([t, w, s, r]) => {
-        if (t.data) setTrips(Array.isArray(t.data) ? t.data.slice(0, 5) : []);
-        // Wallet API: { data: { wallet: { balanceSar }, loyaltyPoints } }
-        if (w.data?.wallet) setWallet(w.data.wallet);
-        if (s.data) setSubs(Array.isArray(s.data) ? s.data : []);
-        if (r.data) setRiders(Array.isArray(r.data) ? r.data : []);
-        if (!t.data && !w.data) setError('Failed to load dashboard data.');
-        setLoading(false);
-      })
-      .catch(() => {
+    (async () => {
+      const meRes = await fetch('/api/me');
+      if (meRes.status === 401) {
+        if (!cancelled) router.replace('/login');
+        return;
+      }
+
+      const { data: me } = (await meRes.json()) as {
+        data?: { role?: string; driverState?: string };
+      };
+
+      if (!cancelled) {
+        if (me?.role === 'ADMIN') {
+          router.replace('/admin');
+          return;
+        }
+        if (me?.role === 'DRIVER') {
+          router.replace('/driver/dashboard');
+          return;
+        }
+        if (me?.driverState === 'DRIVER_APPLICANT') {
+          router.replace('/driver-application');
+          return;
+        }
+      }
+
+      const results = await Promise.allSettled([
+        tripService.list('upcoming'),
+        walletService.getWallet(),
+        subscriptionService.list(),
+        riderService.list(),
+      ]);
+
+      if (cancelled) return;
+
+      const [t, w, s, r] = results.map((result) =>
+        result.status === 'fulfilled' ? result.value : null,
+      );
+
+      if (t?.data) setTrips(Array.isArray(t.data) ? t.data.slice(0, 5) : []);
+      if (w?.data?.wallet) setWallet(w.data.wallet);
+      if (s?.data) setSubs(Array.isArray(s.data) ? s.data : []);
+      if (r?.data) setRiders(Array.isArray(r.data) ? r.data : []);
+
+      const authFailed = results.some(
+        (result) =>
+          result.status === 'fulfilled' &&
+          result.value &&
+          typeof result.value === 'object' &&
+          'error' in result.value &&
+          (result.value as { error?: { message?: string } }).error?.message === 'Unauthorized',
+      );
+      if (authFailed) {
+        router.replace('/login');
+        return;
+      }
+
+      const anyData = Boolean(t?.data || w?.data || s?.data || r?.data);
+      if (!anyData) setError('Failed to load dashboard data.');
+      setLoading(false);
+    })().catch(() => {
+      if (!cancelled) {
         setError('Unable to connect.');
         setLoading(false);
-      });
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

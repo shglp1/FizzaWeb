@@ -1,4 +1,4 @@
-﻿-- CreateTable
+-- CreateTable
 CREATE TABLE `users` (
     `id` VARCHAR(191) NOT NULL,
     `email` VARCHAR(191) NOT NULL,
@@ -17,6 +17,7 @@ CREATE TABLE `profiles` (
     `full_name` VARCHAR(191) NOT NULL,
     `phone` VARCHAR(191) NULL,
     `avatar_url` TEXT NULL,
+    `registration_source` VARCHAR(32) NOT NULL DEFAULT 'FAMILY',
     `created_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     `updated_at` DATETIME(3) NOT NULL,
 

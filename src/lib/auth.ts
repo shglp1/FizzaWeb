@@ -30,3 +30,12 @@ export async function verifyToken(token: string): Promise<SessionPayload | null>
     return null;
   }
 }
+
+/** Cookie options aligned with POST /api/auth/login */
+export const SESSION_COOKIE_OPTIONS = {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === 'production',
+  sameSite: 'lax' as const,
+  path: '/',
+  maxAge: SESSION_MAX_AGE,
+};

@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
 import { prisma } from '@/lib/prisma';
-import { signToken, SESSION_COOKIE, SESSION_MAX_AGE } from '@/lib/auth';
+import { setSessionCookie } from '@/lib/session';
 import { loginSchema } from '@/lib/validations/auth';
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rateLimit';
 import bcrypt from 'bcryptjs';
@@ -37,16 +36,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const token = await signToken(user.id, user.role);
-
-    const cookieStore = await cookies();
-    cookieStore.set(SESSION_COOKIE, token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      path: '/',
-      maxAge: SESSION_MAX_AGE,
-    });
+    await setSessionCookie(user.id, user.role);
 
     return NextResponse.json({
       data: { user: { id: user.id, email: user.email, role: user.role } },
