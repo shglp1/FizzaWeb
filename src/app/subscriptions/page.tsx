@@ -69,15 +69,21 @@ function SubCard({
   onCancel,
   onPayWallet,
   onPayOnline,
+  onVerifyPayment,
   cancelling,
   paying,
+  verifying,
+  pendingInvoiceId,
 }: {
   sub: Subscription;
   onCancel: () => void;
   onPayWallet: () => void;
   onPayOnline: () => void;
+  onVerifyPayment: () => void;
   cancelling: boolean;
   paying: boolean;
+  verifying: boolean;
+  pendingInvoiceId: string | null;
 }) {
   const activeDays = sub.schedules
     .filter((s) => !s.isOffDay)
@@ -86,7 +92,7 @@ function SubCard({
 
   const canPay = sub.paymentStatus === 'PENDING';
   const canCancel = ['PENDING', 'ACTIVE', 'PAUSED'].includes(sub.status);
-  const busy = cancelling || paying;
+  const busy = cancelling || paying || verifying;
 
   return (
     <Card>
@@ -173,20 +179,34 @@ function SubCard({
 
       {/* Actions */}
       {canCancel && (
-        <div className="border-t border-gray-50 pt-3 flex flex-wrap gap-2">
+        <div className="border-t border-gray-50 pt-3 space-y-2">
           {canPay && (
-            <>
+            <div className="flex flex-wrap gap-2">
               <Button variant="primary" size="sm" loading={paying} disabled={busy} onClick={onPayWallet}>
                 Pay with Wallet
               </Button>
               <Button variant="outline" size="sm" loading={paying} disabled={busy} onClick={onPayOnline}>
                 Pay Online
               </Button>
-            </>
+              {pendingInvoiceId && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  loading={verifying}
+                  disabled={busy}
+                  onClick={onVerifyPayment}
+                  title="Check if a previous payment was already completed"
+                >
+                  Verify Payment
+                </Button>
+              )}
+            </div>
           )}
-          <Button variant="danger-outline" size="sm" disabled={busy} loading={cancelling} onClick={onCancel}>
-            Cancel
-          </Button>
+          <div>
+            <Button variant="danger-outline" size="sm" disabled={busy} loading={cancelling} onClick={onCancel}>
+              Cancel
+            </Button>
+          </div>
         </div>
       )}
     </Card>
@@ -201,6 +221,9 @@ export default function SubscriptionsPage() {
   const [pageError, setPageError] = useState('');
   const [cancelling, setCancelling] = useState<string | null>(null);
   const [paying, setPaying] = useState<string | null>(null);
+  const [verifying, setVerifying] = useState<string | null>(null);
+  // Map of subscriptionId → pending invoiceId (populated when createPayment returns PENDING)
+  const [pendingInvoiceIds, setPendingInvoiceIds] = useState<Record<string, string>>({});
   const [actionMsg, setActionMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
   const [confirmCancel, setConfirmCancel] = useState<Subscription | null>(null);
 
@@ -251,9 +274,49 @@ export default function SubscriptionsPage() {
     if (res.data?.invoiceUrl) {
       window.location.href = res.data.invoiceUrl;
     } else if (res.data?.invoiceId) {
-      setActionMsg({ text: 'A payment is already in progress. Check your email.', type: 'error' });
+      // Payment already exists as PENDING — store the invoiceId so we can show Verify button
+      setPendingInvoiceIds((prev) => ({ ...prev, [sub.id]: res.data.invoiceId as string }));
+      setActionMsg({
+        text: 'A payment is already in progress. Use "Verify Payment" to check if it completed.',
+        type: 'error',
+      });
     } else {
       setActionMsg({ text: res.error?.message ?? 'Failed to initiate payment.', type: 'error' });
+    }
+  };
+
+  const handleVerifyPayment = async (sub: Subscription) => {
+    const invoiceId = pendingInvoiceIds[sub.id];
+    if (!invoiceId) return;
+    setVerifying(sub.id);
+    setActionMsg(null);
+    const res = await paymentService.verifyPayment({ invoiceId });
+    setVerifying(null);
+    if (res.data) {
+      const { outcome } = res.data as { outcome: string };
+      if (outcome === 'PAID' || outcome === 'ALREADY_PROCESSED') {
+        setActionMsg({ text: 'Payment confirmed — subscription is now active!', type: 'success' });
+        setPendingInvoiceIds((prev) => {
+          const next = { ...prev };
+          delete next[sub.id];
+          return next;
+        });
+        loadSubscriptions();
+      } else if (outcome === 'PENDING') {
+        setActionMsg({
+          text: 'Payment is still being processed by the bank. Please try again in a moment.',
+          type: 'error',
+        });
+      } else {
+        setActionMsg({ text: 'Payment failed. Please try a new payment.', type: 'error' });
+        setPendingInvoiceIds((prev) => {
+          const next = { ...prev };
+          delete next[sub.id];
+          return next;
+        });
+      }
+    } else {
+      setActionMsg({ text: res.error?.message ?? 'Unable to verify payment.', type: 'error' });
     }
   };
 
@@ -301,8 +364,11 @@ export default function SubscriptionsPage() {
               onCancel={() => setConfirmCancel(sub)}
               onPayWallet={() => handlePayWithWallet(sub)}
               onPayOnline={() => handlePayOnline(sub)}
+              onVerifyPayment={() => handleVerifyPayment(sub)}
               cancelling={cancelling === sub.id}
               paying={paying === sub.id}
+              verifying={verifying === sub.id}
+              pendingInvoiceId={pendingInvoiceIds[sub.id] ?? null}
             />
           ))}
         </div>
