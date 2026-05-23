@@ -16,6 +16,7 @@ import {
 import { driverApplicationService } from '@/services/driverApplicationService';
 import { tripService } from '@/services/tripService';
 import { safetyService } from '@/services/safetyService';
+import { tripToGoogleMapsUrl, buildGoogleMapsPlaceUrl } from '@/lib/maps/googleMapsLink';
 import { OverviewSection } from './sections/OverviewSection';
 import { UsersSection } from './sections/UsersSection';
 import { RidersSection } from './sections/RidersSection';
@@ -65,6 +66,10 @@ type AdminTrip = {
   actualDropoffTime: string | null;
   pickupLocation: string;
   dropoffLocation: string;
+  pickupLat: number | null;
+  pickupLng: number | null;
+  dropoffLat: number | null;
+  dropoffLng: number | null;
   rider: { id: string; name: string; relationship: string } | null;
   driver: { id: string; rating: string | null; profile: { fullName: string; phone: string | null } | null } | null;
   vehicle: { model: string; plateNumber: string; color: string | null } | null;
@@ -466,6 +471,168 @@ function ApplicationsSection() {
 
 // ─── Trip Operations section ──────────────────────────────────────────────────
 
+/** Group trips by date string (YYYY-MM-DD). Returns sorted array of [dateKey, trips[]]. */
+function groupTripsByDate(trips: AdminTrip[]): [string, AdminTrip[]][] {
+  const map = new Map<string, AdminTrip[]>();
+  for (const trip of trips) {
+    const key = trip.scheduledDate.slice(0, 10);
+    if (!map.has(key)) map.set(key, []);
+    map.get(key)!.push(trip);
+  }
+  return Array.from(map.entries()).sort(([a], [b]) => a.localeCompare(b));
+}
+
+/** Within a date group, further group by subscription ID (or 'none'). */
+function groupBySubscription(trips: AdminTrip[]): [string, AdminTrip[]][] {
+  const map = new Map<string, AdminTrip[]>();
+  for (const trip of trips) {
+    const key = trip.subscription?.id ?? 'none';
+    if (!map.has(key)) map.set(key, []);
+    map.get(key)!.push(trip);
+  }
+  return Array.from(map.entries());
+}
+
+function TripCard({
+  trip, drivers, assigningTripId, selectedDriverId, assigning, assignMsg,
+  onOpenAssign, onSelectDriver, onSubmitAssign, onCloseMsg,
+}: {
+  trip: AdminTrip;
+  drivers: Driver[];
+  assigningTripId: string | null;
+  selectedDriverId: string;
+  assigning: boolean;
+  assignMsg: { text: string; type: 'success' | 'error' } | null;
+  onOpenAssign: (id: string) => void;
+  onSelectDriver: (v: string) => void;
+  onSubmitAssign: (id: string) => void;
+  onCloseMsg: () => void;
+}) {
+  const isAssigning = assigningTripId === trip.id;
+  const mapsUrl = tripToGoogleMapsUrl(trip);
+  const pickupMapsUrl = (trip.pickupLat != null && trip.pickupLng != null)
+    ? buildGoogleMapsPlaceUrl(trip.pickupLat, trip.pickupLng, trip.pickupLocation)
+    : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(trip.pickupLocation)}`;
+  const dropoffMapsUrl = (trip.dropoffLat != null && trip.dropoffLng != null)
+    ? buildGoogleMapsPlaceUrl(trip.dropoffLat, trip.dropoffLng, trip.dropoffLocation)
+    : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(trip.dropoffLocation)}`;
+
+  return (
+    <Card>
+      <div className="flex items-start justify-between gap-4 mb-3">
+        <div>
+          <p className="font-semibold text-gray-900">
+            {new Date(trip.scheduledDate).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}
+          </p>
+          {trip.subscription && (
+            <p className="text-xs text-gray-500 capitalize">{trip.subscription.subscriptionType}</p>
+          )}
+        </div>
+        <StatusBadge variant={TRIP_STATUS_VARIANT[trip.status]}>{TRIP_STATUS_LABEL[trip.status]}</StatusBadge>
+      </div>
+
+      <div className="grid sm:grid-cols-2 gap-x-6 gap-y-1.5 text-sm text-gray-700 mb-3">
+        {trip.rider && (
+          <div className="flex gap-1.5">
+            <span className="text-gray-400 shrink-0">Rider</span>
+            <span>{trip.rider.name} ({trip.rider.relationship})</span>
+          </div>
+        )}
+        <div className="flex gap-1.5 items-start">
+          <span className="text-gray-400 shrink-0">Pickup</span>
+          <span>
+            {fmtTime(trip.scheduledPickupTime)} ·{' '}
+            <a href={pickupMapsUrl} target="_blank" rel="noopener noreferrer"
+              className="underline decoration-dotted hover:text-fizza-primary text-gray-700">
+              {trip.pickupLocation}
+            </a>
+          </span>
+        </div>
+        <div className="flex gap-1.5 items-start">
+          <span className="text-gray-400 shrink-0">Dropoff</span>
+          <span>
+            {fmtTime(trip.scheduledDropoffTime)} ·{' '}
+            <a href={dropoffMapsUrl} target="_blank" rel="noopener noreferrer"
+              className="underline decoration-dotted hover:text-fizza-primary text-gray-700">
+              {trip.dropoffLocation}
+            </a>
+          </span>
+        </div>
+        {trip.actualPickupTime && (
+          <div className="flex gap-1.5">
+            <span className="text-gray-400 shrink-0">Actual pickup</span>
+            <span className="text-emerald-700 font-medium">{fmtTime(trip.actualPickupTime)}</span>
+          </div>
+        )}
+      </div>
+
+      {trip.driver ? (
+        <div className="flex items-center gap-3 mb-3 p-2.5 bg-gray-50 rounded-xl">
+          <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-700 font-bold text-xs shrink-0">
+            {trip.driver.profile?.fullName?.[0] ?? 'D'}
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium truncate">{trip.driver.profile?.fullName ?? 'Driver'}</p>
+            {trip.driver.rating && <p className="text-xs text-amber-600">★ {Number(trip.driver.rating).toFixed(1)}</p>}
+          </div>
+          {trip.vehicle && (
+            <p className="text-xs text-gray-500 shrink-0 text-right">
+              {trip.vehicle.model}<br /><span className="font-mono">{trip.vehicle.plateNumber}</span>
+            </p>
+          )}
+        </div>
+      ) : (
+        <p className="text-xs text-amber-600 mb-3 bg-amber-50 px-3 py-1.5 rounded-xl border border-amber-100">No driver assigned</p>
+      )}
+
+      <div className="flex gap-2 flex-wrap items-center">
+        {(trip.status === 'SCHEDULED' || trip.status === 'DRIVER_ASSIGNED') && (
+          <Button
+            variant={isAssigning ? 'ghost' : 'outline'}
+            size="sm"
+            onClick={() => onOpenAssign(trip.id)}
+          >
+            {isAssigning ? 'Cancel' : trip.driver ? 'Reassign Driver' : 'Assign Driver'}
+          </Button>
+        )}
+        <a href={mapsUrl} target="_blank" rel="noopener noreferrer" title="Open full route in Google Maps">
+          <Button variant="ghost" size="sm">🗺 Route</Button>
+        </a>
+        {trip.status !== 'COMPLETED' && trip.status !== 'CANCELLED' && (
+          <a href={`/tracking/${trip.id}`} target="_blank" rel="noopener noreferrer">
+            <Button variant="ghost" size="sm">View Tracking</Button>
+          </a>
+        )}
+      </div>
+
+      {isAssigning && (
+        <div className="mt-3 space-y-2 border-t border-gray-100 pt-3">
+          {assignMsg && (
+            <Alert variant={assignMsg.type} className="mb-2" onClose={onCloseMsg}>{assignMsg.text}</Alert>
+          )}
+          <select
+            className="input text-sm w-full"
+            value={selectedDriverId}
+            onChange={(e) => onSelectDriver(e.target.value)}
+          >
+            <option value="">Select a driver…</option>
+            {drivers.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.profile?.fullName ?? 'Driver'}
+                {d.vehicle ? ` — ${d.vehicle.model} (${d.vehicle.plateNumber})` : ''}
+                {d.rating ? ` ★ ${Number(d.rating).toFixed(1)}` : ''}
+              </option>
+            ))}
+          </select>
+          <Button variant="primary" size="sm" loading={assigning} onClick={() => onSubmitAssign(trip.id)}>
+            Confirm Assignment
+          </Button>
+        </div>
+      )}
+    </Card>
+  );
+}
+
 function TripsSection() {
   const [trips, setTrips]           = useState<AdminTrip[]>([]);
   const [meta, setMeta]             = useState<PaginationMeta | null>(null);
@@ -475,6 +642,7 @@ function TripsSection() {
   const [dateFilter, setDateFilter] = useState('');
   const [page, setPage]             = useState(1);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [viewMode, setViewMode]     = useState<'grouped' | 'flat'>('grouped');
 
   const [drivers, setDrivers]           = useState<Driver[]>([]);
   const [assigningTripId, setAssigningTripId] = useState<string | null>(null);
@@ -546,16 +714,40 @@ function TripsSection() {
     }
   };
 
+  const tripCardProps = {
+    drivers, assigningTripId, selectedDriverId, assigning, assignMsg,
+    onOpenAssign: openAssign,
+    onSelectDriver: setSelectedDriverId,
+    onSubmitAssign: submitAssign,
+    onCloseMsg: () => setAssignMsg(null),
+  };
+
   return (
     <>
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-base font-semibold text-gray-900">Trip Operations</h2>
-        {lastUpdated && (
-          <span className="text-xs text-gray-400 flex items-center gap-1">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-            Updated {lastUpdated.toLocaleTimeString()}
-          </span>
-        )}
+        <div className="flex items-center gap-3">
+          {lastUpdated && (
+            <span className="text-xs text-gray-400 flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              Updated {lastUpdated.toLocaleTimeString()}
+            </span>
+          )}
+          <div className="flex rounded-lg border border-gray-200 overflow-hidden text-xs">
+            <button
+              className={`px-3 py-1.5 ${viewMode === 'grouped' ? 'bg-fizza-primary text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+              onClick={() => setViewMode('grouped')}
+            >
+              Grouped
+            </button>
+            <button
+              className={`px-3 py-1.5 ${viewMode === 'flat' ? 'bg-fizza-primary text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+              onClick={() => setViewMode('flat')}
+            >
+              Flat
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* Generate trips */}
@@ -616,96 +808,54 @@ function TripsSection() {
         <ErrorState message={pageError} onRetry={() => loadTrips(statusFilter, dateFilter, page)} />
       ) : trips.length === 0 ? (
         <EmptyState icon="🗓️" title="No trips found" description="No trips match the selected filters." />
-      ) : (
+      ) : viewMode === 'flat' ? (
         <div className="space-y-4">
-          {trips.map((trip) => {
-            const isAssigning = assigningTripId === trip.id;
+          {trips.map((trip) => (
+            <TripCard key={trip.id} trip={trip} {...tripCardProps} />
+          ))}
+        </div>
+      ) : (
+        /* ── Grouped view: date → subscription ── */
+        <div className="space-y-6">
+          {groupTripsByDate(trips).map(([dateKey, dateTrips]) => {
+            const assigned   = dateTrips.filter((t) => t.driver != null).length;
+            const unassigned = dateTrips.length - assigned;
+            const label = new Date(dateKey + 'T00:00:00').toLocaleDateString('en-US', {
+              weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
+            });
             return (
-              <Card key={trip.id}>
-                <div className="flex items-start justify-between gap-4 mb-3">
-                  <div>
-                    <p className="font-semibold text-gray-900">
-                      {new Date(trip.scheduledDate).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}
-                    </p>
-                    {trip.subscription && (
-                      <p className="text-xs text-gray-500 capitalize">{trip.subscription.subscriptionType}</p>
-                    )}
+              <div key={dateKey}>
+                {/* Date header */}
+                <div className="flex items-center gap-3 mb-3">
+                  <h3 className="text-sm font-semibold text-gray-800">{label}</h3>
+                  <div className="flex gap-1.5 text-xs">
+                    <span className="px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">{dateTrips.length} trip{dateTrips.length !== 1 ? 's' : ''}</span>
+                    {assigned > 0 && <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">{assigned} assigned</span>}
+                    {unassigned > 0 && <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">{unassigned} unassigned</span>}
                   </div>
-                  <StatusBadge variant={TRIP_STATUS_VARIANT[trip.status]}>{TRIP_STATUS_LABEL[trip.status]}</StatusBadge>
                 </div>
 
-                <div className="grid sm:grid-cols-2 gap-x-6 gap-y-1.5 text-sm text-gray-700 mb-3">
-                  {trip.rider && (
-                    <div className="flex gap-1.5"><span className="text-gray-400 shrink-0">Rider</span><span>{trip.rider.name} ({trip.rider.relationship})</span></div>
-                  )}
-                  <div className="flex gap-1.5"><span className="text-gray-400 shrink-0">Pickup</span><span>{fmtTime(trip.scheduledPickupTime)} · {trip.pickupLocation}</span></div>
-                  <div className="flex gap-1.5"><span className="text-gray-400 shrink-0">Dropoff</span><span>{fmtTime(trip.scheduledDropoffTime)} · {trip.dropoffLocation}</span></div>
-                  {trip.actualPickupTime && (
-                    <div className="flex gap-1.5"><span className="text-gray-400 shrink-0">Actual pickup</span><span className="text-emerald-700 font-medium">{fmtTime(trip.actualPickupTime)}</span></div>
-                  )}
+                {/* Group by subscription within this date */}
+                <div className="space-y-5 pl-3 border-l-2 border-gray-100">
+                  {groupBySubscription(dateTrips).map(([subId, subTrips]) => {
+                    const sub = subTrips[0]?.subscription;
+                    return (
+                      <div key={subId}>
+                        {sub && (
+                          <p className="text-xs font-medium text-gray-500 mb-2 uppercase tracking-wide">
+                            {sub.subscriptionType.replace('_', ' ')} · sub {subId.slice(-6)}
+                          </p>
+                        )}
+                        <div className="space-y-3">
+                          {subTrips.map((trip) => (
+                            <TripCard key={trip.id} trip={trip} {...tripCardProps} />
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
-
-                {trip.driver ? (
-                  <div className="flex items-center gap-3 mb-3 p-2.5 bg-gray-50 rounded-xl">
-                    <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-700 font-bold text-xs shrink-0">
-                      {trip.driver.profile?.fullName?.[0] ?? 'D'}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">{trip.driver.profile?.fullName ?? 'Driver'}</p>
-                      {trip.driver.rating && <p className="text-xs text-amber-600">★ {Number(trip.driver.rating).toFixed(1)}</p>}
-                    </div>
-                    {trip.vehicle && (
-                      <p className="text-xs text-gray-500 shrink-0 text-right">
-                        {trip.vehicle.model}<br /><span className="font-mono">{trip.vehicle.plateNumber}</span>
-                      </p>
-                    )}
-                  </div>
-                ) : (
-                  <p className="text-xs text-amber-600 mb-3 bg-amber-50 px-3 py-1.5 rounded-xl border border-amber-100">No driver assigned</p>
-                )}
-
-                <div className="flex gap-2 flex-wrap">
-                  {(trip.status === 'SCHEDULED' || trip.status === 'DRIVER_ASSIGNED') && (
-                    <Button
-                      variant={isAssigning ? 'ghost' : 'outline'}
-                      size="sm"
-                      onClick={() => openAssign(trip.id)}
-                    >
-                      {isAssigning ? 'Cancel' : trip.driver ? 'Reassign Driver' : 'Assign Driver'}
-                    </Button>
-                  )}
-                  {trip.status !== 'COMPLETED' && trip.status !== 'CANCELLED' && (
-                    <a href={`/tracking/${trip.id}`} target="_blank" rel="noopener noreferrer">
-                      <Button variant="ghost" size="sm">View Tracking</Button>
-                    </a>
-                  )}
-                </div>
-
-                {isAssigning && (
-                  <div className="mt-3 space-y-2 border-t border-gray-100 pt-3">
-                    {assignMsg && (
-                      <Alert variant={assignMsg.type} className="mb-2" onClose={() => setAssignMsg(null)}>{assignMsg.text}</Alert>
-                    )}
-                    <select
-                      className="input text-sm w-full"
-                      value={selectedDriverId}
-                      onChange={(e) => setSelectedDriverId(e.target.value)}
-                    >
-                      <option value="">Select a driver…</option>
-                      {drivers.map((d) => (
-                        <option key={d.id} value={d.id}>
-                          {d.profile?.fullName ?? 'Driver'}
-                          {d.vehicle ? ` — ${d.vehicle.model} (${d.vehicle.plateNumber})` : ''}
-                          {d.rating ? ` ★ ${Number(d.rating).toFixed(1)}` : ''}
-                        </option>
-                      ))}
-                    </select>
-                    <Button variant="primary" size="sm" loading={assigning} onClick={() => submitAssign(trip.id)}>
-                      Confirm Assignment
-                    </Button>
-                  </div>
-                )}
-              </Card>
+              </div>
             );
           })}
         </div>

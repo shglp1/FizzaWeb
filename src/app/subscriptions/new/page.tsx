@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { AppShell } from '@/components/layout/AppShell';
 import { subscriptionService } from '@/services/subscriptionService';
 import { riderService } from '@/services/riderService';
-import { LocationPicker, type SelectedLocation } from '@/components/location/LocationPicker';
+import { MapLocationPicker, type SelectedLocation } from '@/components/location/MapLocationPicker';
 import {
   Alert,
   Button,
@@ -753,7 +753,7 @@ export default function NewSubscriptionPage() {
       </div>
 
       {/* Location pickers */}
-      <LocationPicker
+      <MapLocationPicker
         label="Pickup Location"
         value={pickupLocation}
         onChange={setPickupLocation}
@@ -761,7 +761,7 @@ export default function NewSubscriptionPage() {
         required
       />
 
-      <LocationPicker
+      <MapLocationPicker
         label="Drop-off Location"
         value={dropoffLocation}
         onChange={setDropoffLocation}
