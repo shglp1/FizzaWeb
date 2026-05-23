@@ -1,14 +1,10 @@
 'use client';
 
 import { usePathname, useRouter } from 'next/navigation';
-import { useEffect, useState, useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import { Logo } from './Logo';
-import {
-  getNavigationForRole,
-  getNavigationForApplicant,
-  isPendingDriverApplicant,
-  type NavItem,
-} from '@/lib/roleRoutes';
+import { useCurrentUser, type DriverState } from '@/hooks/useCurrentUser';
+import { getNavigationForDriverState, type NavItem } from '@/lib/roleRoutes';
 
 // ─── Icon paths ───────────────────────────────────────────────────────────────
 
@@ -53,45 +49,34 @@ function NavLink({ item, active }: { item: NavItem; active: boolean }) {
   );
 }
 
-// ─── Role chip config ─────────────────────────────────────────────────────────
+// ─── Role chip config — keyed by DriverState ──────────────────────────────────
 
-const ROLE_CHIP: Record<string, { label: string; cls: string }> = {
-  ADMIN:     { label: 'Admin',     cls: 'bg-red-500/20 text-red-200' },
-  DRIVER:    { label: 'Driver',    cls: 'bg-blue-500/20 text-blue-200' },
-  APPLICANT: { label: 'Applicant', cls: 'bg-amber-500/20 text-amber-200' },
-  PARENT:    { label: 'Parent',    cls: 'bg-white/10 text-white/60' },
+const ROLE_CHIP: Record<DriverState, { label: string; cls: string }> = {
+  ADMIN:           { label: 'Admin',     cls: 'bg-red-500/20 text-red-200' },
+  APPROVED_DRIVER: { label: 'Driver',    cls: 'bg-blue-500/20 text-blue-200' },
+  APPLICANT:       { label: 'Applicant', cls: 'bg-amber-500/20 text-amber-200' },
+  PARENT:          { label: 'Parent',    cls: 'bg-white/10 text-white/60' },
 };
+
+// ─── Loading skeleton ─────────────────────────────────────────────────────────
+
+function NavSkeleton() {
+  return (
+    <div className="flex flex-col gap-1 px-3 py-4 animate-pulse">
+      {[...Array(4)].map((_, i) => (
+        <div key={i} className="h-10 rounded-xl bg-white/10" />
+      ))}
+    </div>
+  );
+}
 
 // ─── Sidebar ──────────────────────────────────────────────────────────────────
 
 export function Sidebar() {
   const pathname     = usePathname();
   const router       = useRouter();
-  const [role, setRole]           = useState<string>('PARENT');
-  const [appStatus, setAppStatus] = useState<string | null>(null);
+  const { user, loading } = useCurrentUser();
   const [loggingOut, setLoggingOut] = useState(false);
-
-  useEffect(() => {
-    fetch('/api/me')
-      .then((r) => r.json())
-      .then(({ data }) => {
-        if (data?.role) {
-          setRole(data.role);
-          // For PARENT role, check if they have a pending driver application
-          // so we can show the restricted applicant nav instead of the full parent nav
-          if (data.role === 'PARENT') {
-            fetch('/api/driver-application')
-              .then((r) => r.json())
-              .then(({ data: appData }) => {
-                const status: string | null = appData?.application?.status ?? null;
-                setAppStatus(status);
-              })
-              .catch(() => {});
-          }
-        }
-      })
-      .catch(() => {});
-  }, []);
 
   const isActive = useCallback(
     (href: string) => {
@@ -108,17 +93,10 @@ export function Sidebar() {
     router.push('/login');
   };
 
-  // Determine if this PARENT is a pending driver applicant
-  const isApplicant = role === 'PARENT' && isPendingDriverApplicant(appStatus);
-
-  // Select the correct nav for this user's state
-  const { main, secondary } = isApplicant
-    ? getNavigationForApplicant()
-    : getNavigationForRole(role);
-
-  // Chip label
-  const chipKey = isApplicant ? 'APPLICANT' : role;
-  const chip = ROLE_CHIP[chipKey] ?? ROLE_CHIP['PARENT']!;
+  // Derive nav from driverState — single source of truth from /api/me
+  const driverState: DriverState = user?.driverState ?? 'PARENT';
+  const { main, secondary } = getNavigationForDriverState(driverState);
+  const chip = ROLE_CHIP[driverState];
 
   return (
     <aside className="hidden md:flex flex-col w-64 min-h-screen bg-fizza-primary shrink-0">
@@ -130,37 +108,41 @@ export function Sidebar() {
         </span>
       </div>
 
-      {/* Main nav */}
-      <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-0.5 scrollbar-thin">
-        {main.map((item) => (
-          <NavLink key={item.href} item={item} active={isActive(item.href)} />
-        ))}
+      {/* Nav — skeleton while /api/me loads */}
+      {loading ? (
+        <NavSkeleton />
+      ) : (
+        <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-0.5 scrollbar-thin">
+          {main.map((item) => (
+            <NavLink key={item.href} item={item} active={isActive(item.href)} />
+          ))}
 
-        {secondary.length > 0 && (
-          <>
-            <div className="my-3 border-t border-white/10" />
-            {secondary.map((item) => (
-              <NavLink key={item.href} item={item} active={isActive(item.href)} />
-            ))}
-          </>
-        )}
+          {secondary.length > 0 && (
+            <>
+              <div className="my-3 border-t border-white/10" />
+              {secondary.map((item) => (
+                <NavLink key={item.href} item={item} active={isActive(item.href)} />
+              ))}
+            </>
+          )}
 
-        {/* Driver portal link for applicants */}
-        {isApplicant && (
-          <>
-            <div className="my-3 border-t border-white/10" />
-            <a
-              href="/drive"
-              className="flex items-center gap-2 rounded-xl px-3 py-2 text-xs text-white/40 hover:text-white/60 hover:bg-white/5 transition-all"
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71 M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-              </svg>
-              Driver Portal
-            </a>
-          </>
-        )}
-      </nav>
+          {/* Driver portal link for applicants */}
+          {driverState === 'APPLICANT' && (
+            <>
+              <div className="my-3 border-t border-white/10" />
+              <a
+                href="/drive"
+                className="flex items-center gap-2 rounded-xl px-3 py-2 text-xs text-white/40 hover:text-white/60 hover:bg-white/5 transition-all"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71 M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+                </svg>
+                Driver Portal
+              </a>
+            </>
+          )}
+        </nav>
+      )}
 
       {/* Logout */}
       <div className="px-3 pb-4 pt-2 border-t border-white/10">

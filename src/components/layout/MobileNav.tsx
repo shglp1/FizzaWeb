@@ -1,8 +1,7 @@
 'use client';
 
 import { usePathname } from 'next/navigation';
-import { useEffect, useState } from 'react';
-import { isPendingDriverApplicant } from '@/lib/roleRoutes';
+import { useCurrentUser, type DriverState } from '@/hooks/useCurrentUser';
 
 // ─── Inline SVG icon ──────────────────────────────────────────────────────────
 
@@ -34,14 +33,14 @@ const PARENT_ITEMS: MobileNavItem[] = [
   { label: 'Profile', href: '/profile',      icon: 'M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2 M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z' },
 ];
 
-// Restricted nav for pending driver applicants
+// Restricted nav for pending driver applicants (PARENT role + pending application)
 const APPLICANT_ITEMS: MobileNavItem[] = [
   { label: 'Application', href: '/driver-application', icon: 'M16 6l4 14 M12 6v14 M8 6l-4 14 M20 6H4' },
   { label: 'Alerts',      href: '/notifications',      icon: 'M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9 M13.73 21a2 2 0 0 1-3.46 0' },
   { label: 'Profile',     href: '/profile',            icon: 'M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2 M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z' },
 ];
 
-const DRIVER_ITEMS: MobileNavItem[] = [
+const APPROVED_DRIVER_ITEMS: MobileNavItem[] = [
   { label: 'Dashboard', href: '/driver/dashboard', icon: 'M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z M9 22V12h6v10' },
   { label: 'Trips',     href: '/trips',            icon: 'M5 17H3a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11a2 2 0 0 1 2 2v3 M12 21a4 4 0 0 0 4-4v-1h1a4 4 0 0 0 0-8h-7a4 4 0 0 0-4 4' },
   { label: 'GPS',       href: '/tracking',         icon: 'M12 22s-8-4.5-8-11.8A8 8 0 0 1 12 2a8 8 0 0 1 8 8.2c0 7.3-8 11.8-8 11.8z M12 13a2 2 0 1 0 0-4 2 2 0 0 0 0 4z' },
@@ -55,10 +54,10 @@ const ADMIN_ITEMS: MobileNavItem[] = [
   { label: 'Profile', href: '/profile',       icon: 'M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2 M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z' },
 ];
 
-function getItemsForRole(role: string, isApplicant: boolean): MobileNavItem[] {
-  if (role === 'ADMIN')  return ADMIN_ITEMS;
-  if (role === 'DRIVER') return DRIVER_ITEMS;
-  if (isApplicant)       return APPLICANT_ITEMS;
+function getItemsForDriverState(state: DriverState): MobileNavItem[] {
+  if (state === 'ADMIN')           return ADMIN_ITEMS;
+  if (state === 'APPROVED_DRIVER') return APPROVED_DRIVER_ITEMS;
+  if (state === 'APPLICANT')       return APPLICANT_ITEMS;
   return PARENT_ITEMS;
 }
 
@@ -66,32 +65,11 @@ function getItemsForRole(role: string, isApplicant: boolean): MobileNavItem[] {
 
 export function MobileNav() {
   const pathname = usePathname();
-  const [role, setRole]           = useState('PARENT');
-  const [appStatus, setAppStatus] = useState<string | null>(null);
+  // Shared hook — reuses the same /api/me request as Sidebar (module-level dedup)
+  const { user } = useCurrentUser();
 
-  useEffect(() => {
-    fetch('/api/me')
-      .then((r) => r.json())
-      .then(({ data }) => {
-        if (data?.role) {
-          setRole(data.role);
-          // For PARENT, check driver application to decide applicant vs parent nav
-          if (data.role === 'PARENT') {
-            fetch('/api/driver-application')
-              .then((r) => r.json())
-              .then(({ data: appData }) => {
-                const status: string | null = appData?.application?.status ?? null;
-                setAppStatus(status);
-              })
-              .catch(() => {});
-          }
-        }
-      })
-      .catch(() => {});
-  }, []);
-
-  const isApplicant = role === 'PARENT' && isPendingDriverApplicant(appStatus);
-  const items = getItemsForRole(role, isApplicant);
+  const driverState: DriverState = user?.driverState ?? 'PARENT';
+  const items = getItemsForDriverState(driverState);
 
   const isActive = (href: string) => {
     if (href === '/dashboard' || href === '/driver/dashboard') return pathname === href;

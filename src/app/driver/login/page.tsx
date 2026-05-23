@@ -30,32 +30,22 @@ export default function DriverLoginPage() {
 
     setRedirecting(true);
     try {
-      // Determine role after login and route to the correct driver portal page
-      const meRes = await fetch('/api/me').then((r) => r.json());
-      const role: string = meRes.data?.role ?? 'PARENT';
+      // Single /api/me call — driverState encodes role + application status,
+      // so no separate /api/driver-application fetch is needed here.
+      const meRes = await fetch('/api/me').then((r) => r.json() as Promise<{ data?: { driverState?: string } }>);
+      const driverState = meRes.data?.driverState ?? 'PARENT';
 
-      if (role === 'DRIVER') {
-        // Approved driver → full dashboard
+      if (driverState === 'APPROVED_DRIVER') {
         router.push('/driver/dashboard');
         return;
       }
-      if (role === 'ADMIN') {
+      if (driverState === 'ADMIN') {
         // Edge case: admin signed in via driver login
         router.push('/admin');
         return;
       }
-
-      // PARENT role → check if they have an application
-      const appRes = await fetch('/api/driver-application').then((r) => r.json());
-      const appStatus: string | null = appRes.data?.application?.status ?? null;
-
-      if (appStatus) {
-        // Existing application → show status page
-        router.push('/driver-application');
-      } else {
-        // No application yet → start the application form
-        router.push('/driver-application');
-      }
+      // APPLICANT or PARENT (no application yet) → driver-application page
+      router.push('/driver-application');
     } catch {
       router.push('/driver-application');
     }

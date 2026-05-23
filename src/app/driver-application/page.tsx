@@ -141,6 +141,10 @@ function ApprovedCard() {
             <line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" />
           </svg>
         </a>
+        <p className="text-xs text-gray-400 mt-4">
+          If the Driver Dashboard is not available yet, please sign out and sign back in
+          to activate your updated account.
+        </p>
       </div>
     </div>
   );
