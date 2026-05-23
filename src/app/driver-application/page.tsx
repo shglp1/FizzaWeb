@@ -1,19 +1,11 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
-import Link from 'next/link';
 import { AppShell } from '@/components/layout/AppShell';
 import {
-  PageHeader,
-  Card,
-  Input,
-  Textarea,
-  Button,
-  Alert,
-  Badge,
-  StatusBadge,
-  LoadingState,
+  PageHeader, Card, Input, Textarea, Button, Alert, StatusBadge, LoadingState,
 } from '@/components/ui';
 import { driverApplicationService } from '@/services/driverApplicationService';
 
@@ -63,19 +55,19 @@ type FormValues = {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const VEHICLE_TYPES: { type: VehicleType; label: string; emoji: string; seats: string }[] = [
-  { type: 'ECONOMY', label: 'Economy',     emoji: '🚗', seats: 'Up to 4 seats' },
-  { type: 'COMFORT', label: 'Comfort',     emoji: '🚙', seats: 'Up to 4 seats' },
-  { type: 'FAMILY',  label: 'Family SUV',  emoji: '🚐', seats: 'Up to 6 seats' },
-  { type: 'VAN',     label: 'Van',         emoji: '🚌', seats: 'Up to 9 seats' },
-  { type: 'BUS',     label: 'School Bus',  emoji: '🚍', seats: 'Up to 30 seats' },
-  { type: 'PREMIUM', label: 'Premium',     emoji: '✨', seats: 'Up to 4 seats' },
+  { type: 'ECONOMY', label: 'Economy',    emoji: '🚗', seats: 'Up to 4 seats' },
+  { type: 'COMFORT', label: 'Comfort',    emoji: '🚙', seats: 'Up to 4 seats' },
+  { type: 'FAMILY',  label: 'Family SUV', emoji: '🚐', seats: 'Up to 6 seats' },
+  { type: 'VAN',     label: 'Van',        emoji: '🚌', seats: 'Up to 9 seats' },
+  { type: 'BUS',     label: 'School Bus', emoji: '🚍', seats: 'Up to 30 seats' },
+  { type: 'PREMIUM', label: 'Premium',    emoji: '✨', seats: 'Up to 4 seats' },
 ];
 
 const STATUS_BADGE: Record<AppStatus, 'warning' | 'success' | 'danger' | 'orange'> = {
-  PENDING:      'warning',
-  APPROVED:     'success',
-  REJECTED:     'danger',
-  NEEDS_CHANGES:'orange',
+  PENDING:       'warning',
+  APPROVED:      'success',
+  REJECTED:      'danger',
+  NEEDS_CHANGES: 'orange',
 };
 
 const STATUS_LABEL: Record<AppStatus, string> = {
@@ -88,9 +80,9 @@ const STATUS_LABEL: Record<AppStatus, string> = {
 // ─── Status tracker ───────────────────────────────────────────────────────────
 
 const STEPS = [
-  { key: 'submitted', label: 'Submitted', icon: '📝' },
+  { key: 'submitted', label: 'Submitted',   icon: '📝' },
   { key: 'review',    label: 'Under Review', icon: '🔍' },
-  { key: 'decision',  label: 'Decision', icon: '✅' },
+  { key: 'decision',  label: 'Decision',    icon: '✅' },
 ];
 
 function StatusTracker({ status }: { status: AppStatus }) {
@@ -99,7 +91,7 @@ function StatusTracker({ status }: { status: AppStatus }) {
     <div className="flex items-center gap-0 mb-4">
       {STEPS.map((s, i) => (
         <div key={s.key} className="flex items-center flex-1">
-          <div className={`flex flex-col items-center flex-1 ${i < STEPS.length - 1 ? '' : ''}`}>
+          <div className="flex flex-col items-center flex-1">
             <div className={`h-9 w-9 rounded-full flex items-center justify-center text-base border-2 ${
               i <= stepIndex
                 ? 'border-fizza-secondary bg-fizza-secondary/10'
@@ -120,9 +112,44 @@ function StatusTracker({ status }: { status: AppStatus }) {
   );
 }
 
+// ─── Approved state card ──────────────────────────────────────────────────────
+
+function ApprovedCard() {
+  return (
+    <div className="min-h-[60vh] flex items-center justify-center px-4">
+      <div className="max-w-md w-full text-center">
+        <div className="inline-flex h-20 w-20 items-center justify-center rounded-3xl bg-emerald-50 text-5xl mb-6 mx-auto">
+          🎉
+        </div>
+        <div className="inline-flex items-center gap-2 rounded-full bg-emerald-50 border border-emerald-200 px-3 py-1 text-xs font-semibold text-emerald-700 mb-4">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+          Approved Driver
+        </div>
+        <h1 className="text-2xl font-bold text-gray-900 mb-2">
+          Your application is approved!
+        </h1>
+        <p className="text-gray-500 mb-8 leading-relaxed">
+          Congratulations — your driver account is fully activated.
+          Head to your Driver Dashboard to see your assigned trips and get started.
+        </p>
+        <a
+          href="/driver/dashboard"
+          className="inline-flex items-center justify-center gap-2 rounded-xl bg-fizza-primary px-8 py-3 text-sm font-bold text-white hover:bg-emerald-800 transition-colors shadow-sm"
+        >
+          Go to Driver Dashboard
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" />
+          </svg>
+        </a>
+      </div>
+    </div>
+  );
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function DriverApplicationPage() {
+  const router = useRouter();
   const [application, setApplication] = useState<Application | null>(null);
   const [loading, setLoading]           = useState(true);
   const [selectedType, setSelectedType] = useState<VehicleType | null>(null);
@@ -139,25 +166,41 @@ export default function DriverApplicationPage() {
       if (app) {
         setSelectedType(app.vehicleType);
         reset({
-          vehicleBrand: app.vehicleBrand,
-          vehicleModel: app.vehicleModel,
-          vehicleYear: String(app.vehicleYear),
-          plateNumber: app.plateNumber,
-          vehicleColor: app.vehicleColor,
-          vehicleCapacity: String(app.vehicleCapacity),
-          licenseNumber: app.licenseNumber,
-          city: app.city,
-          serviceArea: app.serviceArea,
-          femaleDriver: app.femaleDriver,
-          driverNotes: app.driverNotes ?? '',
+          vehicleBrand:            app.vehicleBrand,
+          vehicleModel:            app.vehicleModel,
+          vehicleYear:             String(app.vehicleYear),
+          plateNumber:             app.plateNumber,
+          vehicleColor:            app.vehicleColor,
+          vehicleCapacity:         String(app.vehicleCapacity),
+          licenseNumber:           app.licenseNumber,
+          city:                    app.city,
+          serviceArea:             app.serviceArea,
+          femaleDriver:            app.femaleDriver,
+          driverNotes:             app.driverNotes ?? '',
+          driverLicenseUrl:        '',
+          vehicleRegistrationUrl:  '',
+          nationalIdUrl:           '',
         });
       }
       setLoading(false);
     });
   };
 
+  useEffect(() => {
+    // If role is already DRIVER (approved), middleware redirects here; show approved card
+    fetch('/api/me')
+      .then((r) => r.json())
+      .then(({ data }) => {
+        if (data?.role === 'DRIVER') {
+          // Middleware should have redirected already, but show approved card as fallback
+          router.replace('/driver/dashboard');
+        }
+      })
+      .catch(() => {});
+
+    loadApplication();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { loadApplication(); }, []);
+  }, []);
 
   const isEditable = !application || application.status === 'REJECTED' || application.status === 'NEEDS_CHANGES';
 
@@ -168,22 +211,22 @@ export default function DriverApplicationPage() {
     setFormSuccess('');
     const vehicleLabel = VEHICLE_TYPES.find((v) => v.type === selectedType)?.label ?? selectedType;
     const payload = {
-      vehicleType: selectedType,
-      vehicleCategory: vehicleLabel,
-      vehicleBrand: values.vehicleBrand,
-      vehicleModel: values.vehicleModel,
-      vehicleYear: parseInt(values.vehicleYear, 10),
-      plateNumber: values.plateNumber,
-      vehicleColor: values.vehicleColor,
-      vehicleCapacity: parseInt(values.vehicleCapacity, 10),
-      licenseNumber: values.licenseNumber,
-      driverLicenseUrl: values.driverLicenseUrl || undefined,
+      vehicleType:            selectedType,
+      vehicleCategory:        vehicleLabel,
+      vehicleBrand:           values.vehicleBrand,
+      vehicleModel:           values.vehicleModel,
+      vehicleYear:            parseInt(values.vehicleYear, 10),
+      plateNumber:            values.plateNumber,
+      vehicleColor:           values.vehicleColor,
+      vehicleCapacity:        parseInt(values.vehicleCapacity, 10),
+      licenseNumber:          values.licenseNumber,
+      driverLicenseUrl:       values.driverLicenseUrl || undefined,
       vehicleRegistrationUrl: values.vehicleRegistrationUrl || undefined,
-      nationalIdUrl: values.nationalIdUrl || undefined,
-      driverNotes: values.driverNotes || undefined,
-      city: values.city,
-      serviceArea: values.serviceArea,
-      femaleDriver: values.femaleDriver,
+      nationalIdUrl:          values.nationalIdUrl || undefined,
+      driverNotes:            values.driverNotes || undefined,
+      city:                   values.city,
+      serviceArea:            values.serviceArea,
+      femaleDriver:           values.femaleDriver,
     };
     try {
       const res = application
@@ -206,30 +249,42 @@ export default function DriverApplicationPage() {
 
   const status = application?.status;
 
+  // APPROVED state — show dedicated approved card (middleware redirects DRIVER role away,
+  // but PARENT+APPROVED shouldn't normally exist; this is a belt-and-suspenders guard)
+  if (status === 'APPROVED') {
+    return <AppShell><ApprovedCard /></AppShell>;
+  }
+
   return (
     <AppShell>
+      {/* Back link */}
       <div className="mb-4">
-        <Link href="/profile" className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700 transition-colors">
+        <a
+          href="/drive"
+          className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700 transition-colors"
+        >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <polyline points="15 18 9 12 15 6" />
           </svg>
-          Back to Profile
-        </Link>
+          Driver Portal
+        </a>
       </div>
 
       <PageHeader
-        title="Become a Driver"
-        subtitle="Apply to join the Fizza driver network and earn on your own schedule"
+        title={status ? 'Driver Application' : 'Apply as a Driver'}
+        subtitle={
+          status
+            ? 'Track your application status below'
+            : 'Join the Fizza driver network — complete your application to get started'
+        }
       />
 
-      {/* Status card */}
+      {/* ── Status card (existing application) ──────────────────────────── */}
       {application && status && (
         <Card className="mb-5">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-base font-semibold text-gray-900">Application Status</h2>
-            <StatusBadge variant={STATUS_BADGE[status]}>
-              {STATUS_LABEL[status]}
-            </StatusBadge>
+            <StatusBadge variant={STATUS_BADGE[status]}>{STATUS_LABEL[status]}</StatusBadge>
           </div>
 
           <StatusTracker status={status} />
@@ -241,43 +296,87 @@ export default function DriverApplicationPage() {
             )}
           </div>
 
+          {/* Admin feedback */}
           {application.adminResponse && (
-            <div className="mt-3 rounded-xl bg-gray-50 border border-gray-100 px-3 py-2.5">
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Admin Notes</p>
+            <div className={`mt-3 rounded-xl px-3 py-2.5 border ${
+              status === 'NEEDS_CHANGES'
+                ? 'bg-amber-50 border-amber-100'
+                : status === 'REJECTED'
+                ? 'bg-red-50 border-red-100'
+                : 'bg-gray-50 border-gray-100'
+            }`}>
+              <p className={`text-xs font-semibold uppercase tracking-wide mb-1 ${
+                status === 'NEEDS_CHANGES' ? 'text-amber-600'
+                : status === 'REJECTED' ? 'text-red-600'
+                : 'text-gray-500'
+              }`}>
+                {status === 'NEEDS_CHANGES' ? 'Changes Requested' : status === 'REJECTED' ? 'Rejection Reason' : 'Admin Notes'}
+              </p>
               <p className="text-sm text-gray-800">{application.adminResponse}</p>
             </div>
           )}
 
-          {status === 'APPROVED' && (
-            <Alert variant="success" className="mt-3">
-              🎉 Congratulations! Your account has been upgraded to Driver status.
-            </Alert>
+          {/* State-specific guidance */}
+          {status === 'PENDING' && (
+            <div className="mt-3 rounded-xl bg-blue-50 border border-blue-100 px-3 py-2.5 flex items-start gap-2">
+              <span className="text-base shrink-0">🔍</span>
+              <div>
+                <p className="text-sm font-medium text-blue-800">Application under review</p>
+                <p className="text-xs text-blue-600 mt-0.5">
+                  Our team is reviewing your application. You will be notified once a decision is made.
+                  This typically takes 1–3 business days.
+                </p>
+              </div>
+            </div>
           )}
-          {(status === 'REJECTED' || status === 'NEEDS_CHANGES') && (
+          {status === 'NEEDS_CHANGES' && (
             <Alert variant="warning" className="mt-3">
-              Please review the admin notes above and update your application below.
+              The admin has requested changes. Please review the notes above and update your application below.
+            </Alert>
+          )}
+          {status === 'REJECTED' && (
+            <Alert variant="error" className="mt-3">
+              Your application was not approved. You may update and resubmit your application below.
             </Alert>
           )}
         </Card>
       )}
 
-      {/* Pending — no form */}
+      {/* ── Pending — read-only state, no form ───────────────────────────── */}
       {status === 'PENDING' && (
-        <Card className="text-center py-8">
-          <div className="text-4xl mb-3">🔍</div>
-          <p className="font-semibold text-gray-800 mb-1">Application Under Review</p>
-          <p className="text-sm text-gray-500">
-            We will notify you once a decision has been made. This usually takes 1–3 business days.
+        <Card className="text-center py-10">
+          <div className="text-5xl mb-4">⏳</div>
+          <h2 className="text-lg font-semibold text-gray-800 mb-2">Your application is being reviewed</h2>
+          <p className="text-sm text-gray-500 mb-6 max-w-sm mx-auto">
+            We will notify you once a decision is made. While you wait, make sure
+            your profile information is up to date.
           </p>
+          <div className="flex flex-col sm:flex-row gap-3 justify-center">
+            <a
+              href="/profile"
+              className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-5 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
+            >
+              Update Profile
+            </a>
+            <a
+              href="/notifications"
+              className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-5 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
+            >
+              View Notifications
+            </a>
+          </div>
         </Card>
       )}
 
-      {/* Form */}
+      {/* ── Application form (new, NEEDS_CHANGES, or REJECTED) ───────────── */}
       {isEditable && (
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
+
           {/* Vehicle type */}
           <Card>
-            <h2 className="text-base font-semibold text-gray-900 mb-4">Vehicle Type <span className="text-red-500">*</span></h2>
+            <h2 className="text-base font-semibold text-gray-900 mb-4">
+              Vehicle Type <span className="text-red-500">*</span>
+            </h2>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               {VEHICLE_TYPES.map(({ type, label, emoji, seats }) => (
                 <button
@@ -317,13 +416,19 @@ export default function DriverApplicationPage() {
               <Input label="Model" placeholder="e.g. Camry" required error={errors.vehicleModel?.message}
                 {...register('vehicleModel', { required: 'Model is required' })} />
               <Input label="Year" type="number" placeholder="2022" required error={errors.vehicleYear?.message}
-                {...register('vehicleYear', { required: 'Year is required', min: { value: 2000, message: 'Must be 2000 or later' } })} />
+                {...register('vehicleYear', {
+                  required: 'Year is required',
+                  min: { value: 2000, message: 'Must be 2000 or later' },
+                })} />
               <Input label="Color" placeholder="e.g. White" required error={errors.vehicleColor?.message}
                 {...register('vehicleColor', { required: 'Color is required' })} />
               <Input label="Plate Number" placeholder="ABC-1234" required error={errors.plateNumber?.message}
                 {...register('plateNumber', { required: 'Plate number is required' })} />
               <Input label="Passenger Capacity" type="number" placeholder="4" required error={errors.vehicleCapacity?.message}
-                {...register('vehicleCapacity', { required: 'Capacity is required', min: { value: 1, message: 'At least 1' } })} />
+                {...register('vehicleCapacity', {
+                  required: 'Capacity is required',
+                  min: { value: 1, message: 'At least 1' },
+                })} />
             </div>
           </Card>
 
@@ -336,18 +441,31 @@ export default function DriverApplicationPage() {
               <Input label="City" placeholder="e.g. Riyadh" required error={errors.city?.message}
                 {...register('city', { required: 'City is required' })} />
               <div className="sm:col-span-2">
-                <Input label="Service Area" placeholder="e.g. North Riyadh, Al-Nakheel District" required error={errors.serviceArea?.message}
-                  {...register('serviceArea', { required: 'Service area is required' })} />
+                <Input
+                  label="Service Area"
+                  placeholder="e.g. North Riyadh, Al-Nakheel District"
+                  required
+                  error={errors.serviceArea?.message}
+                  {...register('serviceArea', { required: 'Service area is required' })}
+                />
               </div>
-              <div className="sm:col-span-2 flex items-start gap-3 px-3 py-3 rounded-xl border border-emerald-200 bg-emerald-50/30 cursor-pointer"
+              <div
+                className="sm:col-span-2 flex items-start gap-3 px-3 py-3 rounded-xl border border-emerald-200 bg-emerald-50/30 cursor-pointer"
                 onClick={() => {
                   const el = document.getElementById('femaleDriver') as HTMLInputElement;
                   if (el) el.click();
                 }}
               >
-                <input id="femaleDriver" type="checkbox" className="w-4 h-4 mt-0.5 accent-fizza-secondary" {...register('femaleDriver')} />
+                <input
+                  id="femaleDriver"
+                  type="checkbox"
+                  className="w-4 h-4 mt-0.5 accent-fizza-secondary"
+                  {...register('femaleDriver')}
+                />
                 <div>
-                  <label htmlFor="femaleDriver" className="text-sm font-medium text-gray-800 cursor-pointer">Female Driver</label>
+                  <label htmlFor="femaleDriver" className="text-sm font-medium text-gray-800 cursor-pointer">
+                    Female Driver
+                  </label>
                   <p className="text-xs text-gray-500">Will be matched with families who prefer female drivers.</p>
                 </div>
               </div>

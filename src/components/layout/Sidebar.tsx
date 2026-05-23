@@ -3,7 +3,12 @@
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState, useCallback } from 'react';
 import { Logo } from './Logo';
-import { getNavigationForRole, type NavItem } from '@/lib/roleRoutes';
+import {
+  getNavigationForRole,
+  getNavigationForApplicant,
+  isPendingDriverApplicant,
+  type NavItem,
+} from '@/lib/roleRoutes';
 
 // ─── Icon paths ───────────────────────────────────────────────────────────────
 
@@ -35,17 +40,8 @@ function NavLink({ item, active }: { item: NavItem; active: boolean }) {
           : 'text-white/60 hover:bg-white/10 hover:text-white'
       }`}
     >
-      <span
-        className={`shrink-0 transition-colors ${
-          active ? 'text-fizza-soft' : 'text-white/50 group-hover:text-white/80'
-        }`}
-      >
-        <svg
-          width="18" height="18" viewBox="0 0 24 24" fill="none"
-          stroke="currentColor" strokeWidth="1.75"
-          strokeLinecap="round" strokeLinejoin="round"
-          aria-hidden="true"
-        >
+      <span className={`shrink-0 transition-colors ${active ? 'text-fizza-soft' : 'text-white/50 group-hover:text-white/80'}`}>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           {iconPath.split(' M').map((seg, i) => (
             <path key={i} d={i === 0 ? seg : 'M' + seg} />
           ))}
@@ -57,48 +53,72 @@ function NavLink({ item, active }: { item: NavItem; active: boolean }) {
   );
 }
 
-// ─── Role chip ────────────────────────────────────────────────────────────────
+// ─── Role chip config ─────────────────────────────────────────────────────────
 
 const ROLE_CHIP: Record<string, { label: string; cls: string }> = {
-  ADMIN:  { label: 'Admin',  cls: 'bg-red-500/20 text-red-200' },
-  DRIVER: { label: 'Driver', cls: 'bg-blue-500/20 text-blue-200' },
-  PARENT: { label: 'Parent', cls: 'bg-white/10 text-white/60' },
+  ADMIN:     { label: 'Admin',     cls: 'bg-red-500/20 text-red-200' },
+  DRIVER:    { label: 'Driver',    cls: 'bg-blue-500/20 text-blue-200' },
+  APPLICANT: { label: 'Applicant', cls: 'bg-amber-500/20 text-amber-200' },
+  PARENT:    { label: 'Parent',    cls: 'bg-white/10 text-white/60' },
 };
 
 // ─── Sidebar ──────────────────────────────────────────────────────────────────
 
 export function Sidebar() {
-  const pathname    = usePathname();
-  const router      = useRouter();
+  const pathname     = usePathname();
+  const router       = useRouter();
   const [role, setRole]           = useState<string>('PARENT');
+  const [appStatus, setAppStatus] = useState<string | null>(null);
   const [loggingOut, setLoggingOut] = useState(false);
 
   useEffect(() => {
     fetch('/api/me')
       .then((r) => r.json())
-      .then(({ data }) => { if (data?.role) setRole(data.role); })
+      .then(({ data }) => {
+        if (data?.role) {
+          setRole(data.role);
+          // For PARENT role, check if they have a pending driver application
+          // so we can show the restricted applicant nav instead of the full parent nav
+          if (data.role === 'PARENT') {
+            fetch('/api/driver-application')
+              .then((r) => r.json())
+              .then(({ data: appData }) => {
+                const status: string | null = appData?.application?.status ?? null;
+                setAppStatus(status);
+              })
+              .catch(() => {});
+          }
+        }
+      })
       .catch(() => {});
   }, []);
 
   const isActive = useCallback(
     (href: string) => {
-      // Exact match for root dashboard pages to avoid false positives
       if (href === '/dashboard' || href === '/driver/dashboard') return pathname === href;
-      // For /admin, match path or query-param pages
       if (href === '/admin') return pathname === '/admin' || pathname.startsWith('/admin/');
       return pathname === href || pathname.startsWith(href + '/');
     },
     [pathname],
   );
 
-  const { main, secondary } = getNavigationForRole(role);
-  const chip = ROLE_CHIP[role] ?? ROLE_CHIP['PARENT']!;
-
   const handleLogout = async () => {
     setLoggingOut(true);
     await fetch('/api/auth/logout', { method: 'POST' });
     router.push('/login');
   };
+
+  // Determine if this PARENT is a pending driver applicant
+  const isApplicant = role === 'PARENT' && isPendingDriverApplicant(appStatus);
+
+  // Select the correct nav for this user's state
+  const { main, secondary } = isApplicant
+    ? getNavigationForApplicant()
+    : getNavigationForRole(role);
+
+  // Chip label
+  const chipKey = isApplicant ? 'APPLICANT' : role;
+  const chip = ROLE_CHIP[chipKey] ?? ROLE_CHIP['PARENT']!;
 
   return (
     <aside className="hidden md:flex flex-col w-64 min-h-screen bg-fizza-primary shrink-0">
@@ -124,6 +144,22 @@ export function Sidebar() {
             ))}
           </>
         )}
+
+        {/* Driver portal link for applicants */}
+        {isApplicant && (
+          <>
+            <div className="my-3 border-t border-white/10" />
+            <a
+              href="/drive"
+              className="flex items-center gap-2 rounded-xl px-3 py-2 text-xs text-white/40 hover:text-white/60 hover:bg-white/5 transition-all"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71 M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+              </svg>
+              Driver Portal
+            </a>
+          </>
+        )}
       </nav>
 
       {/* Logout */}
@@ -133,12 +169,7 @@ export function Sidebar() {
           disabled={loggingOut}
           className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-white/50 hover:bg-white/10 hover:text-white transition-all disabled:opacity-50"
         >
-          <svg
-            width="18" height="18" viewBox="0 0 24 24" fill="none"
-            stroke="currentColor" strokeWidth="1.75"
-            strokeLinecap="round" strokeLinejoin="round"
-            className="shrink-0" aria-hidden="true"
-          >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="shrink-0" aria-hidden="true">
             {ICONS['logout']!.split(' M').map((seg, i) => (
               <path key={i} d={i === 0 ? seg : 'M' + seg} />
             ))}

@@ -3,10 +3,21 @@ import type { NextRequest } from 'next/server';
 import { verifyToken, SESSION_COOKIE } from '@/lib/auth';
 import { getDashboardPathForRole } from '@/lib/roleRoutes';
 
-// Routes that never require authentication
-const PUBLIC_PREFIXES = ['/', '/login', '/register', '/reset-password', '/verify'];
+// ─── Public routes (no auth required) ────────────────────────────────────────
+// Driver landing + driver auth pages are public so unauthenticated visitors
+// can discover and enter the driver funnel before creating an account.
+const PUBLIC_PREFIXES = [
+  '/',
+  '/login',
+  '/register',
+  '/reset-password',
+  '/verify',
+  '/drive',           // driver landing page
+  '/driver/login',    // driver-specific sign-in
+  '/driver/register', // driver-specific sign-up
+];
 
-// Route prefixes that require an authenticated session
+// ─── Protected routes (require valid session) ─────────────────────────────────
 const PROTECTED_PREFIXES = [
   '/dashboard',
   '/riders',
@@ -36,10 +47,10 @@ function isProtected(pathname: string): boolean {
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
-  // Allow public routes through immediately
+  // Public routes pass through immediately (driver landing + driver auth included)
   if (isPublic(pathname)) return NextResponse.next();
 
-  // Only intercept protected page routes
+  // Non-protected routes pass through (static assets handled by matcher)
   if (!isProtected(pathname)) return NextResponse.next();
 
   // ── Require valid session ──────────────────────────────────────────────────
@@ -60,11 +71,11 @@ export async function middleware(req: NextRequest) {
   const role = session.role;
 
   // ── Role-based routing ────────────────────────────────────────────────────
-  // ADMIN visiting parent dashboard → /admin
+
+  // ADMIN visiting parent or driver pages → /admin
   if (role === 'ADMIN' && (pathname === '/dashboard' || pathname.startsWith('/dashboard/'))) {
     return NextResponse.redirect(new URL('/admin', req.url));
   }
-  // ADMIN visiting driver dashboard → /admin
   if (role === 'ADMIN' && (pathname === '/driver/dashboard' || pathname.startsWith('/driver/dashboard/'))) {
     return NextResponse.redirect(new URL('/admin', req.url));
   }
@@ -74,12 +85,18 @@ export async function middleware(req: NextRequest) {
     return NextResponse.redirect(new URL('/driver/dashboard', req.url));
   }
 
+  // DRIVER visiting driver-application → already approved, send to driver dashboard
+  if (role === 'DRIVER' && (pathname === '/driver-application' || pathname.startsWith('/driver-application/'))) {
+    return NextResponse.redirect(new URL('/driver/dashboard', req.url));
+  }
+
   // PARENT/DRIVER visiting admin → their dashboard
   if (role !== 'ADMIN' && pathname.startsWith('/admin')) {
     return NextResponse.redirect(new URL(getDashboardPathForRole(role), req.url));
   }
 
   // PARENT visiting driver dashboard → /dashboard
+  // (DRIVER applicants are PARENT role — they should not reach /driver/dashboard yet)
   if (role === 'PARENT' && (pathname === '/driver/dashboard' || pathname.startsWith('/driver/dashboard/'))) {
     return NextResponse.redirect(new URL('/dashboard', req.url));
   }
