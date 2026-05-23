@@ -55,9 +55,9 @@ const ADMIN_ITEMS: MobileNavItem[] = [
 ];
 
 function getItemsForDriverState(state: DriverState): MobileNavItem[] {
-  if (state === 'ADMIN')           return ADMIN_ITEMS;
-  if (state === 'APPROVED_DRIVER') return APPROVED_DRIVER_ITEMS;
-  if (state === 'APPLICANT')       return APPLICANT_ITEMS;
+  if (state === 'ADMIN')            return ADMIN_ITEMS;
+  if (state === 'APPROVED_DRIVER')  return APPROVED_DRIVER_ITEMS;
+  if (state === 'DRIVER_APPLICANT') return APPLICANT_ITEMS;
   return PARENT_ITEMS;
 }
 

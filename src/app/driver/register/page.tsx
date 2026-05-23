@@ -35,6 +35,7 @@ export default function DriverRegisterPage() {
       values.password,
       values.fullName,
       values.phone,
+      'DRIVER_PORTAL', // marks this account as a driver applicant, not a family user
     );
     if (res.data) {
       // New driver accounts start as PARENT role; go straight to the application form

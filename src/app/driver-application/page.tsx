@@ -8,6 +8,7 @@ import {
   PageHeader, Card, Input, Textarea, Button, Alert, StatusBadge, LoadingState,
 } from '@/components/ui';
 import { driverApplicationService } from '@/services/driverApplicationService';
+import { useCurrentUser } from '@/hooks/useCurrentUser';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -112,6 +113,44 @@ function StatusTracker({ status }: { status: AppStatus }) {
   );
 }
 
+// ─── Family-account forbidden card ───────────────────────────────────────────
+// Shown when a normal PARENT/FAMILY account (not created via the driver portal)
+// manually navigates to /driver-application.  Driver applications are only
+// available through /drive → /driver/register.
+
+function ForbiddenCard() {
+  return (
+    <div className="min-h-[60vh] flex items-center justify-center px-4">
+      <div className="max-w-md w-full text-center">
+        <div className="inline-flex h-20 w-20 items-center justify-center rounded-3xl bg-gray-100 text-5xl mb-6 mx-auto">
+          🚫
+        </div>
+        <h1 className="text-xl font-bold text-gray-900 mb-2">
+          Driver applications are not available here
+        </h1>
+        <p className="text-gray-500 mb-8 leading-relaxed text-sm">
+          Driver applications must be submitted through the dedicated Driver Portal.
+          If you want to drive with Fizza, visit the driver portal to create a driver account.
+        </p>
+        <div className="flex flex-col sm:flex-row gap-3 justify-center">
+          <a
+            href="/drive"
+            className="inline-flex items-center justify-center gap-2 rounded-xl bg-fizza-primary px-6 py-3 text-sm font-bold text-white hover:bg-emerald-800 transition-colors shadow-sm"
+          >
+            Go to Driver Portal
+          </a>
+          <a
+            href="/dashboard"
+            className="inline-flex items-center justify-center rounded-xl border border-gray-200 bg-white px-6 py-3 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
+          >
+            Back to Dashboard
+          </a>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Approved state card ──────────────────────────────────────────────────────
 
 function ApprovedCard() {
@@ -154,6 +193,7 @@ function ApprovedCard() {
 
 export default function DriverApplicationPage() {
   const router = useRouter();
+  const { user, loading: userLoading } = useCurrentUser();
   const [application, setApplication] = useState<Application | null>(null);
   const [loading, setLoading]           = useState(true);
   const [selectedType, setSelectedType] = useState<VehicleType | null>(null);
@@ -191,20 +231,17 @@ export default function DriverApplicationPage() {
   };
 
   useEffect(() => {
-    // If role is already DRIVER (approved), middleware redirects here; show approved card
-    fetch('/api/me')
-      .then((r) => r.json())
-      .then(({ data }) => {
-        if (data?.role === 'DRIVER') {
-          // Middleware should have redirected already, but show approved card as fallback
-          router.replace('/driver/dashboard');
-        }
-      })
-      .catch(() => {});
-
     loadApplication();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Redirect approved drivers to their dashboard (middleware handles server-side;
+  // this is a belt-and-suspenders client guard)
+  useEffect(() => {
+    if (!userLoading && user?.driverState === 'APPROVED_DRIVER') {
+      router.replace('/driver/dashboard');
+    }
+  }, [user, userLoading, router]);
 
   const isEditable = !application || application.status === 'REJECTED' || application.status === 'NEEDS_CHANGES';
 
@@ -249,12 +286,22 @@ export default function DriverApplicationPage() {
     }
   };
 
-  if (loading) return <AppShell><LoadingState message="Loading your application…" /></AppShell>;
+  // Show loading while either user state or application is being fetched
+  if (loading || userLoading) {
+    return <AppShell><LoadingState message="Loading your application…" /></AppShell>;
+  }
 
+  const driverState = user?.driverState;
   const status = application?.status;
 
-  // APPROVED state — show dedicated approved card (middleware redirects DRIVER role away,
-  // but PARENT+APPROVED shouldn't normally exist; this is a belt-and-suspenders guard)
+  // Normal PARENT/FAMILY account — must NOT access driver application
+  // This is the client-side guard; /api/driver-application also enforces server-side
+  if (driverState === 'PARENT') {
+    return <AppShell><ForbiddenCard /></AppShell>;
+  }
+
+  // Approved state — APPROVED_DRIVER redirect was handled in useEffect above;
+  // this covers the DRIVER_APPLICANT + APPROVED (JWT not yet refreshed) edge case
   if (status === 'APPROVED') {
     return <AppShell><ApprovedCard /></AppShell>;
   }

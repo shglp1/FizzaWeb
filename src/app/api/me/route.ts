@@ -10,17 +10,25 @@ const NO_STORE = { headers: { 'Cache-Control': 'no-store' } };
  * GET /api/me
  *
  * Returns a safe user/session summary for client-side navigation and UX state.
- * This is the single source of truth for the client — Sidebar and MobileNav
- * consume it via the useCurrentUser() hook instead of making separate calls to
- * /api/driver-application.
+ * Single source of truth — Sidebar and MobileNav consume it via useCurrentUser()
+ * so no separate call to /api/driver-application is needed for nav decisions.
  *
  * driverState logic:
- *   ADMIN role              → "ADMIN"
- *   DRIVER role             → "APPROVED_DRIVER"
- *   PARENT + no application → "PARENT"
- *   PARENT + application    → "APPLICANT"
- *     (covers PENDING / NEEDS_CHANGES / REJECTED, and APPROVED where the JWT
- *      role hasn't been refreshed yet — the approved card prompts re-login)
+ *   ADMIN role                                          → "ADMIN"
+ *   DRIVER role                                         → "APPROVED_DRIVER"
+ *   PARENT + registrationSource "DRIVER_PORTAL"         → "DRIVER_APPLICANT"
+ *   PARENT + any driverApplication record               → "DRIVER_APPLICANT"
+ *   PARENT + registrationSource "FAMILY" + no app       → "PARENT"
+ *
+ * PARENT + APPROVED application (JWT not refreshed yet):
+ *   driverState = "DRIVER_APPLICANT", application.status = "APPROVED"
+ *   The /driver-application approved card prompts the user to re-login so their
+ *   JWT is updated with role DRIVER.
+ *
+ * Portal separation:
+ *   registrationSource "FAMILY"  → normal family account; no driver UI
+ *   registrationSource "DRIVER_PORTAL" → driver applicant account; restricted driver UI
+ *   Only admin approval sets role to DRIVER (the only upgrade path).
  */
 export async function GET() {
   const auth = await requireAuth();
@@ -47,7 +55,7 @@ export async function GET() {
   // ── Fetch profile (all non-ADMIN roles) ────────────────────────────────────
   const profile = await prisma.profile.findUnique({
     where: { id: userId },
-    select: { fullName: true, phone: true, avatarUrl: true },
+    select: { fullName: true, phone: true, avatarUrl: true, registrationSource: true },
   });
 
   const safeProfile = profile
@@ -58,7 +66,7 @@ export async function GET() {
       }
     : undefined;
 
-  // ── Fast path: approved DRIVER — no application check needed ───────────────
+  // ── Fast path: approved DRIVER ─────────────────────────────────────────────
   if (role === 'DRIVER') {
     return NextResponse.json(
       {
@@ -75,17 +83,20 @@ export async function GET() {
     );
   }
 
-  // ── PARENT role — check for driver application ─────────────────────────────
+  // ── PARENT role — check registrationSource + application ──────────────────
   const application = await prisma.driverApplication.findFirst({
     where:   { userId },
     orderBy: { createdAt: 'desc' },
     select:  { id: true, status: true, adminResponse: true, updatedAt: true },
   });
 
-  // Any application (including APPROVED-but-JWT-not-refreshed) → APPLICANT state.
-  // The approved card on /driver-application will prompt the user to re-login so
-  // the new DRIVER role is reflected in the JWT.
-  const driverState: DriverState = application ? 'APPLICANT' : 'PARENT';
+  // DRIVER_APPLICANT if:
+  //   a) came from the driver portal (registrationSource = 'DRIVER_PORTAL'), OR
+  //   b) has any driver application (regardless of registration source)
+  const isDriverApplicant =
+    profile?.registrationSource === 'DRIVER_PORTAL' || application !== null;
+
+  const driverState: DriverState = isDriverApplicant ? 'DRIVER_APPLICANT' : 'PARENT';
 
   return NextResponse.json(
     {

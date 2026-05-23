@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
-import Link from 'next/link';
 import { AppShell } from '@/components/layout/AppShell';
 import {
   PageHeader,
@@ -15,6 +14,7 @@ import {
   ErrorState,
 } from '@/components/ui';
 import { profileService } from '@/services/profileService';
+import { useCurrentUser } from '@/hooks/useCurrentUser';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -46,6 +46,7 @@ const ROLE_LABEL: Record<string, string> = {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function ProfilePage() {
+  const { user } = useCurrentUser();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -99,6 +100,7 @@ export default function ProfilePage() {
   );
 
   const role = profile.user.role;
+  const driverState = user?.driverState;
 
   return (
     <AppShell>
@@ -153,33 +155,35 @@ export default function ProfilePage() {
             </div>
           </Card>
 
-          {/* Driver CTA / Driver status */}
-          {role !== 'DRIVER' && role !== 'ADMIN' && (
-            <Card className="bg-gradient-to-br from-emerald-50 to-white border-emerald-200">
+          {/* Driver application status — only for driver applicants */}
+          {driverState === 'DRIVER_APPLICANT' && (
+            <Card className="bg-amber-50/60 border-amber-200">
               <div className="flex items-start gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-fizza-secondary/10 text-fizza-secondary shrink-0">
-                  🚗
-                </div>
-                <div className="flex-1 min-w-0">
-                  <h3 className="font-semibold text-gray-900">Become a Driver</h3>
-                  <p className="text-sm text-gray-500 mt-0.5">
-                    Apply and earn on your own schedule.
+                <div className="text-2xl shrink-0">📋</div>
+                <div>
+                  <h3 className="font-semibold text-amber-900">Driver Application</h3>
+                  <p className="text-sm text-amber-700 mt-0.5">
+                    Your driver application is being reviewed.
                   </p>
-                  <Link href="/driver-application" className="btn-secondary btn-sm mt-3 inline-flex">
-                    Apply Now →
-                  </Link>
+                  <a href="/driver-application" className="btn-secondary btn-sm mt-3 inline-flex">
+                    View Application →
+                  </a>
                 </div>
               </div>
             </Card>
           )}
 
-          {role === 'DRIVER' && (
-            <Card className="bg-amber-50 border-amber-200">
+          {/* Approved driver card */}
+          {driverState === 'APPROVED_DRIVER' && (
+            <Card className="bg-emerald-50 border-emerald-200">
               <div className="flex items-center gap-3">
                 <div className="text-2xl">✅</div>
                 <div>
-                  <h3 className="font-semibold text-amber-900">Driver Account</h3>
-                  <p className="text-sm text-amber-700">Your application is approved.</p>
+                  <h3 className="font-semibold text-emerald-900">Approved Driver</h3>
+                  <p className="text-sm text-emerald-700">Your driver account is active.</p>
+                  <a href="/driver/dashboard" className="btn-secondary btn-sm mt-2 inline-flex">
+                    Driver Dashboard →
+                  </a>
                 </div>
               </div>
             </Card>
