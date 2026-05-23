@@ -150,9 +150,14 @@ function ActiveTripPanel({
   }
 
   async function handleNoShow() {
+    const reason = window.prompt('No-show reason (required):');
+    if (!reason?.trim()) {
+      setUpdateError('No-show requires a reason.');
+      return;
+    }
     setUpdating(true);
     setUpdateError('');
-    const res = await tripService.updateStatus(trip.id, 'NO_SHOW');
+    const res = await tripService.updateStatus(trip.id, 'NO_SHOW', { statusReason: reason.trim() });
     setUpdating(false);
     if (res.error) {
       setUpdateError(res.error.message ?? 'Failed to update status.');
@@ -367,6 +372,10 @@ export default function DriverTripsPage() {
   const [pageError, setPageError] = useState('');
   const [activeTab, setActiveTab] = useState<TabKey>('today');
 
+  const [totalCount, setTotalCount] = useState(0);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
+
   const today = new Date().toISOString().split('T')[0]!;
   const tomorrowDate = (() => {
     const d = new Date();
@@ -374,17 +383,29 @@ export default function DriverTripsPage() {
     return d.toISOString().split('T')[0]!;
   })();
 
-  const loadTrips = useCallback(async () => {
-    const res = await tripService.list();
+  const loadTrips = useCallback(async (pageNum = 1, append = false) => {
+    const from = activeTab === 'today' ? today : activeTab === 'tomorrow' ? tomorrowDate : undefined;
+    const to = activeTab === 'today' ? today : activeTab === 'tomorrow' ? tomorrowDate : undefined;
+    const res = await tripService.list({
+      status: activeTab === 'upcoming' ? 'upcoming' : activeTab === 'active' ? 'active' : activeTab === 'completed' ? 'completed' : activeTab === 'cancelled' ? 'cancelled' : undefined,
+      from,
+      to,
+      page: pageNum,
+      limit: 50,
+    });
     if (res.data) {
-      setTrips(Array.isArray(res.data) ? (res.data as Trip[]) : []);
+      const list = Array.isArray(res.data) ? (res.data as Trip[]) : [];
+      setTrips(append ? (prev) => [...prev, ...list] : list);
+      const meta = res.meta as { total?: number; page?: number; totalPages?: number } | undefined;
+      if (meta?.total != null) setTotalCount(meta.total);
+      setHasMore((meta?.page ?? 1) < (meta?.totalPages ?? 1));
     } else {
       setPageError(res.error?.message ?? 'Failed to load trips.');
     }
     setLoading(false);
-  }, []);
+  }, [activeTab, today, tomorrowDate]);
 
-  useEffect(() => { loadTrips(); }, [loadTrips]);
+  useEffect(() => { setLoading(true); setPage(1); loadTrips(1, false); }, [loadTrips]);
 
   // Categorised views
   const todayTrips    = trips.filter((t) => t.scheduledDate.startsWith(today));
@@ -493,9 +514,13 @@ export default function DriverTripsPage() {
           />
 
           <p className="text-xs text-gray-500">
-            Showing {displayTrips.length} of {trips.length} assigned trips
-            {trips.length === 0 ? '' : ' (all dates loaded from server)'}
+            Showing {displayTrips.length} of {totalCount || trips.length} trips
           </p>
+          {hasMore && (
+            <Button variant="outline" size="sm" onClick={() => { const n = page + 1; setPage(n); loadTrips(n, true); }}>
+              Load more
+            </Button>
+          )}
 
           {/* Trip List */}
           {displayTrips.length === 0 ? (

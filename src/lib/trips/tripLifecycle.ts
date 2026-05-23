@@ -67,11 +67,14 @@ export function isValidTransition(
   return allowed.includes(to);
 }
 
-/** Human-readable label for display. */
+/** Human-readable label for display — delegates to status catalog. */
+export { getDisplayLabel as getTripDisplayLabel } from './statusCatalog.ts';
+
+/** @deprecated Use getDisplayLabel from statusCatalog for UI. Kept for backward compat. */
 export const TRIP_STATUS_LABEL: Record<TripStatus, string> = {
   SCHEDULED:        'Scheduled',
   DRIVER_ASSIGNED:  'Driver Assigned',
-  PRE_TRIP:         'Driver Heading Out',
+  PRE_TRIP:         'Pre-Trip Tracking',
   ON_THE_WAY:       'En Route to Pickup',
   ARRIVED_PICKUP:   'Arrived at Pickup',
   PICKED_UP:        'Rider Picked Up',

@@ -1,7 +1,17 @@
 export const tripService = {
-  list: async (status?: string) => {
-    const params = status ? `?status=${encodeURIComponent(status)}` : '';
-    const res = await fetch(`/api/trips${params}`);
+  list: async (opts?: string | { status?: string; from?: string; to?: string; page?: number; limit?: number }) => {
+    const params = new URLSearchParams();
+    if (typeof opts === 'string') {
+      if (opts) params.set('status', opts);
+    } else if (opts) {
+      if (opts.status) params.set('status', opts.status);
+      if (opts.from) params.set('from', opts.from);
+      if (opts.to) params.set('to', opts.to);
+      if (opts.page) params.set('page', String(opts.page));
+      if (opts.limit) params.set('limit', String(opts.limit));
+    }
+    const qs = params.toString();
+    const res = await fetch(`/api/trips${qs ? `?${qs}` : ''}`);
     return res.json();
   },
 
@@ -110,6 +120,35 @@ export const tripService = {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
+    });
+    return res.json();
+  },
+
+  adminGetTrip: async (tripId: string) => {
+    const res = await fetch(`/api/admin/trips/${encodeURIComponent(tripId)}`);
+    return res.json();
+  },
+
+  adminReassignTrip: async (tripId: string, driverId: string, reason: string, applyToFuture = false) => {
+    const res = await fetch(`/api/admin/trips/${encodeURIComponent(tripId)}/reassign`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ driverId, reason, applyToFuture }),
+    });
+    return res.json();
+  },
+
+  adminCheckLate: async () => {
+    const res = await fetch('/api/admin/trips/check-late', { method: 'POST' });
+    return res.json();
+  },
+
+  uploadChatAttachment: async (tripId: string, file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    const res = await fetch(`/api/trips/${encodeURIComponent(tripId)}/chat/attachment`, {
+      method: 'POST',
+      body: form,
     });
     return res.json();
   },

@@ -10,6 +10,7 @@
 
 import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
+import { recordTripEventOnce } from './tripEvents';
 
 function toTripEventMetadata(
   metadata?: Record<string, string | number | boolean | null>,
@@ -24,10 +25,6 @@ type NotifyInput = {
   driverProfileId: string | null;
 };
 
-/**
- * Record a TripEvent if one of the same type doesn't already exist for this trip.
- * Returns true if the event was created (first time), false if deduplicated.
- */
 async function recordEvent(
   tripId: string,
   eventType: string,
@@ -36,23 +33,11 @@ async function recordEvent(
   message: string,
   metadata?: Record<string, string | number | boolean | null>,
 ): Promise<boolean> {
-  const existing = await prisma.tripEvent.findFirst({
-    where: { tripId, eventType },
-    select: { id: true },
+  return recordTripEventOnce(tripId, eventType, message, {
+    actorUserId,
+    actorRole,
+    metadata,
   });
-  if (existing) return false;
-
-  await prisma.tripEvent.create({
-    data: {
-      tripId,
-      eventType,
-      actorUserId,
-      actorRole,
-      message,
-      metadata: toTripEventMetadata(metadata),
-    },
-  });
-  return true;
 }
 
 async function notify(
@@ -110,6 +95,75 @@ export async function notifyLocationSharingStarted(input: NotifyInput): Promise<
     'Driver Heading Your Way',
     'Your driver has started sharing their location.',
     'TRIP',
+  );
+}
+
+/** Notify when driver is ~5 minutes from pickup (ETA-based). */
+export async function notifyFiveMinutesToPickup(
+  input: NotifyInput & { etaMinutes?: number },
+): Promise<void> {
+  const first = await recordEvent(
+    input.tripId, 'FIVE_MINUTES_TO_PICKUP',
+    input.driverProfileId, 'DRIVER',
+    `Driver about ${input.etaMinutes ?? 5} minutes from pickup`,
+    { etaMinutes: input.etaMinutes ?? 5 },
+  );
+  if (!first) return;
+
+  await notify(
+    input.parentUserId,
+    'Driver On the Way',
+    'Your driver is about 5 minutes away from the pickup point.',
+    'TRIP',
+  );
+}
+
+/** Notify when driver is ~5 minutes from drop-off (ETA-based). */
+export async function notifyFiveMinutesToDropoff(
+  input: NotifyInput & { etaMinutes?: number },
+): Promise<void> {
+  const first = await recordEvent(
+    input.tripId, 'FIVE_MINUTES_TO_DROPOFF',
+    input.driverProfileId, 'DRIVER',
+    `Driver about ${input.etaMinutes ?? 5} minutes from drop-off`,
+    { etaMinutes: input.etaMinutes ?? 5 },
+  );
+  if (!first) return;
+
+  await notify(
+    input.parentUserId,
+    'Almost There',
+    'Your rider is about 5 minutes away from the drop-off point.',
+    'TRIP',
+  );
+}
+
+/** Record location sharing stopped. */
+export async function notifyLocationSharingStopped(
+  input: NotifyInput & { reason?: string },
+): Promise<void> {
+  await recordEvent(
+    input.tripId, 'LOCATION_SHARING_STOPPED',
+    input.driverProfileId, 'DRIVER',
+    input.reason ?? 'Location sharing stopped',
+  );
+}
+
+/** Record chat opened for trip. */
+export async function notifyChatOpened(input: NotifyInput): Promise<void> {
+  await recordEvent(
+    input.tripId, 'CHAT_OPENED',
+    null, 'SYSTEM',
+    'Chat window opened',
+  );
+}
+
+/** Record chat closed after grace period or admin action. */
+export async function notifyChatClosed(input: NotifyInput & { reason?: string }): Promise<void> {
+  await recordEvent(
+    input.tripId, 'CHAT_CLOSED',
+    null, 'SYSTEM',
+    input.reason ?? 'Chat window closed',
   );
 }
 

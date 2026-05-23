@@ -25,6 +25,7 @@ import { SubscriptionsSection } from './sections/SubscriptionsSection';
 import { FinancialsSection } from './sections/FinancialsSection';
 import { SystemConfigSection } from './sections/SystemConfigSection';
 import { PackagesSection } from './sections/PackagesSection';
+import { TripOperationsBoard } from './sections/TripOperationsBoard';
 import { AuditLogsSection } from './sections/AuditLogsSection';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -848,6 +849,7 @@ function TripsSection() {
     <>
       <TripOperationsOverview />
       <ChatFlagsPanel />
+      <TripOperationsBoard />
 
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-base font-semibold text-gray-900">Trip Board</h2>

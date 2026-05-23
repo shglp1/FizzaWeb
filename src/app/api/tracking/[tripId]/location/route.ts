@@ -8,6 +8,7 @@ import { requireAuth } from '@/lib/session';
 import { z } from 'zod';
 import { isLocationSharingAllowed, isParentLocationVisible } from '@/lib/trips/tripLifecycle';
 import type { TripStatus } from '@/lib/trips/tripLifecycle';
+import { processLocationProximityUpdate } from '@/lib/trips/tripProximity';
 
 const locationSchema = z.object({
   lat: z.number().min(-90).max(90),
@@ -50,7 +51,13 @@ export async function POST(
     // Verify the driver is assigned to this trip
     const trip = await prisma.trip.findUnique({
       where: { id: tripId },
-      select: { id: true, driverId: true, status: true, scheduledPickupTime: true },
+      select: {
+        id: true, driverId: true, status: true, scheduledPickupTime: true,
+        pickupLat: true, pickupLng: true, dropoffLat: true, dropoffLng: true,
+        subscription: { select: { userId: true } },
+        rider: { select: { parentId: true } },
+        driver: { select: { profileId: true } },
+      },
     });
     if (!trip) {
       return NextResponse.json({ data: null, error: { message: 'Trip not found' } }, { status: 404 });
@@ -72,6 +79,12 @@ export async function POST(
     await prisma.driverLocation.create({
       data: { driverId: driver.id, tripId, lat, lng },
     });
+
+    await processLocationProximityUpdate(
+      { ...trip, status: trip.status as TripStatus },
+      lat,
+      lng,
+    );
 
     return NextResponse.json({ data: { ok: true }, error: null });
   } catch {

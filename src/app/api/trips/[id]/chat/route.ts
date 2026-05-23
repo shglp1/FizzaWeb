@@ -4,12 +4,13 @@ import { requireAuth } from '@/lib/session';
 import { z } from 'zod';
 import { isChatWindowOpen } from '@/lib/trips/tripLifecycle';
 import { moderateMessage } from '@/lib/trips/chatModeration';
-import { notifyMessageFlagged } from '@/lib/trips/tripNotifications';
+import { isUserChatBlocked } from '@/lib/trips/tripProximity';
+import { notifyChatOpened, notifyMessageFlagged } from '@/lib/trips/tripNotifications';
 import type { TripStatus } from '@/lib/trips/tripLifecycle';
 
 const chatMessageSchema = z.object({
   body: z.string().min(1).max(2000),
-  messageType: z.enum(['TEXT', 'QUICK_REPLY']).default('TEXT'),
+  messageType: z.enum(['TEXT', 'QUICK_REPLY', 'IMAGE']).default('TEXT'),
   attachmentUrl: z.string().url().optional(),
 });
 
@@ -91,6 +92,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const { trip, allowed, windowOpen } = await checkChatAccess(id, auth);
     if (!trip) return NextResponse.json({ data: null, error: { message: 'Trip not found' } }, { status: 404 });
     if (!allowed) return NextResponse.json({ data: null, error: { message: 'Forbidden' } }, { status: 403 });
+    if (auth.role !== 'ADMIN' && await isUserChatBlocked(auth.userId)) {
+      return NextResponse.json({
+        data: null,
+        error: { message: 'Your chat access is restricted due to FIZZA safety rules.' },
+      }, { status: 403 });
+    }
     if (!windowOpen && auth.role !== 'ADMIN') {
       return NextResponse.json({ data: null, error: { message: 'Chat is not open yet. It opens 20 minutes before pickup.' } }, { status: 422 });
     }
@@ -113,6 +120,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
     if (!trip.chatOpenedAt) {
       await prisma.trip.update({ where: { id }, data: { chatOpenedAt: new Date() } });
+      const parentUserId = trip.subscription?.userId ?? trip.rider?.parentId ?? null;
+      await notifyChatOpened({
+        tripId: id,
+        parentUserId,
+        driverProfileId: trip.driver?.profileId ?? null,
+      });
     }
 
     const message = await prisma.tripChatMessage.create({

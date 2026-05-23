@@ -10,6 +10,9 @@ import {
   notifyCompleted,
   notifyCancelled,
   notifyLocationSharingStarted,
+  notifyLocationSharingStopped,
+  notifyChatOpened,
+  notifyChatClosed,
   notifyNearPickup,
   notifyNearDropoff,
   recordStatusChange,
@@ -100,12 +103,20 @@ export async function PATCH(
       }
     }
 
+    if (newStatus === 'NO_SHOW' && !statusReason?.trim()) {
+      return NextResponse.json({
+        data: null,
+        error: { message: 'No-show requires statusReason' },
+      }, { status: 422 });
+    }
+
     // Determine if chat should open
     const parentUserId = trip.subscription?.userId ?? trip.rider?.parentId ?? null;
+    const driverProfileId = trip.driver?.profileId ?? null;
+    const notifInput = { tripId: id, parentUserId, driverProfileId };
     const shouldOpenChat = !trip.chatOpenedAt &&
       isChatWindowOpen(trip.scheduledPickupTime, newStatus as TripStatus, trip.chatOpenedAt, trip.chatClosedAt);
 
-    // Build update data
     const now = new Date();
     const updateData: Record<string, unknown> = {
       status: newStatus,
@@ -117,27 +128,25 @@ export async function PATCH(
 
     await prisma.trip.update({ where: { id }, data: updateData });
 
-    const driverProfileId = trip.driver?.profileId ?? null;
-    const notifInput = { tripId: id, parentUserId, driverProfileId };
+    if (shouldOpenChat) await notifyChatOpened(notifInput);
 
-    // Record status change
     await recordStatusChange(id, auth.userId, auth.role, trip.status, newStatus);
 
-    // Trigger notifications
     const statusNow = newStatus as TripStatus;
     if (statusNow === 'PRE_TRIP' || statusNow === 'ON_THE_WAY') {
       await notifyLocationSharingStarted(notifInput);
     } else if (statusNow === 'ARRIVED_PICKUP') {
       await notifyArrivedPickup(notifInput);
-      // Geofence: near-pickup already happened if driver is very close
     } else if (statusNow === 'PICKED_UP') {
       await notifyRiderPickedUp(notifInput);
     } else if (statusNow === 'ARRIVED_DROPOFF') {
       await notifyArrivedDropoff(notifInput);
     } else if (statusNow === 'COMPLETED') {
       await notifyCompleted(notifInput);
+      await notifyLocationSharingStopped({ ...notifInput, reason: 'Trip completed' });
     } else if (statusNow === 'CANCELLED' || statusNow === 'NO_SHOW') {
       await notifyCancelled({ ...notifInput, reason: statusReason, cancelledByRole: auth.role });
+      await notifyLocationSharingStopped({ ...notifInput, reason: statusReason ?? statusNow });
     }
 
     // Geofence proximity check (if coordinates provided)

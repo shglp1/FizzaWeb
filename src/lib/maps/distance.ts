@@ -319,7 +319,7 @@ async function _orsDirections(
     throw new DistanceError('Routing service returned an invalid response.', 'ROUTE_FAILED');
   }
 
-  const routes = (routeJson as { routes?: { summary?: { distance?: number } }[] }).routes;
+  const routes = (routeJson as { routes?: { summary?: { distance?: number; duration?: number } }[] }).routes;
   if (!routes || routes.length === 0 || typeof routes[0]?.summary?.distance !== 'number') {
     throw new DistanceError(
       'We could not calculate a route between these locations. Please select different pickup/drop-off points.',
@@ -338,6 +338,54 @@ async function _orsDirections(
     normalizedPickupLabel: pickup.label,
     normalizedDropoffLabel: dropoff.label,
   };
+}
+
+export interface RouteDurationResult {
+  durationMinutes: number;
+  distanceMeters: number;
+}
+
+/** Driving duration between two points via ORS. Returns null if not configured or failed. */
+export async function getDrivingDurationMinutes(
+  from: { lat: number; lng: number },
+  to: { lat: number; lng: number },
+): Promise<RouteDurationResult | null> {
+  if (!isDistanceConfigured()) return null;
+  try {
+    const apiKey = getOrsApiKey();
+    const body = {
+      coordinates: [[from.lng, from.lat], [to.lng, to.lat]],
+    };
+    const routeRes = await fetch(`${ORS_BASE}/v2/directions/driving-car`, {
+      method: 'POST',
+      headers: {
+        Authorization: apiKey,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify(body),
+      cache: 'no-store',
+    });
+    if (!routeRes.ok) return null;
+    const routeJson = await routeRes.json() as { routes?: { summary?: { distance?: number; duration?: number } }[] };
+    const summary = routeJson.routes?.[0]?.summary;
+    if (!summary || typeof summary.duration !== 'number') return null;
+    return {
+      durationMinutes: summary.duration / 60,
+      distanceMeters: summary.distance ?? 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Haversine + average speed fallback ETA in minutes. */
+export function estimateDurationMinutesFallback(
+  distanceMeters: number,
+  speedKmh: number,
+): number {
+  if (distanceMeters <= 0 || speedKmh <= 0) return 0;
+  return (distanceMeters / 1000) / speedKmh * 60;
 }
 
 /**
