@@ -26,7 +26,7 @@ type Trip = {
   rider?: { name: string };
 };
 
-type Wallet = { balance: number; currency?: string };
+type Wallet = { balanceSar: string | number };
 type Subscription = { id: string; status: string; package?: { name: string } };
 type Rider = { id: string; name: string; isActive: boolean };
 
@@ -63,7 +63,7 @@ export default function DashboardPage() {
       riderService.list(),
     ]).then(([t, w, s, r]) => {
       if (t.data) setTrips(t.data.slice(0, 5));
-      if (w.data) setWallet(w.data);
+      if (w.data?.wallet) setWallet(w.data.wallet);
       if (s.data) setSubs(s.data);
       if (r.data) setRiders(r.data);
       if (!t.data && !w.data) setError('Failed to load dashboard data.');
@@ -71,6 +71,7 @@ export default function DashboardPage() {
     }).catch(() => { setError('Unable to connect.'); setLoading(false); });
   }, []);
 
+  const walletBalance = wallet != null ? Number(wallet.balanceSar) || 0 : 0;
   const activeSub = subs.find((s) => s.status === 'active');
   const activeRiders = riders.filter((r) => r.isActive).length;
   const upcomingTrips = trips.filter((t) => t.status === 'scheduled').length;
@@ -89,7 +90,7 @@ export default function DashboardPage() {
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             <StatCard
               label="Wallet Balance"
-              value={`${wallet?.currency ?? 'SAR'} ${(wallet?.balance ?? 0).toFixed(2)}`}
+              value={`SAR ${walletBalance.toFixed(2)}`}
               icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 12V22H4V12 M22 7H2v5h20V7z M12 22V7" /></svg>}
               color="#0B683A"
             />
@@ -161,7 +162,7 @@ export default function DashboardPage() {
                   {[
                     { href: '/riders', emoji: '👤', title: 'Add a Rider', sub: 'Manage family members', bg: 'bg-emerald-50 text-fizza-secondary' },
                     { href: '/subscriptions', emoji: '📋', title: activeSub ? 'Manage Plan' : 'Pick a Plan', sub: activeSub?.package?.name ?? 'No active plan', bg: 'bg-blue-50 text-blue-600' },
-                    { href: '/wallet', emoji: '💳', title: 'Wallet', sub: wallet ? `SAR ${wallet.balance.toFixed(2)}` : 'Check balance', bg: 'bg-amber-50 text-amber-600' },
+                    { href: '/wallet', emoji: '💳', title: 'Wallet', sub: wallet ? `SAR ${walletBalance.toFixed(2)}` : 'Check balance', bg: 'bg-amber-50 text-amber-600' },
                     { href: '/safety', emoji: '🛡️', title: 'Safety Report', sub: 'Report an issue', bg: 'bg-red-50 text-red-500' },
                   ].map((item) => (
                     <a key={item.href} href={item.href} className="flex items-center gap-3 rounded-xl px-3 py-2.5 hover:bg-gray-50 transition-colors group">
