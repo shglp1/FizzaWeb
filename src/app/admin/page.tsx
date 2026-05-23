@@ -1,6 +1,10 @@
 'use client';
 import { useEffect, useState, useCallback } from 'react';
 import { AppShell } from '@/components/layout/AppShell';
+import {
+  PageHeader, Card, Alert, Badge, StatusBadge, Button, Textarea,
+  Tabs, Pagination, LoadingState, ErrorState, EmptyState,
+} from '@/components/ui';
 import { driverApplicationService } from '@/services/driverApplicationService';
 import { tripService } from '@/services/tripService';
 import { safetyService } from '@/services/safetyService';
@@ -13,7 +17,7 @@ import { FinancialsSection } from './sections/FinancialsSection';
 import { SystemConfigSection } from './sections/SystemConfigSection';
 import { PackagesSection } from './sections/PackagesSection';
 
-// ─── Types ───────────────────────────────────────────────────────────────────
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 type AppStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'NEEDS_CHANGES';
 
@@ -53,11 +57,7 @@ type AdminTrip = {
   pickupLocation: string;
   dropoffLocation: string;
   rider: { id: string; name: string; relationship: string } | null;
-  driver: {
-    id: string;
-    rating: string | null;
-    profile: { fullName: string; phone: string | null } | null;
-  } | null;
+  driver: { id: string; rating: string | null; profile: { fullName: string; phone: string | null } | null } | null;
   vehicle: { model: string; plateNumber: string; color: string | null } | null;
   subscription: { id: string; subscriptionType: string } | null;
 };
@@ -69,35 +69,62 @@ type Driver = {
   vehicle: { model: string; plateNumber: string; color: string | null } | null;
 };
 
+type SafetyReport = {
+  id: string;
+  category: string;
+  description: string;
+  status: string;
+  adminResponse: string | null;
+  createdAt: string;
+  user: { fullName: string; phone: string | null; user: { email: string } } | null;
+  trip: { id: string; scheduledDate: string; pickupLocation: string; rider: { name: string } | null; driver: { profile: { fullName: string } | null } | null } | null;
+  attachments: { id: string; filePath: string }[];
+  reviewer: { fullName: string } | null;
+};
+
 type PaginationMeta = { page: number; limit: number; total: number; totalPages: number };
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const APP_TABS: { label: string; value: string }[] = [
-  { label: 'All', value: '' },
-  { label: 'Pending', value: 'PENDING' },
-  { label: 'Approved', value: 'APPROVED' },
-  { label: 'Rejected', value: 'REJECTED' },
-  { label: 'Needs Changes', value: 'NEEDS_CHANGES' },
-];
-
-const APP_STATUS_CFG: Record<AppStatus, { label: string; color: string; bg: string; border: string }> = {
-  PENDING:       { label: 'Pending',        color: 'text-amber-700',   bg: 'bg-amber-50',   border: 'border-amber-200' },
-  APPROVED:      { label: 'Approved',       color: 'text-emerald-700', bg: 'bg-emerald-50', border: 'border-emerald-200' },
-  REJECTED:      { label: 'Rejected',       color: 'text-red-700',     bg: 'bg-red-50',     border: 'border-red-200' },
-  NEEDS_CHANGES: { label: 'Needs Changes',  color: 'text-orange-700',  bg: 'bg-orange-50',  border: 'border-orange-200' },
+const APP_STATUS_VARIANT: Record<AppStatus, 'warning' | 'success' | 'danger' | 'orange'> = {
+  PENDING:       'warning',
+  APPROVED:      'success',
+  REJECTED:      'danger',
+  NEEDS_CHANGES: 'orange',
 };
 
-const TRIP_STATUS_CFG: Record<TripStatus, { label: string; color: string; bg: string; border: string }> = {
-  SCHEDULED:       { label: 'Scheduled',      color: 'text-amber-700',   bg: 'bg-amber-50',   border: 'border-amber-200' },
-  DRIVER_ASSIGNED: { label: 'Driver Assigned', color: 'text-blue-700',    bg: 'bg-blue-50',    border: 'border-blue-200' },
-  ON_THE_WAY:      { label: 'On the Way',      color: 'text-indigo-700',  bg: 'bg-indigo-50',  border: 'border-indigo-200' },
-  PICKED_UP:       { label: 'Picked Up',       color: 'text-purple-700',  bg: 'bg-purple-50',  border: 'border-purple-200' },
-  COMPLETED:       { label: 'Completed',       color: 'text-emerald-700', bg: 'bg-emerald-50', border: 'border-emerald-200' },
-  CANCELLED:       { label: 'Cancelled',       color: 'text-red-700',     bg: 'bg-red-50',     border: 'border-red-200' },
+const APP_STATUS_LABEL: Record<AppStatus, string> = {
+  PENDING: 'Pending', APPROVED: 'Approved', REJECTED: 'Rejected', NEEDS_CHANGES: 'Needs Changes',
+};
+
+const TRIP_STATUS_VARIANT: Record<TripStatus, 'warning' | 'info' | 'purple' | 'orange' | 'success' | 'danger'> = {
+  SCHEDULED:       'warning',
+  DRIVER_ASSIGNED: 'info',
+  ON_THE_WAY:      'purple',
+  PICKED_UP:       'orange',
+  COMPLETED:       'success',
+  CANCELLED:       'danger',
+};
+
+const TRIP_STATUS_LABEL: Record<TripStatus, string> = {
+  SCHEDULED: 'Scheduled', DRIVER_ASSIGNED: 'Driver Assigned', ON_THE_WAY: 'On the Way',
+  PICKED_UP: 'Picked Up', COMPLETED: 'Completed', CANCELLED: 'Cancelled',
 };
 
 const TRIP_STATUS_FILTERS = ['', 'SCHEDULED', 'DRIVER_ASSIGNED', 'ON_THE_WAY', 'PICKED_UP', 'COMPLETED', 'CANCELLED'];
+
+const SAFETY_STATUS_VARIANT: Record<string, 'warning' | 'success' | 'danger' | 'info'> = {
+  PENDING: 'warning', APPROVED: 'success', REJECTED: 'danger', RESOLVED: 'info',
+};
+
+const SAFETY_STATUS_LABEL: Record<string, string> = {
+  PENDING: 'Pending', APPROVED: 'Approved', REJECTED: 'Rejected', RESOLVED: 'Resolved',
+};
+
+const SAFETY_CAT_LABELS: Record<string, string> = {
+  UNSAFE_DRIVING: 'Unsafe Driving', HARASSMENT: 'Harassment', VEHICLE_CONDITION: 'Vehicle Condition',
+  ROUTE_DEVIATION: 'Route Deviation', LATE_PICKUP: 'Late Pickup', BEHAVIOUR: 'Behaviour Issue', OTHER: 'Other',
+};
 
 function fmtTime(dt: string | null): string {
   if (!dt) return '—';
@@ -108,18 +135,18 @@ function fmtTime(dt: string | null): string {
 
 type Section = 'overview' | 'users' | 'riders' | 'drivers' | 'applications' | 'subscriptions' | 'trips' | 'financials' | 'safety' | 'packages' | 'sysconfig';
 
-const SECTION_TABS: { label: string; value: Section }[] = [
-  { label: 'Overview', value: 'overview' },
-  { label: 'Users', value: 'users' },
-  { label: 'Riders', value: 'riders' },
-  { label: 'Drivers', value: 'drivers' },
-  { label: 'Applications', value: 'applications' },
-  { label: 'Subscriptions', value: 'subscriptions' },
-  { label: 'Trips', value: 'trips' },
-  { label: 'Financials', value: 'financials' },
-  { label: 'Safety', value: 'safety' },
-  { label: 'Packages & Add-ons', value: 'packages' },
-  { label: 'Config', value: 'sysconfig' },
+const SECTION_TABS: { label: string; value: string }[] = [
+  { label: 'Overview',     value: 'overview'      },
+  { label: 'Users',        value: 'users'         },
+  { label: 'Riders',       value: 'riders'        },
+  { label: 'Drivers',      value: 'drivers'       },
+  { label: 'Applications', value: 'applications'  },
+  { label: 'Subscriptions',value: 'subscriptions' },
+  { label: 'Trips',        value: 'trips'         },
+  { label: 'Financials',   value: 'financials'    },
+  { label: 'Safety',       value: 'safety'        },
+  { label: 'Packages',     value: 'packages'      },
+  { label: 'Config',       value: 'sysconfig'     },
 ];
 
 // ─── Main page ────────────────────────────────────────────────────────────────
@@ -129,53 +156,56 @@ export default function AdminPage() {
 
   return (
     <AppShell>
-      <h1 className="text-2xl font-semibold mb-6">Admin Dashboard</h1>
+      <PageHeader
+        title="Admin Dashboard"
+        subtitle="Platform management and operations"
+      />
 
-      <div className="flex flex-wrap gap-1 bg-gray-100 rounded-xl p-1 mb-8 overflow-x-auto">
-        {SECTION_TABS.map((tab) => (
-          <button
-            key={tab.value}
-            onClick={() => setSection(tab.value)}
-            className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-all ${
-              section === tab.value ? 'bg-white shadow text-emerald-700' : 'text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
+      <Tabs
+        tabs={SECTION_TABS}
+        activeTab={section}
+        onChange={(val) => setSection(val as Section)}
+        className="mb-6"
+      />
 
-      {section === 'overview' && <OverviewSection onNavigate={(s) => setSection(s as Section)} />}
-      {section === 'users' && <UsersSection />}
-      {section === 'riders' && <RidersSection />}
-      {section === 'drivers' && <DriversSection />}
-      {section === 'applications' && <ApplicationsSection />}
+      {section === 'overview'      && <OverviewSection onNavigate={(s) => setSection(s as Section)} />}
+      {section === 'users'         && <UsersSection />}
+      {section === 'riders'        && <RidersSection />}
+      {section === 'drivers'       && <DriversSection />}
+      {section === 'applications'  && <ApplicationsSection />}
       {section === 'subscriptions' && <SubscriptionsSection />}
-      {section === 'trips' && <TripsSection />}
-      {section === 'financials' && <FinancialsSection />}
-      {section === 'safety' && <SafetySection />}
-      {section === 'packages' && <PackagesSection />}
-      {section === 'sysconfig' && <SystemConfigSection />}
+      {section === 'trips'         && <TripsSection />}
+      {section === 'financials'    && <FinancialsSection />}
+      {section === 'safety'        && <SafetySection />}
+      {section === 'packages'      && <PackagesSection />}
+      {section === 'sysconfig'     && <SystemConfigSection />}
     </AppShell>
   );
 }
 
 // ─── Driver Applications section ──────────────────────────────────────────────
 
+const APP_TABS = [
+  { label: 'All',           value: ''             },
+  { label: 'Pending',       value: 'PENDING'      },
+  { label: 'Approved',      value: 'APPROVED'     },
+  { label: 'Rejected',      value: 'REJECTED'     },
+  { label: 'Needs Changes', value: 'NEEDS_CHANGES'},
+];
+
 function ApplicationsSection() {
   const [applications, setApplications] = useState<Application[]>([]);
-  const [meta, setMeta] = useState<PaginationMeta | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [pageError, setPageError] = useState('');
-  const [activeTab, setActiveTab] = useState('');
-  const [page, setPage] = useState(1);
+  const [meta, setMeta]                 = useState<PaginationMeta | null>(null);
+  const [loading, setLoading]           = useState(true);
+  const [pageError, setPageError]       = useState('');
+  const [activeTab, setActiveTab]       = useState('');
+  const [page, setPage]                 = useState(1);
 
-  const [reviewingId, setReviewingId] = useState<string | null>(null);
+  const [reviewingId, setReviewingId]   = useState<string | null>(null);
   const [reviewAction, setReviewAction] = useState<'APPROVE' | 'REJECT' | 'NEEDS_CHANGES' | null>(null);
-  const [reasonText, setReasonText] = useState('');
+  const [reasonText, setReasonText]     = useState('');
   const [reviewSubmitting, setReviewSubmitting] = useState(false);
-  const [reviewError, setReviewError] = useState('');
-  const [reviewSuccess, setReviewSuccess] = useState('');
+  const [reviewMsg, setReviewMsg]       = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
   const loadApplications = useCallback((status: string, p: number) => {
     setLoading(true);
@@ -194,50 +224,36 @@ function ApplicationsSection() {
   useEffect(() => { loadApplications(activeTab, page); }, [activeTab, page, loadApplications]);
 
   const handleTabChange = (value: string) => {
-    setActiveTab(value);
-    setPage(1);
-    setReviewingId(null);
-    setReviewAction(null);
+    setActiveTab(value); setPage(1);
+    setReviewingId(null); setReviewAction(null);
   };
 
   const startReview = (id: string, action: 'APPROVE' | 'REJECT' | 'NEEDS_CHANGES') => {
-    if (reviewingId === id && reviewAction === action) {
-      setReviewingId(null);
-      setReviewAction(null);
-      return;
-    }
-    setReviewingId(id);
-    setReviewAction(action);
-    setReasonText('');
-    setReviewError('');
-    setReviewSuccess('');
+    if (reviewingId === id && reviewAction === action) { setReviewingId(null); setReviewAction(null); return; }
+    setReviewingId(id); setReviewAction(action);
+    setReasonText(''); setReviewMsg(null);
   };
 
   const submitReview = async (appId: string) => {
     if (!reviewAction) return;
     if (reviewAction !== 'APPROVE' && !reasonText.trim()) {
-      setReviewError('A reason is required for this action.');
-      return;
+      setReviewMsg({ text: 'A reason is required for this action.', type: 'error' }); return;
     }
-    setReviewSubmitting(true);
-    setReviewError('');
-    setReviewSuccess('');
+    setReviewSubmitting(true); setReviewMsg(null);
     try {
       const res = await driverApplicationService.adminReview(
-        appId,
-        reviewAction,
+        appId, reviewAction,
         reviewAction !== 'APPROVE' ? reasonText.trim() : undefined,
       );
       if (res.data?.application) {
-        setReviewSuccess(`Application ${reviewAction.toLowerCase().replace('_', ' ')} successfully.`);
-        setReviewingId(null);
-        setReviewAction(null);
+        setReviewMsg({ text: `Application ${reviewAction.toLowerCase().replace('_', ' ')} successfully.`, type: 'success' });
+        setReviewingId(null); setReviewAction(null);
         loadApplications(activeTab, page);
       } else {
-        setReviewError(res.error?.message ?? 'Action failed. Please try again.');
+        setReviewMsg({ text: res.error?.message ?? 'Action failed. Please try again.', type: 'error' });
       }
     } catch {
-      setReviewError('Something went wrong. Please try again.');
+      setReviewMsg({ text: 'Something went wrong. Please try again.', type: 'error' });
     } finally {
       setReviewSubmitting(false);
     }
@@ -245,69 +261,53 @@ function ApplicationsSection() {
 
   return (
     <>
-      <h2 className="text-lg font-semibold mb-4">Driver Applications</h2>
+      <h2 className="text-base font-semibold text-gray-900 mb-4">Driver Applications</h2>
 
-      <div className="flex gap-1 bg-gray-100 rounded-xl p-1 mb-6 overflow-x-auto">
-        {APP_TABS.map((tab) => (
-          <button
-            key={tab.value}
-            onClick={() => handleTabChange(tab.value)}
-            className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-all ${
-              activeTab === tab.value ? 'bg-white shadow text-emerald-700' : 'text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
+      <Tabs tabs={APP_TABS} activeTab={activeTab} onChange={handleTabChange} className="mb-5" />
 
-      {reviewSuccess && (
-        <p className="text-emerald-700 bg-emerald-50 rounded-xl px-4 py-3 text-sm mb-4">{reviewSuccess}</p>
+      {reviewMsg && !reviewingId && (
+        <Alert variant={reviewMsg.type} className="mb-4" onClose={() => setReviewMsg(null)}>{reviewMsg.text}</Alert>
       )}
 
       {loading ? (
-        <div className="flex items-center justify-center h-32 text-gray-400">Loading…</div>
+        <LoadingState message="Loading applications…" />
       ) : pageError ? (
-        <div className="card text-red-600 text-sm">{pageError}</div>
+        <ErrorState message={pageError} onRetry={() => loadApplications(activeTab, page)} />
       ) : applications.length === 0 ? (
-        <div className="card text-center py-12 text-gray-400">No applications found.</div>
+        <EmptyState icon="📝" title="No applications found" description="No driver applications match this filter." />
       ) : (
         <div className="space-y-4">
           {applications.map((app) => {
-            const cfg = APP_STATUS_CFG[app.status];
             const isReviewing = reviewingId === app.id;
-
             return (
-              <div key={app.id} className="card">
+              <Card key={app.id}>
                 <div className="flex items-start justify-between gap-4 mb-4">
                   <div>
-                    <h2 className="font-semibold text-base">{app.applicant.fullName}</h2>
-                    <p className="text-sm text-gray-500">{app.applicant.user.email}</p>
-                    {app.applicant.phone && <p className="text-sm text-gray-500">{app.applicant.phone}</p>}
+                    <h3 className="font-semibold text-gray-900">{app.applicant.fullName}</h3>
+                    <p className="text-xs text-gray-500">{app.applicant.user.email}</p>
+                    {app.applicant.phone && <p className="text-xs text-gray-500">{app.applicant.phone}</p>}
                   </div>
-                  <span className={`px-2 py-0.5 rounded-full text-xs font-semibold shrink-0 ${cfg.bg} ${cfg.color} border ${cfg.border}`}>
-                    {cfg.label}
-                  </span>
+                  <StatusBadge variant={APP_STATUS_VARIANT[app.status]}>{APP_STATUS_LABEL[app.status]}</StatusBadge>
                 </div>
 
                 <div className="grid sm:grid-cols-2 gap-x-6 gap-y-1.5 text-sm text-gray-700 mb-4">
-                  <p><span className="text-gray-400">Type:</span> {app.vehicleCategory}</p>
-                  <p><span className="text-gray-400">Vehicle:</span> {app.vehicleBrand} {app.vehicleModel} ({app.vehicleYear})</p>
-                  <p><span className="text-gray-400">Plate:</span> {app.plateNumber}</p>
-                  <p><span className="text-gray-400">Color:</span> {app.vehicleColor}</p>
-                  <p><span className="text-gray-400">Capacity:</span> {app.vehicleCapacity} seats</p>
-                  <p><span className="text-gray-400">License:</span> {app.licenseNumber}</p>
-                  <p><span className="text-gray-400">City:</span> {app.city}</p>
-                  <p><span className="text-gray-400">Area:</span> {app.serviceArea}</p>
-                  {app.femaleDriver && <p className="text-emerald-600 font-medium">Female driver ✓</p>}
+                  <div className="flex gap-1.5"><span className="text-gray-400 shrink-0">Type</span><span>{app.vehicleCategory}</span></div>
+                  <div className="flex gap-1.5"><span className="text-gray-400 shrink-0">Vehicle</span><span>{app.vehicleBrand} {app.vehicleModel} ({app.vehicleYear})</span></div>
+                  <div className="flex gap-1.5"><span className="text-gray-400 shrink-0">Plate</span><span className="font-mono">{app.plateNumber}</span></div>
+                  <div className="flex gap-1.5"><span className="text-gray-400 shrink-0">Color</span><span>{app.vehicleColor}</span></div>
+                  <div className="flex gap-1.5"><span className="text-gray-400 shrink-0">Capacity</span><span>{app.vehicleCapacity} seats</span></div>
+                  <div className="flex gap-1.5"><span className="text-gray-400 shrink-0">License</span><span>{app.licenseNumber}</span></div>
+                  <div className="flex gap-1.5"><span className="text-gray-400 shrink-0">City</span><span>{app.city}</span></div>
+                  <div className="flex gap-1.5"><span className="text-gray-400 shrink-0">Area</span><span>{app.serviceArea}</span></div>
+                  {app.femaleDriver && <div className="flex gap-1.5 text-fizza-secondary"><span>✓</span><span className="font-medium">Female driver</span></div>}
                 </div>
 
                 {app.driverNotes && (
-                  <div className="mb-3 p-2 bg-gray-50 rounded-lg text-sm text-gray-600 italic">{app.driverNotes}</div>
+                  <div className="mb-3 px-3 py-2 bg-gray-50 rounded-xl text-sm text-gray-600 italic">{app.driverNotes}</div>
                 )}
                 {app.adminResponse && (
-                  <div className="mb-3 p-2 bg-orange-50 border border-orange-100 rounded-lg text-sm text-orange-800">
-                    <span className="font-medium">Previous note: </span>{app.adminResponse}
+                  <div className="mb-3 px-3 py-2 bg-orange-50 border border-orange-100 rounded-xl text-sm text-orange-800">
+                    <span className="font-semibold">Previous note: </span>{app.adminResponse}
                   </div>
                 )}
 
@@ -321,65 +321,63 @@ function ApplicationsSection() {
                   <div className="border-t border-gray-100 pt-4">
                     <div className="flex gap-2 flex-wrap mb-3">
                       {(['APPROVE', 'NEEDS_CHANGES', 'REJECT'] as const).map((action) => {
-                        const colors = {
-                          APPROVE: { active: 'bg-emerald-600 text-white border-emerald-600', idle: 'border-emerald-300 text-emerald-700 hover:bg-emerald-50' },
-                          NEEDS_CHANGES: { active: 'bg-orange-500 text-white border-orange-500', idle: 'border-orange-300 text-orange-600 hover:bg-orange-50' },
-                          REJECT: { active: 'bg-red-600 text-white border-red-600', idle: 'border-red-300 text-red-600 hover:bg-red-50' },
-                        };
+                        const variants = {
+                          APPROVE:       'primary',
+                          NEEDS_CHANGES: 'outline',
+                          REJECT:        'danger-outline',
+                        } as const;
                         const labels = { APPROVE: 'Approve', NEEDS_CHANGES: 'Request Changes', REJECT: 'Reject' };
-                        const active = isReviewing && reviewAction === action;
+                        const isActive = isReviewing && reviewAction === action;
                         return (
-                          <button
+                          <Button
                             key={action}
+                            variant={isActive ? (action === 'APPROVE' ? 'primary' : action === 'REJECT' ? 'danger' : 'ghost') : variants[action]}
+                            size="sm"
                             onClick={() => startReview(app.id, action)}
-                            className={`text-sm px-4 py-2 rounded-xl font-semibold border transition-all ${active ? colors[action].active : colors[action].idle}`}
                           >
                             {labels[action]}
-                          </button>
+                          </Button>
                         );
                       })}
                     </div>
 
                     {isReviewing && (
-                      <div className="space-y-2">
+                      <div className="space-y-3">
                         {reviewAction !== 'APPROVE' && (
-                          <textarea
-                            className="input h-20 resize-none w-full"
+                          <Textarea
+                            rows={3}
                             placeholder={reviewAction === 'REJECT' ? 'Reason for rejection (required)…' : 'Describe the changes needed (required)…'}
                             value={reasonText}
                             onChange={(e) => setReasonText(e.target.value)}
+                            error={reviewMsg?.type === 'error' ? reviewMsg.text : undefined}
                           />
                         )}
                         {reviewAction === 'APPROVE' && (
-                          <p className="text-sm text-emerald-700 bg-emerald-50 rounded-lg px-3 py-2">
+                          <Alert variant="info">
                             This will approve the application, create a Driver record, and upgrade the user role to Driver.
-                          </p>
+                          </Alert>
                         )}
-                        {reviewError && <p className="text-red-600 text-sm">{reviewError}</p>}
+                        {reviewMsg && <Alert variant={reviewMsg.type}>{reviewMsg.text}</Alert>}
                         <div className="flex gap-2">
-                          <button onClick={() => submitReview(app.id)} disabled={reviewSubmitting} className="btn-primary text-sm px-4 py-2">
-                            {reviewSubmitting ? 'Submitting…' : 'Confirm'}
-                          </button>
-                          <button onClick={() => { setReviewingId(null); setReviewAction(null); }} className="btn-outline text-sm px-4 py-2">
+                          <Button variant="primary" size="sm" loading={reviewSubmitting} onClick={() => submitReview(app.id)}>
+                            Confirm
+                          </Button>
+                          <Button variant="ghost" size="sm" onClick={() => { setReviewingId(null); setReviewAction(null); }}>
                             Cancel
-                          </button>
+                          </Button>
                         </div>
                       </div>
                     )}
                   </div>
                 )}
-              </div>
+              </Card>
             );
           })}
         </div>
       )}
 
       {meta && meta.totalPages > 1 && (
-        <div className="flex items-center justify-center gap-3 mt-6">
-          <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1} className="btn-outline text-sm px-4 py-2 disabled:opacity-40">← Prev</button>
-          <span className="text-sm text-gray-500">Page {meta.page} of {meta.totalPages}</span>
-          <button onClick={() => setPage((p) => Math.min(meta.totalPages, p + 1))} disabled={page === meta.totalPages} className="btn-outline text-sm px-4 py-2 disabled:opacity-40">Next →</button>
-        </div>
+        <Pagination page={meta.page} totalPages={meta.totalPages} onPageChange={setPage} className="mt-5" />
       )}
     </>
   );
@@ -388,26 +386,25 @@ function ApplicationsSection() {
 // ─── Trip Operations section ──────────────────────────────────────────────────
 
 function TripsSection() {
-  const [trips, setTrips] = useState<AdminTrip[]>([]);
-  const [meta, setMeta] = useState<PaginationMeta | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [pageError, setPageError] = useState('');
+  const [trips, setTrips]           = useState<AdminTrip[]>([]);
+  const [meta, setMeta]             = useState<PaginationMeta | null>(null);
+  const [loading, setLoading]       = useState(true);
+  const [pageError, setPageError]   = useState('');
   const [statusFilter, setStatusFilter] = useState('SCHEDULED');
   const [dateFilter, setDateFilter] = useState('');
-  const [page, setPage] = useState(1);
+  const [page, setPage]             = useState(1);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
-  const [drivers, setDrivers] = useState<Driver[]>([]);
+  const [drivers, setDrivers]           = useState<Driver[]>([]);
   const [assigningTripId, setAssigningTripId] = useState<string | null>(null);
   const [selectedDriverId, setSelectedDriverId] = useState('');
-  const [assigning, setAssigning] = useState(false);
-  const [assignMsg, setAssignMsg] = useState('');
+  const [assigning, setAssigning]       = useState(false);
+  const [assignMsg, setAssignMsg]       = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
-  const [generating, setGenerating] = useState(false);
+  const [generating, setGenerating]     = useState(false);
   const [genStartDate, setGenStartDate] = useState('');
-  const [genEndDate, setGenEndDate] = useState('');
-  const [genMsg, setGenMsg] = useState('');
-  const [genResult, setGenResult] = useState<{ generated: number; skipped: number } | null>(null);
+  const [genEndDate, setGenEndDate]     = useState('');
+  const [genMsg, setGenMsg]             = useState<{ text: string; type: 'success' | 'error'; result?: { generated: number; skipped: number } } | null>(null);
 
   const loadTrips = useCallback((status: string, date: string, p: number, silent = false) => {
     if (!silent) setLoading(true);
@@ -432,8 +429,6 @@ function TripsSection() {
 
   useEffect(() => { loadTrips(statusFilter, dateFilter, page); }, [statusFilter, dateFilter, page, loadTrips]);
   useEffect(() => { loadDrivers(); }, [loadDrivers]);
-
-  // Auto-refresh every 25 seconds
   useEffect(() => {
     const id = setInterval(() => loadTrips(statusFilter, dateFilter, page, true), 25_000);
     return () => clearInterval(id);
@@ -441,143 +436,131 @@ function TripsSection() {
 
   const openAssign = (tripId: string) => {
     if (assigningTripId === tripId) { setAssigningTripId(null); return; }
-    setAssigningTripId(tripId);
-    setSelectedDriverId('');
-    setAssignMsg('');
+    setAssigningTripId(tripId); setSelectedDriverId(''); setAssignMsg(null);
   };
 
   const submitAssign = async (tripId: string) => {
-    if (!selectedDriverId) { setAssignMsg('Select a driver.'); return; }
-    setAssigning(true);
-    setAssignMsg('');
+    if (!selectedDriverId) { setAssignMsg({ text: 'Please select a driver.', type: 'error' }); return; }
+    setAssigning(true); setAssignMsg(null);
     const res = await tripService.adminAssignDriver(tripId, selectedDriverId);
     setAssigning(false);
     if (res.data) {
-      setAssignMsg('Driver assigned successfully.');
+      setAssignMsg({ text: 'Driver assigned successfully.', type: 'success' });
       setAssigningTripId(null);
       loadTrips(statusFilter, dateFilter, page);
     } else {
-      setAssignMsg(res.error?.message ?? 'Assignment failed.');
+      setAssignMsg({ text: res.error?.message ?? 'Assignment failed.', type: 'error' });
     }
   };
 
   const handleGenerate = async () => {
-    setGenerating(true);
-    setGenMsg('');
-    setGenResult(null);
+    setGenerating(true); setGenMsg(null);
     const res = await tripService.adminGenerateTrips(genStartDate || undefined, genEndDate || undefined);
     setGenerating(false);
     if (res.data) {
-      setGenResult({ generated: res.data.generated ?? 0, skipped: res.data.skipped ?? 0 });
-      setGenMsg('Trip generation complete.');
+      setGenMsg({ text: 'Trip generation complete.', type: 'success', result: { generated: res.data.generated ?? 0, skipped: res.data.skipped ?? 0 } });
       loadTrips(statusFilter, dateFilter, page);
     } else {
-      setGenMsg(res.error?.message ?? 'Generation failed.');
+      setGenMsg({ text: res.error?.message ?? 'Generation failed.', type: 'error' });
     }
   };
 
   return (
     <>
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-semibold">Trip Operations</h2>
+        <h2 className="text-base font-semibold text-gray-900">Trip Operations</h2>
         {lastUpdated && (
-          <span className="text-xs text-gray-400">Last updated {lastUpdated.toLocaleTimeString()}</span>
+          <span className="text-xs text-gray-400 flex items-center gap-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+            Updated {lastUpdated.toLocaleTimeString()}
+          </span>
         )}
       </div>
 
-      {/* Generate trips panel */}
-      <div className="card mb-6 border border-emerald-100">
-        <h3 className="text-sm font-semibold text-gray-700 mb-3">Generate Trips</h3>
+      {/* Generate trips */}
+      <Card className="mb-5 border-fizza-secondary/30 bg-emerald-50/20">
+        <h3 className="text-sm font-semibold text-gray-700 mb-1">Generate Trips</h3>
         <p className="text-xs text-gray-500 mb-3">
-          Creates trips from all active subscriptions for the specified date range (defaults to today + 7 days). Idempotent — safe to run multiple times.
+          Creates trips from active subscriptions for the date range (defaults to today + 7 days). Idempotent — safe to run multiple times.
         </p>
         <div className="flex flex-wrap gap-3 items-end">
           <div>
             <label className="block text-xs text-gray-500 mb-1">Start date</label>
-            <input type="date" className="input text-sm" value={genStartDate} onChange={(e) => setGenStartDate(e.target.value)} />
+            <input type="date" className="input text-sm h-9" value={genStartDate} onChange={(e) => setGenStartDate(e.target.value)} />
           </div>
           <div>
             <label className="block text-xs text-gray-500 mb-1">End date</label>
-            <input type="date" className="input text-sm" value={genEndDate} onChange={(e) => setGenEndDate(e.target.value)} />
+            <input type="date" className="input text-sm h-9" value={genEndDate} onChange={(e) => setGenEndDate(e.target.value)} />
           </div>
-          <button onClick={handleGenerate} disabled={generating} className="btn-primary text-sm px-5 py-2.5">
-            {generating ? 'Generating…' : '⚡ Generate Trips'}
-          </button>
+          <Button variant="primary" size="sm" loading={generating} onClick={handleGenerate}>
+            ⚡ Generate Trips
+          </Button>
         </div>
         {genMsg && (
-          <div className={`mt-3 text-sm px-4 py-2.5 rounded-xl ${genMsg.includes('fail') ? 'text-red-700 bg-red-50' : 'text-emerald-700 bg-emerald-50'}`}>
-            {genMsg}
-            {genResult && <span className="ml-2 font-semibold">{genResult.generated} created · {genResult.skipped} skipped</span>}
-          </div>
+          <Alert variant={genMsg.type} className="mt-3" onClose={() => setGenMsg(null)}>
+            {genMsg.text}
+            {genMsg.result && (
+              <span className="ml-2 font-semibold">{genMsg.result.generated} created · {genMsg.result.skipped} skipped</span>
+            )}
+          </Alert>
         )}
-      </div>
+      </Card>
 
       {/* Filters */}
       <div className="flex flex-wrap gap-3 mb-4 items-end">
         <div>
           <label className="block text-xs text-gray-500 mb-1">Status</label>
-          <select className="input text-sm" value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}>
-            {TRIP_STATUS_FILTERS.map((s) => (
-              <option key={s} value={s}>{s || 'All Statuses'}</option>
-            ))}
+          <select className="input text-sm h-10" value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}>
+            {TRIP_STATUS_FILTERS.map((s) => <option key={s} value={s}>{s || 'All Statuses'}</option>)}
           </select>
         </div>
         <div>
           <label className="block text-xs text-gray-500 mb-1">Date</label>
-          <input type="date" className="input text-sm" value={dateFilter} onChange={(e) => { setDateFilter(e.target.value); setPage(1); }} />
+          <input type="date" className="input text-sm h-10" value={dateFilter} onChange={(e) => { setDateFilter(e.target.value); setPage(1); }} />
         </div>
         {dateFilter && (
-          <button onClick={() => { setDateFilter(''); setPage(1); }} className="text-xs text-gray-500 hover:text-gray-700 underline self-end pb-2">Clear date</button>
+          <button onClick={() => { setDateFilter(''); setPage(1); }} className="text-xs text-gray-500 hover:text-gray-700 underline pb-1">
+            Clear date
+          </button>
         )}
       </div>
 
-      {assignMsg && (
-        <p className={`rounded-xl px-4 py-3 text-sm mb-4 ${assignMsg.includes('fail') || assignMsg.includes('Select') ? 'text-red-700 bg-red-50' : 'text-emerald-700 bg-emerald-50'}`}>
-          {assignMsg}
-        </p>
+      {assignMsg && !assigningTripId && (
+        <Alert variant={assignMsg.type} className="mb-4" onClose={() => setAssignMsg(null)}>{assignMsg.text}</Alert>
       )}
 
       {loading ? (
-        <div className="flex items-center justify-center h-32 text-gray-400">Loading trips…</div>
+        <LoadingState message="Loading trips…" />
       ) : pageError ? (
-        <div className="card text-red-600 text-sm">{pageError}</div>
+        <ErrorState message={pageError} onRetry={() => loadTrips(statusFilter, dateFilter, page)} />
       ) : trips.length === 0 ? (
-        <div className="card text-center py-12 text-gray-400">No trips found for the selected filters.</div>
+        <EmptyState icon="🗓️" title="No trips found" description="No trips match the selected filters." />
       ) : (
         <div className="space-y-4">
           {trips.map((trip) => {
-            const cfg = TRIP_STATUS_CFG[trip.status];
             const isAssigning = assigningTripId === trip.id;
-
             return (
-              <div key={trip.id} className="card">
+              <Card key={trip.id}>
                 <div className="flex items-start justify-between gap-4 mb-3">
                   <div>
-                    <p className="font-semibold text-base">
-                      {new Date(trip.scheduledDate).toLocaleDateString('en-US', {
-                        weekday: 'short', year: 'numeric', month: 'short', day: 'numeric',
-                      })}
+                    <p className="font-semibold text-gray-900">
+                      {new Date(trip.scheduledDate).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}
                     </p>
                     {trip.subscription && (
                       <p className="text-xs text-gray-500 capitalize">{trip.subscription.subscriptionType}</p>
                     )}
                   </div>
-                  <span className={`px-2 py-0.5 rounded-full text-xs font-semibold shrink-0 border ${cfg.bg} ${cfg.color} ${cfg.border}`}>
-                    {cfg.label}
-                  </span>
+                  <StatusBadge variant={TRIP_STATUS_VARIANT[trip.status]}>{TRIP_STATUS_LABEL[trip.status]}</StatusBadge>
                 </div>
 
                 <div className="grid sm:grid-cols-2 gap-x-6 gap-y-1.5 text-sm text-gray-700 mb-3">
                   {trip.rider && (
-                    <p><span className="text-gray-400">Rider:</span> {trip.rider.name} ({trip.rider.relationship})</p>
+                    <div className="flex gap-1.5"><span className="text-gray-400 shrink-0">Rider</span><span>{trip.rider.name} ({trip.rider.relationship})</span></div>
                   )}
-                  <p><span className="text-gray-400">Pickup:</span> {fmtTime(trip.scheduledPickupTime)} — {trip.pickupLocation}</p>
-                  <p><span className="text-gray-400">Dropoff:</span> {fmtTime(trip.scheduledDropoffTime)} — {trip.dropoffLocation}</p>
+                  <div className="flex gap-1.5"><span className="text-gray-400 shrink-0">Pickup</span><span>{fmtTime(trip.scheduledPickupTime)} · {trip.pickupLocation}</span></div>
+                  <div className="flex gap-1.5"><span className="text-gray-400 shrink-0">Dropoff</span><span>{fmtTime(trip.scheduledDropoffTime)} · {trip.dropoffLocation}</span></div>
                   {trip.actualPickupTime && (
-                    <p><span className="text-gray-400">Actual Pickup:</span> {fmtTime(trip.actualPickupTime)}</p>
-                  )}
-                  {trip.actualDropoffTime && (
-                    <p><span className="text-gray-400">Actual Dropoff:</span> {fmtTime(trip.actualDropoffTime)}</p>
+                    <div className="flex gap-1.5"><span className="text-gray-400 shrink-0">Actual pickup</span><span className="text-emerald-700 font-medium">{fmtTime(trip.actualPickupTime)}</span></div>
                   )}
                 </div>
 
@@ -597,34 +580,31 @@ function TripsSection() {
                     )}
                   </div>
                 ) : (
-                  <p className="text-xs text-amber-600 mb-3 bg-amber-50 px-3 py-1.5 rounded-lg border border-amber-100">No driver assigned</p>
+                  <p className="text-xs text-amber-600 mb-3 bg-amber-50 px-3 py-1.5 rounded-xl border border-amber-100">No driver assigned</p>
                 )}
 
                 <div className="flex gap-2 flex-wrap">
                   {(trip.status === 'SCHEDULED' || trip.status === 'DRIVER_ASSIGNED') && (
-                    <button
+                    <Button
+                      variant={isAssigning ? 'ghost' : 'outline'}
+                      size="sm"
                       onClick={() => openAssign(trip.id)}
-                      className={`text-sm px-4 py-2 rounded-xl font-semibold border transition-all ${
-                        isAssigning ? 'bg-blue-600 text-white border-blue-600' : 'border-blue-300 text-blue-700 hover:bg-blue-50'
-                      }`}
                     >
                       {isAssigning ? 'Cancel' : trip.driver ? 'Reassign Driver' : 'Assign Driver'}
-                    </button>
+                    </Button>
                   )}
-                  {(trip.status !== 'COMPLETED' && trip.status !== 'CANCELLED') && (
-                    <a
-                      href={`/tracking/${trip.id}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-sm px-4 py-2 rounded-xl font-semibold border border-gray-200 text-gray-600 hover:bg-gray-50 transition-all"
-                    >
-                      View Tracking
+                  {trip.status !== 'COMPLETED' && trip.status !== 'CANCELLED' && (
+                    <a href={`/tracking/${trip.id}`} target="_blank" rel="noopener noreferrer">
+                      <Button variant="ghost" size="sm">View Tracking</Button>
                     </a>
                   )}
                 </div>
 
                 {isAssigning && (
-                  <div className="mt-3 space-y-2">
+                  <div className="mt-3 space-y-2 border-t border-gray-100 pt-3">
+                    {assignMsg && (
+                      <Alert variant={assignMsg.type} className="mb-2" onClose={() => setAssignMsg(null)}>{assignMsg.text}</Alert>
+                    )}
                     <select
                       className="input text-sm w-full"
                       value={selectedDriverId}
@@ -639,23 +619,19 @@ function TripsSection() {
                         </option>
                       ))}
                     </select>
-                    <button onClick={() => submitAssign(trip.id)} disabled={assigning} className="btn-primary text-sm px-4 py-2">
-                      {assigning ? 'Assigning…' : 'Confirm Assignment'}
-                    </button>
+                    <Button variant="primary" size="sm" loading={assigning} onClick={() => submitAssign(trip.id)}>
+                      Confirm Assignment
+                    </Button>
                   </div>
                 )}
-              </div>
+              </Card>
             );
           })}
         </div>
       )}
 
       {meta && meta.totalPages > 1 && (
-        <div className="flex items-center justify-center gap-3 mt-6">
-          <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1} className="btn-outline text-sm px-4 py-2 disabled:opacity-40">← Prev</button>
-          <span className="text-sm text-gray-500">Page {meta.page} of {meta.totalPages}</span>
-          <button onClick={() => setPage((p) => Math.min(meta.totalPages, p + 1))} disabled={page === meta.totalPages} className="btn-outline text-sm px-4 py-2 disabled:opacity-40">Next →</button>
-        </div>
+        <Pagination page={meta.page} totalPages={meta.totalPages} onPageChange={setPage} className="mt-5" />
       )}
     </>
   );
@@ -663,83 +639,34 @@ function TripsSection() {
 
 // ─── Safety Reports section ───────────────────────────────────────────────────
 
-const SAFETY_STATUS_CFG: Record<string, { label: string; color: string; bg: string; border: string }> = {
-  PENDING:  { label: 'Pending',  color: 'text-amber-700',   bg: 'bg-amber-50',   border: 'border-amber-200' },
-  APPROVED: { label: 'Approved', color: 'text-emerald-700', bg: 'bg-emerald-50', border: 'border-emerald-200' },
-  REJECTED: { label: 'Rejected', color: 'text-red-700',     bg: 'bg-red-50',     border: 'border-red-200' },
-  RESOLVED: { label: 'Resolved', color: 'text-blue-700',    bg: 'bg-blue-50',    border: 'border-blue-200' },
-};
-
-const SAFETY_CAT_LABELS: Record<string, string> = {
-  UNSAFE_DRIVING:    'Unsafe Driving',
-  HARASSMENT:        'Harassment',
-  VEHICLE_CONDITION: 'Vehicle Condition',
-  ROUTE_DEVIATION:   'Route Deviation',
-  LATE_PICKUP:       'Late Pickup',
-  BEHAVIOUR:         'Behaviour Issue',
-  OTHER:             'Other',
-};
-
-type SafetyReport = {
-  id: string;
-  category: string;
-  description: string;
-  status: string;
-  adminResponse: string | null;
-  createdAt: string;
-  user: { fullName: string; phone: string | null; user: { email: string } } | null;
-  trip: {
-    id: string;
-    scheduledDate: string;
-    pickupLocation: string;
-    rider: { name: string } | null;
-    driver: { profile: { fullName: string } | null } | null;
-  } | null;
-  attachments: { id: string; filePath: string }[];
-  reviewer: { fullName: string } | null;
-};
-
 function SafetySection() {
-  const [reports, setReports] = useState<SafetyReport[]>([]);
-  const [safetyMeta, setSafetyMeta] = useState<PaginationMeta | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [pageError, setPageError] = useState('');
+  const [reports, setReports]           = useState<SafetyReport[]>([]);
+  const [safetyMeta, setSafetyMeta]     = useState<PaginationMeta | null>(null);
+  const [loading, setLoading]           = useState(true);
+  const [pageError, setPageError]       = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
-  const [safetyPage, setSafetyPage] = useState(1);
+  const [dateFrom, setDateFrom]         = useState('');
+  const [dateTo, setDateTo]             = useState('');
+  const [safetyPage, setSafetyPage]     = useState(1);
 
-  const [reviewingId, setReviewingId] = useState<string | null>(null);
+  const [reviewingId, setReviewingId]   = useState<string | null>(null);
   const [reviewAction, setReviewAction] = useState<'APPROVE' | 'REJECT' | 'RESOLVE' | null>(null);
   const [reviewResponse, setReviewResponse] = useState('');
   const [reviewSubmitting, setReviewSubmitting] = useState(false);
-  const [reviewMsg, setReviewMsg] = useState('');
+  const [reviewMsg, setReviewMsg]       = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
-  const loadReports = useCallback(
-    (status: string, category: string, from: string, to: string, p: number) => {
-      setLoading(true);
-      setPageError('');
-      safetyService
-        .adminListReports({
-          status: status || undefined,
-          category: category || undefined,
-          dateFrom: from || undefined,
-          dateTo: to || undefined,
-          page: p,
-        })
-        .then((res: { data?: { reports: SafetyReport[]; meta: PaginationMeta }; error?: { message: string } }) => {
-          if (res.data) {
-            setReports(res.data.reports ?? []);
-            setSafetyMeta(res.data.meta ?? null);
-          } else {
-            setPageError(res.error?.message ?? 'Failed to load safety reports.');
-          }
-          setLoading(false);
-        });
-    },
-    [],
-  );
+  const loadReports = useCallback((status: string, category: string, from: string, to: string, p: number) => {
+    setLoading(true); setPageError('');
+    safetyService.adminListReports({
+      status: status || undefined, category: category || undefined,
+      dateFrom: from || undefined, dateTo: to || undefined, page: p,
+    }).then((res: { data?: { reports: SafetyReport[]; meta: PaginationMeta }; error?: { message: string } }) => {
+      if (res.data) { setReports(res.data.reports ?? []); setSafetyMeta(res.data.meta ?? null); }
+      else setPageError(res.error?.message ?? 'Failed to load safety reports.');
+      setLoading(false);
+    });
+  }, []);
 
   useEffect(() => {
     loadReports(statusFilter, categoryFilter, dateFrom, dateTo, safetyPage);
@@ -747,184 +674,162 @@ function SafetySection() {
 
   const openReview = (reportId: string) => {
     if (reviewingId === reportId) { setReviewingId(null); return; }
-    setReviewingId(reportId);
-    setReviewAction(null);
-    setReviewResponse('');
-    setReviewMsg('');
+    setReviewingId(reportId); setReviewAction(null);
+    setReviewResponse(''); setReviewMsg(null);
   };
 
   const submitReview = async (reportId: string) => {
-    if (!reviewAction) { setReviewMsg('Select an action.'); return; }
+    if (!reviewAction) { setReviewMsg({ text: 'Select an action.', type: 'error' }); return; }
     if ((reviewAction === 'REJECT' || reviewAction === 'RESOLVE') && !reviewResponse.trim()) {
-      setReviewMsg('Response required for Reject/Resolve.'); return;
+      setReviewMsg({ text: 'Response required for Reject/Resolve.', type: 'error' }); return;
     }
-    setReviewSubmitting(true);
-    setReviewMsg('');
+    setReviewSubmitting(true); setReviewMsg(null);
     const res = await safetyService.adminReviewReport(reportId, {
       action: reviewAction,
       adminResponse: reviewResponse.trim() || undefined,
     });
     setReviewSubmitting(false);
     if (res.data) {
-      setReviewMsg('Review submitted.');
+      setReviewMsg({ text: 'Review submitted.', type: 'success' });
       setReviewingId(null);
       loadReports(statusFilter, categoryFilter, dateFrom, dateTo, safetyPage);
     } else {
-      setReviewMsg(res.error?.message ?? 'Review failed.');
+      setReviewMsg({ text: res.error?.message ?? 'Review failed.', type: 'error' });
     }
   };
 
   return (
     <>
-      <h2 className="text-lg font-semibold mb-4">Safety Reports</h2>
+      <h2 className="text-base font-semibold text-gray-900 mb-4">Safety Reports</h2>
 
-      <div className="flex flex-wrap gap-3 mb-4 items-end">
+      <div className="flex flex-wrap gap-3 mb-5 items-end">
         <div>
           <label className="block text-xs text-gray-500 mb-1">Status</label>
-          <select className="input text-sm" value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setSafetyPage(1); }}>
+          <select className="input text-sm h-10" value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setSafetyPage(1); }}>
             <option value="">All Statuses</option>
-            {['PENDING', 'APPROVED', 'REJECTED', 'RESOLVED'].map((s) => (
-              <option key={s} value={s}>{s}</option>
-            ))}
+            {['PENDING', 'APPROVED', 'REJECTED', 'RESOLVED'].map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
         </div>
         <div>
           <label className="block text-xs text-gray-500 mb-1">Category</label>
-          <select className="input text-sm" value={categoryFilter} onChange={(e) => { setCategoryFilter(e.target.value); setSafetyPage(1); }}>
+          <select className="input text-sm h-10" value={categoryFilter} onChange={(e) => { setCategoryFilter(e.target.value); setSafetyPage(1); }}>
             <option value="">All Categories</option>
-            {Object.entries(SAFETY_CAT_LABELS).map(([v, l]) => (
-              <option key={v} value={v}>{l}</option>
-            ))}
+            {Object.entries(SAFETY_CAT_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
           </select>
         </div>
         <div>
           <label className="block text-xs text-gray-500 mb-1">From</label>
-          <input type="date" className="input text-sm" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setSafetyPage(1); }} />
+          <input type="date" className="input text-sm h-10" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setSafetyPage(1); }} />
         </div>
         <div>
           <label className="block text-xs text-gray-500 mb-1">To</label>
-          <input type="date" className="input text-sm" value={dateTo} onChange={(e) => { setDateTo(e.target.value); setSafetyPage(1); }} />
+          <input type="date" className="input text-sm h-10" value={dateTo} onChange={(e) => { setDateTo(e.target.value); setSafetyPage(1); }} />
         </div>
       </div>
 
       {reviewMsg && !reviewingId && (
-        <p className={`rounded-xl px-4 py-3 text-sm mb-4 ${reviewMsg.includes('fail') || reviewMsg.includes('Select') || reviewMsg.includes('required') ? 'text-red-700 bg-red-50' : 'text-emerald-700 bg-emerald-50'}`}>
-          {reviewMsg}
-        </p>
+        <Alert variant={reviewMsg.type} className="mb-4" onClose={() => setReviewMsg(null)}>{reviewMsg.text}</Alert>
       )}
 
       {loading ? (
-        <div className="flex items-center justify-center h-32 text-gray-400">Loading safety reports...</div>
+        <LoadingState message="Loading safety reports…" />
       ) : pageError ? (
-        <div className="card text-red-600 text-sm">{pageError}</div>
+        <ErrorState message={pageError} onRetry={() => loadReports(statusFilter, categoryFilter, dateFrom, dateTo, safetyPage)} />
       ) : reports.length === 0 ? (
-        <div className="card text-center py-12 text-gray-400">No safety reports found.</div>
+        <EmptyState icon="🛡️" title="No safety reports found" description="No reports match the selected filters." />
       ) : (
         <div className="space-y-4">
           {reports.map((report) => {
-            const cfg = SAFETY_STATUS_CFG[report.status] ?? SAFETY_STATUS_CFG.PENDING;
             const isReviewing = reviewingId === report.id;
             return (
-              <div key={report.id} className="card">
+              <Card key={report.id}>
                 <div className="flex items-start justify-between gap-3 mb-3">
                   <div>
-                    <p className="font-semibold text-base">{SAFETY_CAT_LABELS[report.category] ?? report.category}</p>
+                    <p className="font-semibold text-gray-900">{SAFETY_CAT_LABELS[report.category] ?? report.category}</p>
                     {report.user && (
                       <p className="text-xs text-gray-500">{report.user.fullName} · {report.user.user.email}</p>
                     )}
                     <p className="text-xs text-gray-400">{new Date(report.createdAt).toLocaleDateString()}</p>
                   </div>
-                  <span className={`px-2 py-0.5 rounded-full text-xs font-semibold border whitespace-nowrap ${cfg.bg} ${cfg.color} ${cfg.border}`}>
-                    {cfg.label}
-                  </span>
+                  <StatusBadge variant={SAFETY_STATUS_VARIANT[report.status] ?? 'warning'}>
+                    {SAFETY_STATUS_LABEL[report.status] ?? report.status}
+                  </StatusBadge>
                 </div>
 
-                <p className="text-sm text-gray-700 mb-3">{report.description}</p>
+                <p className="text-sm text-gray-700 mb-3 leading-relaxed">{report.description}</p>
 
                 {report.trip && (
-                  <div className="bg-gray-50 rounded-xl p-3 text-sm mb-3 space-y-1">
-                    <p className="text-xs font-semibold text-gray-500 mb-1">Linked Trip</p>
-                    <p>{new Date(report.trip.scheduledDate).toLocaleDateString()} · {report.trip.pickupLocation}</p>
-                    {report.trip.rider && <p>Rider: {report.trip.rider.name}</p>}
-                    {report.trip.driver?.profile && <p>Driver: {report.trip.driver.profile.fullName}</p>}
+                  <div className="bg-gray-50 rounded-xl p-3 text-sm mb-3">
+                    <p className="text-xs font-semibold text-gray-500 mb-1.5">Linked Trip</p>
+                    <p className="text-gray-700">{new Date(report.trip.scheduledDate).toLocaleDateString()} · {report.trip.pickupLocation}</p>
+                    {report.trip.rider && <p className="text-gray-500 text-xs">Rider: {report.trip.rider.name}</p>}
+                    {report.trip.driver?.profile && <p className="text-gray-500 text-xs">Driver: {report.trip.driver.profile.fullName}</p>}
                   </div>
                 )}
 
                 {report.attachments.length > 0 && (
                   <div className="flex gap-2 mb-3">
-                    {report.attachments.map((a) => (
-                      <a key={a.id} href={a.filePath} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 underline">Attachment</a>
+                    {report.attachments.map((a, i) => (
+                      <a key={a.id} href={a.filePath} target="_blank" rel="noopener noreferrer"
+                        className="text-xs text-blue-600 underline hover:text-blue-800">
+                        📎 Attachment {i + 1}
+                      </a>
                     ))}
                   </div>
                 )}
 
                 {report.adminResponse && (
-                  <div className="bg-blue-50 border border-blue-100 rounded-xl px-3 py-2 text-sm text-blue-800 mb-3">
-                    <span className="text-xs font-semibold text-blue-600 block mb-0.5">Admin Response:</span>
-                    {report.adminResponse}
+                  <div className="bg-blue-50 border border-blue-100 rounded-xl px-3 py-2 mb-3">
+                    <p className="text-xs font-semibold text-blue-600 mb-0.5">Admin Response</p>
+                    <p className="text-sm text-blue-800">{report.adminResponse}</p>
                   </div>
                 )}
 
                 {report.status !== 'RESOLVED' && (
                   <div>
-                    <button
-                      onClick={() => openReview(report.id)}
-                      className={`text-sm px-4 py-2 rounded-xl font-semibold border transition-all ${
-                        isReviewing ? 'bg-gray-600 text-white border-gray-600' : 'border-blue-300 text-blue-700 hover:bg-blue-50'
-                      }`}
-                    >
+                    <Button variant={isReviewing ? 'ghost' : 'outline'} size="sm" onClick={() => openReview(report.id)}>
                       {isReviewing ? 'Cancel' : 'Review Report'}
-                    </button>
+                    </Button>
+
                     {isReviewing && (
                       <div className="mt-3 space-y-3 border-t border-gray-100 pt-3">
                         <div className="flex flex-wrap gap-2">
                           {(['APPROVE', 'REJECT', 'RESOLVE'] as const).map((a) => (
-                            <button
+                            <Button
                               key={a}
+                              size="sm"
+                              variant={reviewAction === a ? (a === 'APPROVE' ? 'primary' : a === 'REJECT' ? 'danger' : 'outline') : 'ghost'}
                               onClick={() => setReviewAction(a)}
-                              className={`text-sm px-3 py-1.5 rounded-lg border font-medium transition-colors ${
-                                reviewAction === a
-                                  ? a === 'APPROVE' ? 'bg-emerald-600 text-white border-emerald-600'
-                                  : a === 'REJECT'  ? 'bg-red-600 text-white border-red-600'
-                                  : 'bg-blue-600 text-white border-blue-600'
-                                  : 'border-gray-200 text-gray-600 hover:bg-gray-50'
-                              }`}
                             >
                               {a}
-                            </button>
+                            </Button>
                           ))}
                         </div>
-                        <textarea
+                        <Textarea
                           rows={2}
-                          placeholder={reviewAction === 'APPROVE' ? 'Optional response...' : 'Response required for Reject/Resolve...'}
+                          placeholder={reviewAction === 'APPROVE' ? 'Optional response…' : 'Response required for Reject/Resolve…'}
                           value={reviewResponse}
                           onChange={(e) => setReviewResponse(e.target.value)}
-                          className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-400"
                         />
-                        {reviewMsg && <p className="text-xs text-red-600">{reviewMsg}</p>}
-                        <button
-                          onClick={() => submitReview(report.id)}
-                          disabled={reviewSubmitting || !reviewAction}
-                          className="btn-primary text-sm px-4 py-2 disabled:opacity-50"
-                        >
-                          {reviewSubmitting ? 'Submitting...' : 'Submit Review'}
-                        </button>
+                        {reviewMsg && <Alert variant={reviewMsg.type}>{reviewMsg.text}</Alert>}
+                        <div className="flex gap-2">
+                          <Button variant="primary" size="sm" loading={reviewSubmitting} disabled={!reviewAction} onClick={() => submitReview(report.id)}>
+                            Submit Review
+                          </Button>
+                          <Button variant="ghost" size="sm" onClick={() => setReviewingId(null)}>Cancel</Button>
+                        </div>
                       </div>
                     )}
                   </div>
                 )}
-              </div>
+              </Card>
             );
           })}
         </div>
       )}
 
       {safetyMeta && safetyMeta.totalPages > 1 && (
-        <div className="flex items-center justify-center gap-3 mt-6">
-          <button onClick={() => setSafetyPage((p) => Math.max(1, p - 1))} disabled={safetyPage === 1} className="btn-outline text-sm px-4 py-2 disabled:opacity-40">Prev</button>
-          <span className="text-sm text-gray-500">Page {safetyMeta.page} of {safetyMeta.totalPages}</span>
-          <button onClick={() => setSafetyPage((p) => Math.min(safetyMeta.totalPages, p + 1))} disabled={safetyPage === safetyMeta.totalPages} className="btn-outline text-sm px-4 py-2 disabled:opacity-40">Next</button>
-        </div>
+        <Pagination page={safetyMeta.page} totalPages={safetyMeta.totalPages} onPageChange={setSafetyPage} className="mt-5" />
       )}
     </>
   );

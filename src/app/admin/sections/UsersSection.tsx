@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState, useCallback } from 'react';
 import { adminUserService } from '@/services/adminService';
+import { Card, Badge, Input, LoadingState, ErrorState, EmptyState, Pagination } from '@/components/ui';
 
 type UserRow = {
   id: string;
@@ -15,21 +16,21 @@ type UserRow = {
 
 type Meta = { page: number; limit: number; total: number; totalPages: number };
 
-const ROLE_CFG: Record<string, { label: string; color: string; bg: string }> = {
-  PARENT: { label: 'Parent', color: 'text-blue-700', bg: 'bg-blue-50' },
-  DRIVER: { label: 'Driver', color: 'text-indigo-700', bg: 'bg-indigo-50' },
-  ADMIN: { label: 'Admin', color: 'text-red-700', bg: 'bg-red-50' },
-  RIDER: { label: 'Rider', color: 'text-purple-700', bg: 'bg-purple-50' },
+const ROLE_VARIANT: Record<string, 'info' | 'purple' | 'danger' | 'orange'> = {
+  PARENT: 'info',
+  DRIVER: 'purple',
+  ADMIN:  'danger',
+  RIDER:  'orange',
 };
 
 export function UsersSection() {
-  const [users, setUsers] = useState<UserRow[]>([]);
-  const [meta, setMeta] = useState<Meta | null>(null);
+  const [users, setUsers]   = useState<UserRow[]>([]);
+  const [meta, setMeta]     = useState<Meta | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [error, setError]   = useState('');
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState('');
-  const [page, setPage] = useState(1);
+  const [page, setPage]     = useState(1);
 
   const load = useCallback((s: string, r: string, p: number) => {
     setLoading(true);
@@ -49,85 +50,85 @@ export function UsersSection() {
 
   return (
     <>
-      <h2 className="text-lg font-semibold mb-4">Users</h2>
+      <h2 className="text-base font-semibold text-gray-900 mb-4">
+        Users
+        {meta && <span className="ml-2 text-sm font-normal text-gray-400">({meta.total} total)</span>}
+      </h2>
 
-      <div className="flex flex-wrap gap-3 mb-4">
-        <input
-          type="text"
-          className="input text-sm flex-1 min-w-40"
-          placeholder="Search by name, email, or phone…"
-          value={search}
-          onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-        />
+      {/* Filters */}
+      <div className="flex flex-wrap gap-3 mb-5">
+        <div className="flex-1 min-w-52">
+          <Input
+            placeholder="Search by name, email, or phone…"
+            value={search}
+            onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+          />
+        </div>
         <select
-          className="input text-sm"
+          className="input text-sm h-10 min-w-36"
           value={roleFilter}
           onChange={(e) => { setRoleFilter(e.target.value); setPage(1); }}
         >
           <option value="">All Roles</option>
-          {['PARENT', 'DRIVER', 'ADMIN'].map((r) => (
-            <option key={r} value={r}>{r}</option>
-          ))}
+          {['PARENT', 'DRIVER', 'ADMIN'].map((r) => <option key={r} value={r}>{r}</option>)}
         </select>
       </div>
 
       {loading ? (
-        <div className="flex items-center justify-center h-32 text-gray-400">Loading users…</div>
+        <LoadingState message="Loading users…" />
       ) : error ? (
-        <div className="card text-red-600 text-sm">{error}</div>
+        <ErrorState message={error} onRetry={() => load(search, roleFilter, page)} />
       ) : users.length === 0 ? (
-        <div className="card text-center py-12 text-gray-400">No users found.</div>
+        <EmptyState icon="👤" title="No users found" description="Try adjusting your search or filter." />
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-gray-400 text-xs border-b border-gray-100">
-                <th className="pb-2 font-medium">Name</th>
-                <th className="pb-2 font-medium">Email</th>
-                <th className="pb-2 font-medium">Role</th>
-                <th className="pb-2 font-medium">Wallet</th>
-                <th className="pb-2 font-medium">Subs</th>
-                <th className="pb-2 font-medium">Riders</th>
-                <th className="pb-2 font-medium">Joined</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-50">
-              {users.map((u) => {
-                const rc = ROLE_CFG[u.role] ?? ROLE_CFG.PARENT;
-                return (
-                  <tr key={u.id} className="hover:bg-gray-50">
-                    <td className="py-2.5 pr-4">
-                      <p className="font-medium text-gray-800">{u.fullName}</p>
-                      {u.phone && <p className="text-xs text-gray-400">{u.phone}</p>}
+        <Card padding="sm">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left border-b border-gray-100">
+                  <th className="pb-2.5 pr-4 text-xs font-semibold text-gray-400 uppercase tracking-wide">Name</th>
+                  <th className="pb-2.5 pr-4 text-xs font-semibold text-gray-400 uppercase tracking-wide">Email</th>
+                  <th className="pb-2.5 pr-4 text-xs font-semibold text-gray-400 uppercase tracking-wide">Role</th>
+                  <th className="pb-2.5 pr-4 text-xs font-semibold text-gray-400 uppercase tracking-wide">Wallet</th>
+                  <th className="pb-2.5 pr-4 text-xs font-semibold text-gray-400 uppercase tracking-wide text-center">Subs</th>
+                  <th className="pb-2.5 pr-4 text-xs font-semibold text-gray-400 uppercase tracking-wide text-center">Riders</th>
+                  <th className="pb-2.5 text-xs font-semibold text-gray-400 uppercase tracking-wide">Joined</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {users.map((u) => (
+                  <tr key={u.id} className="hover:bg-gray-50/70 transition-colors">
+                    <td className="py-3 pr-4">
+                      <p className="font-medium text-gray-900">{u.fullName}</p>
+                      {u.phone && <p className="text-xs text-gray-400 mt-0.5">{u.phone}</p>}
                     </td>
-                    <td className="py-2.5 pr-4 text-gray-600">{u.user.email}</td>
-                    <td className="py-2.5 pr-4">
-                      <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${rc.bg} ${rc.color}`}>
-                        {rc.label}
-                      </span>
+                    <td className="py-3 pr-4 text-gray-600 text-xs">{u.user.email}</td>
+                    <td className="py-3 pr-4">
+                      <Badge variant={ROLE_VARIANT[u.role] ?? 'info'} className="text-[10px]">{u.role}</Badge>
                     </td>
-                    <td className="py-2.5 pr-4 text-gray-600">
-                      {u.wallet ? `SAR ${Number(u.wallet.balanceSar).toFixed(2)}` : '—'}
+                    <td className="py-3 pr-4 text-gray-600 text-xs">
+                      {u.wallet ? `SAR ${Number(u.wallet.balanceSar).toFixed(2)}` : <span className="text-gray-300">—</span>}
                     </td>
-                    <td className="py-2.5 pr-4 text-center text-gray-600">{u._count.userSubscriptions}</td>
-                    <td className="py-2.5 pr-4 text-center text-gray-600">{u._count.riders}</td>
-                    <td className="py-2.5 text-gray-400 text-xs">
+                    <td className="py-3 pr-4 text-center text-gray-600 text-sm">{u._count.userSubscriptions}</td>
+                    <td className="py-3 pr-4 text-center text-gray-600 text-sm">{u._count.riders}</td>
+                    <td className="py-3 text-gray-400 text-xs whitespace-nowrap">
                       {new Date(u.createdAt).toLocaleDateString()}
                     </td>
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
       )}
 
       {meta && meta.totalPages > 1 && (
-        <div className="flex items-center justify-center gap-3 mt-6">
-          <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1} className="btn-outline text-sm px-4 py-2 disabled:opacity-40">← Prev</button>
-          <span className="text-sm text-gray-500">Page {meta.page} of {meta.totalPages} ({meta.total} users)</span>
-          <button onClick={() => setPage((p) => Math.min(meta.totalPages, p + 1))} disabled={page === meta.totalPages} className="btn-outline text-sm px-4 py-2 disabled:opacity-40">Next →</button>
-        </div>
+        <Pagination
+          page={meta.page}
+          totalPages={meta.totalPages}
+          onPageChange={setPage}
+          className="mt-5"
+        />
       )}
     </>
   );

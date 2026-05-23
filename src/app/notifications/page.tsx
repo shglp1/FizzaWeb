@@ -1,61 +1,81 @@
 'use client';
+
 import { useEffect, useState } from 'react';
 import { AppShell } from '@/components/layout/AppShell';
+import {
+  PageHeader,
+  Card,
+  Button,
+  Badge,
+  LoadingState,
+  ErrorState,
+  EmptyState,
+} from '@/components/ui';
 import { notificationService } from '@/services/notificationService';
 
-type NotifType = string;
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 type Notification = {
   id: string;
   title: string;
   message: string;
-  type: NotifType;
+  type: string;
   isRead: boolean;
   createdAt: string;
 };
 
-const TYPE_CFG: Record<string, { label: string; color: string; bg: string; border: string }> = {
-  SUBSCRIPTION:          { label: 'Subscription',         color: 'text-blue-700',    bg: 'bg-blue-50',    border: 'border-blue-200' },
-  SUBSCRIPTION_PAYMENT:  { label: 'Payment',              color: 'text-emerald-700', bg: 'bg-emerald-50', border: 'border-emerald-200' },
-  SUBSCRIPTION_CANCELLED:{ label: 'Cancelled',            color: 'text-red-700',     bg: 'bg-red-50',     border: 'border-red-200' },
-  PAYMENT:               { label: 'Payment',              color: 'text-emerald-700', bg: 'bg-emerald-50', border: 'border-emerald-200' },
-  WALLET_TOP_UP:         { label: 'Wallet',               color: 'text-teal-700',    bg: 'bg-teal-50',    border: 'border-teal-200' },
-  TRIP:                  { label: 'Trip',                 color: 'text-purple-700',  bg: 'bg-purple-50',  border: 'border-purple-200' },
-  DRIVER_APPLICATION:    { label: 'Driver Application',   color: 'text-orange-700',  bg: 'bg-orange-50',  border: 'border-orange-200' },
-  SAFETY:                { label: 'Safety',               color: 'text-red-700',     bg: 'bg-red-50',     border: 'border-red-200' },
-  WALLET:                { label: 'Wallet',               color: 'text-teal-700',    bg: 'bg-teal-50',    border: 'border-teal-200' },
-  SYSTEM:                { label: 'System',               color: 'text-gray-700',    bg: 'bg-gray-50',    border: 'border-gray-200' },
+// Type → badge variant + emoji
+const TYPE_META: Record<string, { variant: 'info' | 'success' | 'danger' | 'warning' | 'purple' | 'orange' | 'gray'; emoji: string; label: string }> = {
+  SUBSCRIPTION:           { variant: 'info',    emoji: '📋', label: 'Subscription' },
+  SUBSCRIPTION_PAYMENT:   { variant: 'success', emoji: '💳', label: 'Payment' },
+  SUBSCRIPTION_CANCELLED: { variant: 'danger',  emoji: '❌', label: 'Cancelled' },
+  PAYMENT:                { variant: 'success', emoji: '💳', label: 'Payment' },
+  WALLET_TOP_UP:          { variant: 'success', emoji: '💰', label: 'Wallet' },
+  TRIP:                   { variant: 'purple',  emoji: '🚗', label: 'Trip' },
+  DRIVER_APPLICATION:     { variant: 'orange',  emoji: '📝', label: 'Application' },
+  SAFETY:                 { variant: 'danger',  emoji: '🛡️', label: 'Safety' },
+  WALLET:                 { variant: 'info',    emoji: '💰', label: 'Wallet' },
+  SYSTEM:                 { variant: 'gray',    emoji: '⚙️', label: 'System' },
 };
 
-const DEFAULT_TYPE = { label: 'Notification', color: 'text-gray-700', bg: 'bg-gray-50', border: 'border-gray-200' };
+const DEFAULT_META = { variant: 'gray' as const, emoji: '🔔', label: 'Notification' };
+
+function fmtDate(dt: string) {
+  const d = new Date(dt);
+  const now = new Date();
+  const diffMs = now.getTime() - d.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  if (diffMins < 1)   return 'Just now';
+  if (diffMins < 60)  return `${diffMins}m ago`;
+  const diffHrs = Math.floor(diffMins / 60);
+  if (diffHrs < 24)   return `${diffHrs}h ago`;
+  return d.toLocaleDateString('en-SA', { month: 'short', day: 'numeric' });
+}
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function NotificationsPage() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [unreadCount, setUnreadCount] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [pageError, setPageError] = useState('');
-  const [markingId, setMarkingId] = useState<string | null>(null);
-  const [markingAll, setMarkingAll] = useState(false);
-  const [unreadOnly, setUnreadOnly] = useState(false);
+  const [unreadCount, setUnreadCount]     = useState(0);
+  const [loading, setLoading]             = useState(true);
+  const [pageError, setPageError]         = useState('');
+  const [markingId, setMarkingId]         = useState<string | null>(null);
+  const [markingAll, setMarkingAll]       = useState(false);
+  const [unreadOnly, setUnreadOnly]       = useState(false);
 
   const loadNotifications = (unread = unreadOnly) => {
     setLoading(true);
     notificationService
       .listNotifications({ unreadOnly: unread, limit: 50 })
-      .then(
-        (res: {
-          data?: { notifications: Notification[]; unreadCount: number };
-          error?: { message: string };
-        }) => {
-          if (res.data) {
-            setNotifications(res.data.notifications);
-            setUnreadCount(res.data.unreadCount);
-          } else {
-            setPageError(res.error?.message ?? 'Failed to load notifications.');
-          }
-          setLoading(false);
-        },
-      );
+      .then((res: { data?: { notifications: Notification[]; unreadCount: number }; error?: { message: string } }) => {
+        if (res.data) {
+          setNotifications(res.data.notifications);
+          setUnreadCount(res.data.unreadCount);
+        } else {
+          setPageError(res.error?.message ?? 'Failed to load notifications.');
+        }
+        setLoading(false);
+      });
   };
 
   useEffect(() => { loadNotifications(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -64,9 +84,7 @@ export default function NotificationsPage() {
     setMarkingId(id);
     await notificationService.markRead(id);
     setMarkingId(null);
-    setNotifications((prev) =>
-      prev.map((n) => (n.id === id ? { ...n, isRead: true } : n)),
-    );
+    setNotifications((prev) => prev.map((n) => n.id === id ? { ...n, isRead: true } : n));
     setUnreadCount((c) => Math.max(0, c - 1));
   };
 
@@ -86,89 +104,109 @@ export default function NotificationsPage() {
 
   return (
     <AppShell>
-      <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
-        <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-semibold">Notifications</h1>
-          {unreadCount > 0 && (
-            <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-700">
-              {unreadCount} unread
-            </span>
-          )}
-        </div>
-        <div className="flex gap-2">
-          <button
-            onClick={handleFilterToggle}
-            className={`text-sm px-3 py-1.5 rounded-xl border font-medium transition-colors ${
-              unreadOnly
-                ? 'bg-emerald-600 text-white border-emerald-600'
-                : 'border-gray-200 text-gray-600 hover:bg-gray-50'
-            }`}
-          >
-            {unreadOnly ? 'Show All' : 'Unread Only'}
-          </button>
-          {unreadCount > 0 && (
-            <button
-              onClick={handleMarkAll}
-              disabled={markingAll}
-              className="text-sm px-3 py-1.5 rounded-xl border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+      <PageHeader
+        title={
+          unreadCount > 0
+            ? `Notifications · ${unreadCount} unread`
+            : 'Notifications'
+        }
+        subtitle="Stay up-to-date on trips, payments, and safety reports"
+        action={
+          <div className="flex gap-2">
+            <Button
+              variant={unreadOnly ? 'primary' : 'outline'}
+              size="sm"
+              onClick={handleFilterToggle}
             >
-              {markingAll ? 'Marking…' : 'Mark All Read'}
-            </button>
-          )}
-        </div>
-      </div>
+              {unreadOnly ? 'Show All' : 'Unread Only'}
+            </Button>
+            {unreadCount > 0 && (
+              <Button
+                variant="ghost"
+                size="sm"
+                loading={markingAll}
+                disabled={markingAll}
+                onClick={handleMarkAll}
+              >
+                Mark All Read
+              </Button>
+            )}
+          </div>
+        }
+      />
 
       {loading ? (
-        <div className="flex items-center justify-center h-32 text-gray-400">Loading notifications…</div>
+        <LoadingState message="Loading notifications…" />
       ) : pageError ? (
-        <div className="card text-red-600 text-sm">{pageError}</div>
+        <ErrorState message={pageError} onRetry={() => loadNotifications()} />
       ) : notifications.length === 0 ? (
-        <div className="card text-center py-12">
-          <p className="text-gray-400 text-lg mb-2">
-            {unreadOnly ? 'No unread notifications' : 'No notifications yet'}
-          </p>
-          <p className="text-gray-400 text-sm">
-            Notifications for payments, trips, safety reports, and more will appear here.
-          </p>
-        </div>
+        <EmptyState
+          icon="🔔"
+          title={unreadOnly ? 'No unread notifications' : 'No notifications yet'}
+          description="Notifications for payments, trips, safety reports, and more will appear here."
+          action={unreadOnly ? { label: 'Show All', onClick: handleFilterToggle } : undefined}
+        />
       ) : (
-        <div className="space-y-2">
-          {notifications.map((notif) => {
-            const cfg = TYPE_CFG[notif.type] ?? DEFAULT_TYPE;
-            return (
-              <div
-                key={notif.id}
-                className={`rounded-2xl border px-4 py-3 flex items-start gap-3 transition-opacity ${
-                  notif.isRead ? 'bg-white border-gray-100 opacity-70' : 'bg-white border-gray-200 shadow-sm'
-                }`}
-              >
-                {!notif.isRead && (
-                  <span className="mt-1.5 w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
-                )}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-                    <p className="text-sm font-semibold text-gray-900">{notif.title}</p>
-                    <span className={`px-1.5 py-0.5 rounded-full text-xs font-medium border ${cfg.bg} ${cfg.color} ${cfg.border}`}>
-                      {cfg.label}
-                    </span>
+        <Card padding="sm">
+          <div className="divide-y divide-gray-50">
+            {notifications.map((notif) => {
+              const meta = TYPE_META[notif.type] ?? DEFAULT_META;
+              return (
+                <div
+                  key={notif.id}
+                  className={`flex items-start gap-3 px-2 py-3.5 transition-colors ${
+                    notif.isRead ? 'opacity-60' : ''
+                  }`}
+                >
+                  {/* Unread dot */}
+                  <div className="mt-1 shrink-0 flex items-center justify-center w-5">
+                    {!notif.isRead && (
+                      <span className="w-2 h-2 rounded-full bg-fizza-secondary" />
+                    )}
                   </div>
-                  <p className="text-sm text-gray-600">{notif.message}</p>
-                  <p className="text-xs text-gray-400 mt-1">{new Date(notif.createdAt).toLocaleString()}</p>
+
+                  {/* Icon */}
+                  <div className={`flex h-9 w-9 items-center justify-center rounded-xl shrink-0 text-base ${notif.isRead ? 'bg-gray-100' : 'bg-emerald-50'}`}>
+                    {meta.emoji}
+                  </div>
+
+                  {/* Content */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-start justify-between gap-2 mb-0.5">
+                      <p className={`text-sm font-semibold truncate ${notif.isRead ? 'text-gray-600' : 'text-gray-900'}`}>
+                        {notif.title}
+                      </p>
+                      <span className="text-xs text-gray-400 whitespace-nowrap shrink-0">{fmtDate(notif.createdAt)}</span>
+                    </div>
+                    <p className="text-sm text-gray-500 leading-relaxed">{notif.message}</p>
+                    <div className="flex items-center gap-2 mt-1.5">
+                      <Badge variant={meta.variant} className="text-[10px]">{meta.label}</Badge>
+                    </div>
+                  </div>
+
+                  {/* Mark read button */}
+                  {!notif.isRead && (
+                    <button
+                      onClick={() => handleMarkRead(notif.id)}
+                      disabled={markingId === notif.id}
+                      className="shrink-0 flex h-7 w-7 items-center justify-center rounded-lg text-gray-400 hover:bg-emerald-50 hover:text-fizza-secondary transition-colors disabled:opacity-50 mt-0.5"
+                      title="Mark as read"
+                      aria-label="Mark as read"
+                    >
+                      {markingId === notif.id ? (
+                        <span className="animate-spin text-xs">⟳</span>
+                      ) : (
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                          <polyline points="20 6 9 17 4 12" />
+                        </svg>
+                      )}
+                    </button>
+                  )}
                 </div>
-                {!notif.isRead && (
-                  <button
-                    onClick={() => handleMarkRead(notif.id)}
-                    disabled={markingId === notif.id}
-                    className="text-xs text-gray-400 hover:text-emerald-600 shrink-0 mt-0.5 disabled:opacity-50"
-                    title="Mark as read"
-                  >
-                    {markingId === notif.id ? '…' : '✓'}
-                  </button>
-                )}
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        </Card>
       )}
     </AppShell>
   );

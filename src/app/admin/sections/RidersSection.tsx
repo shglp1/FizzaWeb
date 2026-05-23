@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState, useCallback } from 'react';
 import { adminRiderService } from '@/services/adminService';
+import { Card, Badge, Button, Alert, Input, LoadingState, ErrorState, EmptyState, Pagination } from '@/components/ui';
 
 type RiderRow = {
   id: string;
@@ -18,16 +19,15 @@ type RiderRow = {
 type Meta = { page: number; limit: number; total: number; totalPages: number };
 
 export function RidersSection() {
-  const [riders, setRiders] = useState<RiderRow[]>([]);
-  const [meta, setMeta] = useState<Meta | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [search, setSearch] = useState('');
+  const [riders, setRiders]       = useState<RiderRow[]>([]);
+  const [meta, setMeta]           = useState<Meta | null>(null);
+  const [loading, setLoading]     = useState(true);
+  const [error, setError]         = useState('');
+  const [search, setSearch]       = useState('');
   const [activeFilter, setActiveFilter] = useState('');
-  const [page, setPage] = useState(1);
-
+  const [page, setPage]           = useState(1);
   const [togglingId, setTogglingId] = useState<string | null>(null);
-  const [toggleMsg, setToggleMsg] = useState('');
+  const [toggleMsg, setToggleMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
   const load = useCallback((s: string, a: string, p: number) => {
     setLoading(true);
@@ -48,31 +48,31 @@ export function RidersSection() {
 
   const toggleActive = async (rider: RiderRow) => {
     setTogglingId(rider.id);
-    setToggleMsg('');
+    setToggleMsg(null);
     const res = await adminRiderService.update(rider.id, { isActive: !rider.isActive });
     setTogglingId(null);
     if (res.data) {
-      setToggleMsg(`${rider.name} ${!rider.isActive ? 'activated' : 'deactivated'}.`);
+      setToggleMsg({ text: `${rider.name} ${!rider.isActive ? 'activated' : 'deactivated'}.`, type: 'success' });
       load(search, activeFilter, page);
     } else {
-      setToggleMsg(res.error?.message ?? 'Update failed.');
+      setToggleMsg({ text: res.error?.message ?? 'Update failed.', type: 'error' });
     }
   };
 
   return (
     <>
-      <h2 className="text-lg font-semibold mb-4">Riders</h2>
+      <h2 className="text-base font-semibold text-gray-900 mb-4">Riders</h2>
 
-      <div className="flex flex-wrap gap-3 mb-4">
-        <input
-          type="text"
-          className="input text-sm flex-1 min-w-40"
-          placeholder="Search by name or school…"
-          value={search}
-          onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-        />
+      <div className="flex flex-wrap gap-3 mb-5">
+        <div className="flex-1 min-w-52">
+          <Input
+            placeholder="Search by name or school…"
+            value={search}
+            onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+          />
+        </div>
         <select
-          className="input text-sm"
+          className="input text-sm h-10"
           value={activeFilter}
           onChange={(e) => { setActiveFilter(e.target.value); setPage(1); }}
         >
@@ -83,63 +83,61 @@ export function RidersSection() {
       </div>
 
       {toggleMsg && (
-        <p className={`rounded-xl px-4 py-2 text-sm mb-4 ${toggleMsg.includes('fail') ? 'text-red-700 bg-red-50' : 'text-emerald-700 bg-emerald-50'}`}>
-          {toggleMsg}
-        </p>
+        <Alert variant={toggleMsg.type} className="mb-4" onClose={() => setToggleMsg(null)}>
+          {toggleMsg.text}
+        </Alert>
       )}
 
       {loading ? (
-        <div className="flex items-center justify-center h-32 text-gray-400">Loading riders…</div>
+        <LoadingState message="Loading riders…" />
       ) : error ? (
-        <div className="card text-red-600 text-sm">{error}</div>
+        <ErrorState message={error} onRetry={() => load(search, activeFilter, page)} />
       ) : riders.length === 0 ? (
-        <div className="card text-center py-12 text-gray-400">No riders found.</div>
+        <EmptyState icon="👦" title="No riders found" description="No riders match your current filter." />
       ) : (
         <div className="space-y-3">
           {riders.map((r) => (
-            <div key={r.id} className="card flex items-center gap-4">
+            <Card key={r.id} className="flex items-center gap-4">
+              {/* Avatar */}
+              <div className="w-10 h-10 rounded-full bg-purple-100 flex items-center justify-center text-purple-700 font-bold text-sm shrink-0">
+                {r.name[0]}
+              </div>
+
+              {/* Details */}
               <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-0.5">
-                  <p className="font-medium text-gray-800">{r.name}</p>
-                  {!r.isActive && (
-                    <span className="text-xs bg-red-50 text-red-600 border border-red-100 rounded-full px-2">Inactive</span>
-                  )}
-                  {r.specialNeeds && (
-                    <span className="text-xs bg-amber-50 text-amber-700 border border-amber-100 rounded-full px-2">Special Needs</span>
-                  )}
+                <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                  <p className="font-medium text-gray-900">{r.name}</p>
+                  {!r.isActive && <Badge variant="danger" className="text-[10px]">Inactive</Badge>}
+                  {r.specialNeeds && <Badge variant="warning" className="text-[10px]">Special Needs</Badge>}
                 </div>
                 <p className="text-sm text-gray-500">
                   {r.relationship}
                   {r.school ? ` · ${r.school}` : ''}
                   {r.grade ? ` (Grade ${r.grade})` : ''}
                 </p>
-                <p className="text-xs text-gray-400">
-                  Parent: {r.parent.fullName} · {r.parent.user.email}
+                <p className="text-xs text-gray-400 mt-0.5">
+                  Parent: {r.parent.fullName}
                   {' · '}{r._count.subscriptions} subs · {r._count.trips} trips
                 </p>
               </div>
-              <button
+
+              {/* Toggle */}
+              <Button
+                variant={r.isActive ? 'danger-outline' : 'outline'}
+                size="sm"
+                loading={togglingId === r.id}
                 onClick={() => toggleActive(r)}
-                disabled={togglingId === r.id}
-                className={`text-xs px-3 py-1.5 rounded-lg font-medium border transition-all ${
-                  r.isActive
-                    ? 'border-red-200 text-red-600 hover:bg-red-50'
-                    : 'border-emerald-200 text-emerald-700 hover:bg-emerald-50'
-                }`}
+                className="shrink-0"
               >
-                {togglingId === r.id ? '…' : r.isActive ? 'Deactivate' : 'Activate'}
-              </button>
-            </div>
+                {r.isActive ? 'Deactivate' : 'Activate'}
+              </Button>
+            </Card>
           ))}
         </div>
       )}
 
       {meta && meta.totalPages > 1 && (
-        <div className="flex items-center justify-center gap-3 mt-6">
-          <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1} className="btn-outline text-sm px-4 py-2 disabled:opacity-40">← Prev</button>
-          <span className="text-sm text-gray-500">Page {meta.page} of {meta.totalPages} ({meta.total} riders)</span>
-          <button onClick={() => setPage((p) => Math.min(meta.totalPages, p + 1))} disabled={page === meta.totalPages} className="btn-outline text-sm px-4 py-2 disabled:opacity-40">Next →</button>
-        </div>
+        <Pagination page={meta.page} totalPages={meta.totalPages} onPageChange={setPage} className="mt-5" />
       )}
     </>
   );

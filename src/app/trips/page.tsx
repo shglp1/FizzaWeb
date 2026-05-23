@@ -1,12 +1,27 @@
 'use client';
+
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { AppShell } from '@/components/layout/AppShell';
 import { DriverGpsPanel } from '@/components/DriverGpsPanel';
+import {
+  PageHeader,
+  Card,
+  Alert,
+  Button,
+  Badge,
+  StatusBadge,
+  Tabs,
+  LoadingState,
+  ErrorState,
+  EmptyState,
+  ConfirmDialog,
+} from '@/components/ui';
 import { tripService } from '@/services/tripService';
 
-type TripStatus = 'SCHEDULED' | 'DRIVER_ASSIGNED' | 'ON_THE_WAY' | 'PICKED_UP' | 'COMPLETED' | 'CANCELLED';
+// ─── Types ────────────────────────────────────────────────────────────────────
 
+type TripStatus = 'SCHEDULED' | 'DRIVER_ASSIGNED' | 'ON_THE_WAY' | 'PICKED_UP' | 'COMPLETED' | 'CANCELLED';
 type TripLegType = 'OUTBOUND' | 'RETURN';
 
 type Trip = {
@@ -30,45 +45,58 @@ type Trip = {
   subscription: { id: string; subscriptionType: string; package: { name: string } | null } | null;
 };
 
+// ─── Constants ────────────────────────────────────────────────────────────────
+
 const TABS = [
-  { label: 'Upcoming', filter: 'upcoming' },
-  { label: 'Active',   filter: 'active' },
-  { label: 'Completed', filter: 'completed' },
-  { label: 'Cancelled', filter: 'cancelled' },
+  { label: 'Upcoming',  value: 'upcoming'  },
+  { label: 'Active',    value: 'active'    },
+  { label: 'Completed', value: 'completed' },
+  { label: 'Cancelled', value: 'cancelled' },
 ];
 
-const STATUS_CFG: Record<TripStatus, { label: string; color: string; bg: string; border: string }> = {
-  SCHEDULED:       { label: 'Scheduled',       color: 'text-amber-700',   bg: 'bg-amber-50',   border: 'border-amber-200' },
-  DRIVER_ASSIGNED: { label: 'Driver Assigned', color: 'text-blue-700',    bg: 'bg-blue-50',    border: 'border-blue-200' },
-  ON_THE_WAY:      { label: 'On the Way',      color: 'text-indigo-700',  bg: 'bg-indigo-50',  border: 'border-indigo-200' },
-  PICKED_UP:       { label: 'Picked Up',       color: 'text-purple-700',  bg: 'bg-purple-50',  border: 'border-purple-200' },
-  COMPLETED:       { label: 'Completed',       color: 'text-emerald-700', bg: 'bg-emerald-50', border: 'border-emerald-200' },
-  CANCELLED:       { label: 'Cancelled',       color: 'text-red-700',     bg: 'bg-red-50',     border: 'border-red-200' },
+const STATUS_BADGE_VARIANT: Record<TripStatus, 'warning' | 'info' | 'purple' | 'success' | 'danger' | 'orange'> = {
+  SCHEDULED:       'warning',
+  DRIVER_ASSIGNED: 'info',
+  ON_THE_WAY:      'purple',
+  PICKED_UP:       'orange',
+  COMPLETED:       'success',
+  CANCELLED:       'danger',
+};
+
+const STATUS_LABEL: Record<TripStatus, string> = {
+  SCHEDULED:       'Scheduled',
+  DRIVER_ASSIGNED: 'Driver Assigned',
+  ON_THE_WAY:      'On the Way',
+  PICKED_UP:       'Picked Up',
+  COMPLETED:       'Completed',
+  CANCELLED:       'Cancelled',
 };
 
 const CANCELLABLE: TripStatus[] = ['SCHEDULED', 'DRIVER_ASSIGNED'];
-const TRACKABLE: TripStatus[] = ['DRIVER_ASSIGNED', 'ON_THE_WAY', 'PICKED_UP'];
+const TRACKABLE: TripStatus[]   = ['DRIVER_ASSIGNED', 'ON_THE_WAY', 'PICKED_UP'];
 
 function fmtTime(dt: string | null): string {
   if (!dt) return '—';
   return new Date(dt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
-export default function TripsPage() {
-  const [activeTab, setActiveTab] = useState('upcoming');
-  const [trips, setTrips] = useState<Trip[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [pageError, setPageError] = useState('');
-  const [cancelling, setCancelling] = useState<string | null>(null);
-  const [actionMsg, setActionMsg] = useState('');
-  const [userRole, setUserRole] = useState<string | null>(null);
+// ─── Page ─────────────────────────────────────────────────────────────────────
 
-  // Fetch role once on mount — reads from JWT, no DB query
+export default function TripsPage() {
+  const [activeTab, setActiveTab]       = useState('upcoming');
+  const [trips, setTrips]               = useState<Trip[]>([]);
+  const [loading, setLoading]           = useState(true);
+  const [pageError, setPageError]       = useState('');
+  const [cancelling, setCancelling]     = useState<string | null>(null);
+  const [cancelTarget, setCancelTarget] = useState<Trip | null>(null);
+  const [actionMsg, setActionMsg]       = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+  const [userRole, setUserRole]         = useState<string | null>(null);
+
   useEffect(() => {
     fetch('/api/me')
       .then((r) => r.json())
       .then((res) => { if (res.data?.role) setUserRole(res.data.role); })
-      .catch(() => {/* role stays null, GPS panel simply won't show */});
+      .catch(() => {/* role stays null */});
   }, []);
 
   const loadTrips = (filter: string) => {
@@ -84,17 +112,19 @@ export default function TripsPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { loadTrips(activeTab); }, [activeTab]);
 
-  const handleCancel = async (trip: Trip) => {
-    if (!confirm(`Cancel trip on ${new Date(trip.scheduledDate).toLocaleDateString()}?`)) return;
+  const doCancel = async () => {
+    if (!cancelTarget) return;
+    const trip = cancelTarget;
+    setCancelTarget(null);
     setCancelling(trip.id);
-    setActionMsg('');
+    setActionMsg(null);
     const res = await tripService.cancel(trip.id);
     setCancelling(null);
     if (res.data) {
-      setActionMsg('Trip cancelled.');
+      setActionMsg({ text: 'Trip cancelled successfully.', type: 'success' });
       loadTrips(activeTab);
     } else {
-      setActionMsg(res.error?.message ?? 'Cancel failed.');
+      setActionMsg({ text: res.error?.message ?? 'Cancel failed. Please try again.', type: 'error' });
     }
   };
 
@@ -102,161 +132,183 @@ export default function TripsPage() {
 
   return (
     <AppShell>
-      <h1 className="text-2xl font-semibold mb-6">My Trips</h1>
+      <PageHeader
+        title="My Trips"
+        subtitle={`${trips.length} ${activeTab} trip${trips.length !== 1 ? 's' : ''}`}
+      />
 
-      {/* Driver callout — shown only to drivers */}
+      {/* Driver callout */}
       {isDriver && (
-        <div className="mb-5 flex items-center gap-3 px-4 py-3 bg-blue-50 border border-blue-200 rounded-xl text-sm text-blue-800">
-          <span className="text-base">🚗</span>
-          <span>
-            <span className="font-semibold">Driver mode:</span> tap{' '}
-            <span className="font-medium">Start Sharing Location</span> on an active trip to send live GPS updates to parents.
-          </span>
-        </div>
+        <Alert variant="info" className="mb-5">
+          <span className="font-semibold">Driver mode:</span> tap{' '}
+          <span className="font-medium">Start Sharing Location</span> on an active trip to send live GPS updates to parents.
+        </Alert>
       )}
-
-      <div className="flex gap-1 bg-gray-100 rounded-xl p-1 mb-6 overflow-x-auto">
-        {TABS.map((tab) => (
-          <button
-            key={tab.filter}
-            onClick={() => { setActiveTab(tab.filter); setActionMsg(''); }}
-            className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-all ${
-              activeTab === tab.filter ? 'bg-white shadow text-emerald-700' : 'text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
 
       {actionMsg && (
-        <p className={`rounded-xl px-4 py-3 text-sm mb-4 ${
-          actionMsg.toLowerCase().includes('fail') || actionMsg.toLowerCase().includes('error')
-            ? 'text-red-700 bg-red-50' : 'text-emerald-700 bg-emerald-50'
-        }`}>
-          {actionMsg}
-        </p>
+        <Alert variant={actionMsg.type} className="mb-4" onClose={() => setActionMsg(null)}>
+          {actionMsg.text}
+        </Alert>
       )}
 
+      {/* Tabs */}
+      <Tabs
+        tabs={TABS}
+        activeTab={activeTab}
+        onChange={(val) => { setActiveTab(val); setActionMsg(null); }}
+        className="mb-5"
+      />
+
       {loading ? (
-        <div className="flex items-center justify-center h-32 text-gray-400">Loading trips…</div>
+        <LoadingState message={`Loading ${activeTab} trips…`} />
       ) : pageError ? (
-        <div className="card text-red-600 text-sm">{pageError}</div>
+        <ErrorState message={pageError} onRetry={() => loadTrips(activeTab)} />
       ) : trips.length === 0 ? (
-        <div className="card text-center py-12">
-          <p className="text-gray-400 text-lg mb-1">No {activeTab} trips</p>
-          <p className="text-gray-400 text-sm">
-            {activeTab === 'upcoming'
+        <EmptyState
+          icon="🗓️"
+          title={`No ${activeTab} trips`}
+          description={
+            activeTab === 'upcoming'
               ? isDriver
-                ? 'No trips assigned to you yet.'
+                ? 'No trips have been assigned to you yet.'
                 : 'Trips are generated from your active subscriptions by the admin team.'
-              : `No ${activeTab} trips found.`}
-          </p>
-        </div>
+              : `No ${activeTab} trips found.`
+          }
+        />
       ) : (
         <div className="space-y-4">
           {trips.map((trip) => {
-            const cfg = STATUS_CFG[trip.status];
-            const showGps = isDriver && TRACKABLE.includes(trip.status);
+            const showGps      = isDriver && TRACKABLE.includes(trip.status);
             const showTracking = !isDriver && TRACKABLE.includes(trip.status);
-            const showCancel = !isDriver && CANCELLABLE.includes(trip.status);
+            const showCancel   = !isDriver && CANCELLABLE.includes(trip.status);
 
             return (
-              <div key={trip.id} className="card">
-                <div className="flex items-start justify-between gap-4 mb-3">
+              <Card key={trip.id}>
+                {/* Header */}
+                <div className="flex items-start justify-between gap-4 mb-4">
                   <div>
-                    <p className="font-semibold text-base">
+                    <p className="font-semibold text-gray-900">
                       {new Date(trip.scheduledDate).toLocaleDateString('en-US', {
                         weekday: 'long', year: 'numeric', month: 'short', day: 'numeric',
                       })}
                     </p>
                     {trip.subscription && (
-                      <p className="text-sm text-gray-500 capitalize">
-                        {trip.subscription.subscriptionType}
+                      <p className="text-sm text-gray-500 capitalize mt-0.5">
+                        {trip.subscription.subscriptionType.toLowerCase()}
                         {trip.subscription.package ? ` · ${trip.subscription.package.name}` : ''}
                       </p>
                     )}
                   </div>
-                  <div className="flex flex-col items-end gap-1 shrink-0">
-                    <span className={`px-2 py-0.5 rounded-full text-xs font-semibold border ${cfg.bg} ${cfg.color} ${cfg.border}`}>
-                      {cfg.label}
-                    </span>
-                    {trip.legType === 'RETURN' ? (
-                      <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-violet-50 text-violet-700 border border-violet-200">
-                        ← Return
-                      </span>
-                    ) : (
-                      <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-sky-50 text-sky-700 border border-sky-200">
-                        → Outbound
-                      </span>
-                    )}
+                  <div className="flex flex-col items-end gap-1.5 shrink-0">
+                    <StatusBadge variant={STATUS_BADGE_VARIANT[trip.status]}>
+                      {STATUS_LABEL[trip.status]}
+                    </StatusBadge>
+                    <Badge variant={trip.legType === 'RETURN' ? 'purple' : 'info'} className="text-[10px]">
+                      {trip.legType === 'RETURN' ? '← Return' : '→ Outbound'}
+                    </Badge>
                   </div>
                 </div>
 
-                <div className="grid sm:grid-cols-2 gap-x-6 gap-y-1.5 text-sm text-gray-700 mb-3">
+                {/* Details */}
+                <div className="grid sm:grid-cols-2 gap-x-6 gap-y-1.5 text-sm text-gray-700 mb-4">
                   {trip.rider && (
-                    <p><span className="text-gray-400">Rider:</span> {trip.rider.name} ({trip.rider.relationship})</p>
+                    <div className="flex gap-1.5">
+                      <span className="text-gray-400 shrink-0">Rider</span>
+                      <span>{trip.rider.name} <span className="text-gray-400">({trip.rider.relationship})</span></span>
+                    </div>
                   )}
-                  <p><span className="text-gray-400">Pickup:</span> {fmtTime(trip.scheduledPickupTime)} — {trip.pickupLocation}</p>
-                  <p><span className="text-gray-400">Dropoff:</span> {fmtTime(trip.scheduledDropoffTime)} — {trip.dropoffLocation}</p>
+                  <div className="flex gap-1.5">
+                    <span className="text-gray-400 shrink-0">Pickup</span>
+                    <span>{fmtTime(trip.scheduledPickupTime)} · {trip.pickupLocation}</span>
+                  </div>
+                  <div className="flex gap-1.5">
+                    <span className="text-gray-400 shrink-0">Dropoff</span>
+                    <span>{fmtTime(trip.scheduledDropoffTime)} · {trip.dropoffLocation}</span>
+                  </div>
                   {trip.actualPickupTime && (
-                    <p><span className="text-gray-400">Actual pickup:</span> {fmtTime(trip.actualPickupTime)}</p>
+                    <div className="flex gap-1.5">
+                      <span className="text-gray-400 shrink-0">Actual pickup</span>
+                      <span className="text-emerald-700 font-medium">{fmtTime(trip.actualPickupTime)}</span>
+                    </div>
                   )}
                   {trip.actualDropoffTime && (
-                    <p><span className="text-gray-400">Actual dropoff:</span> {fmtTime(trip.actualDropoffTime)}</p>
+                    <div className="flex gap-1.5">
+                      <span className="text-gray-400 shrink-0">Actual dropoff</span>
+                      <span className="text-emerald-700 font-medium">{fmtTime(trip.actualDropoffTime)}</span>
+                    </div>
                   )}
                 </div>
 
+                {/* Driver chip */}
                 {trip.driver && (
-                  <div className="flex items-center gap-3 mb-3 p-2.5 bg-gray-50 rounded-xl">
-                    <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-700 font-bold text-xs shrink-0">
+                  <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl mb-4">
+                    <div className="w-9 h-9 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-700 font-bold text-sm shrink-0">
                       {trip.driver.profile?.fullName?.[0] ?? 'D'}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">{trip.driver.profile?.fullName ?? 'Driver'}</p>
+                      <p className="text-sm font-medium text-gray-900 truncate">
+                        {trip.driver.profile?.fullName ?? 'Driver'}
+                      </p>
                       {trip.driver.rating && (
-                        <p className="text-xs text-amber-600">★ {Number(trip.driver.rating).toFixed(1)}</p>
+                        <p className="text-xs text-amber-600 font-medium">
+                          ★ {Number(trip.driver.rating).toFixed(1)}
+                        </p>
                       )}
                     </div>
                     {trip.vehicle && (
-                      <p className="text-xs text-gray-500 shrink-0 text-right">
-                        {trip.vehicle.model}<br />
-                        <span className="font-mono">{trip.vehicle.plateNumber}</span>
-                      </p>
+                      <div className="text-xs text-gray-500 text-right shrink-0">
+                        <p>{trip.vehicle.color ? `${trip.vehicle.color} ` : ''}{trip.vehicle.model}</p>
+                        <p className="font-mono font-medium">{trip.vehicle.plateNumber}</p>
+                      </div>
                     )}
                   </div>
                 )}
 
-                {/* Parent actions */}
+                {/* Actions */}
                 {(showTracking || showCancel) && (
-                  <div className="flex gap-2 flex-wrap">
+                  <div className="flex gap-2 flex-wrap pt-1">
                     {showTracking && (
-                      <Link
-                        href={`/tracking/${trip.id}`}
-                        className="text-sm px-4 py-2 rounded-xl font-semibold border border-emerald-300 text-emerald-700 hover:bg-emerald-50"
-                      >
-                        View Tracking →
+                      <Link href={`/tracking/${trip.id}`}>
+                        <Button variant="outline" size="sm">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <circle cx="12" cy="12" r="10" />
+                            <circle cx="12" cy="12" r="3" />
+                          </svg>
+                          Live Tracking
+                        </Button>
                       </Link>
                     )}
                     {showCancel && (
-                      <button
-                        onClick={() => handleCancel(trip)}
-                        disabled={cancelling === trip.id}
-                        className="text-sm px-4 py-2 rounded-xl font-semibold border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-50"
+                      <Button
+                        variant="danger-outline"
+                        size="sm"
+                        loading={cancelling === trip.id}
+                        disabled={!!cancelling}
+                        onClick={() => setCancelTarget(trip)}
                       >
-                        {cancelling === trip.id ? 'Cancelling…' : 'Cancel Trip'}
-                      </button>
+                        Cancel Trip
+                      </Button>
                     )}
                   </div>
                 )}
 
-                {/* Driver GPS controls — only for assigned driver on active trips */}
+                {/* Driver GPS panel */}
                 {showGps && <DriverGpsPanel tripId={trip.id} />}
-              </div>
+              </Card>
             );
           })}
         </div>
       )}
+
+      <ConfirmDialog
+        isOpen={!!cancelTarget}
+        title="Cancel Trip?"
+        message={`Cancel the trip on ${cancelTarget ? new Date(cancelTarget.scheduledDate).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' }) : ''}? This cannot be undone.`}
+        confirmLabel="Cancel Trip"
+        confirmVariant="danger"
+        onConfirm={doCancel}
+        onCancel={() => setCancelTarget(null)}
+      />
     </AppShell>
   );
 }

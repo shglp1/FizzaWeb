@@ -1,9 +1,22 @@
 'use client';
+
 import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import Link from 'next/link';
 import { AppShell } from '@/components/layout/AppShell';
+import {
+  PageHeader,
+  Card,
+  Input,
+  Button,
+  Alert,
+  Badge,
+  LoadingState,
+  ErrorState,
+} from '@/components/ui';
 import { profileService } from '@/services/profileService';
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 type Profile = {
   id: string;
@@ -16,19 +29,21 @@ type Profile = {
 
 type FormValues = { fullName: string; phone: string; avatarUrl: string };
 
-const ROLE_LABELS: Record<string, string> = {
+const ROLE_BADGE: Record<string, 'success' | 'info' | 'warning' | 'purple' | 'gray'> = {
+  PARENT: 'success',
+  RIDER: 'info',
+  DRIVER: 'warning',
+  ADMIN: 'purple',
+};
+
+const ROLE_LABEL: Record<string, string> = {
   PARENT: 'Parent',
   RIDER: 'Rider',
   DRIVER: 'Driver',
   ADMIN: 'Admin',
 };
 
-const ROLE_COLORS: Record<string, string> = {
-  PARENT: 'bg-emerald-100 text-emerald-800',
-  RIDER: 'bg-blue-100 text-blue-800',
-  DRIVER: 'bg-amber-100 text-amber-800',
-  ADMIN: 'bg-purple-100 text-purple-800',
-};
+// ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function ProfilePage() {
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -44,11 +59,7 @@ export default function ProfilePage() {
       if (res.data?.profile) {
         const p: Profile = res.data.profile;
         setProfile(p);
-        reset({
-          fullName: p.fullName ?? '',
-          phone: p.phone ?? '',
-          avatarUrl: p.avatarUrl ?? '',
-        });
+        reset({ fullName: p.fullName ?? '', phone: p.phone ?? '', avatarUrl: p.avatarUrl ?? '' });
       } else {
         setError('Could not load profile.');
       }
@@ -79,120 +90,144 @@ export default function ProfilePage() {
     }
   };
 
-  if (loading) {
-    return (
-      <AppShell>
-        <div className="flex items-center justify-center h-48 text-gray-400">Loading profile…</div>
-      </AppShell>
-    );
-  }
+  if (loading) return <AppShell><LoadingState message="Loading profile…" /></AppShell>;
+
+  if (!profile) return (
+    <AppShell>
+      <ErrorState message={error || 'Profile not found.'} onRetry={() => window.location.reload()} />
+    </AppShell>
+  );
+
+  const role = profile.user.role;
 
   return (
     <AppShell>
-      <h1 className="text-2xl font-semibold mb-6">My Profile</h1>
+      <PageHeader title="My Profile" subtitle="Manage your personal information and account" />
 
-      <div className="grid md:grid-cols-2 gap-4">
-        {/* Edit form */}
-        <div className="card">
-          <h2 className="font-semibold text-lg mb-4">Personal Information</h2>
+      <div className="grid md:grid-cols-5 gap-5">
+        {/* Left — avatar + account summary */}
+        <div className="md:col-span-2 flex flex-col gap-4">
+          {/* Avatar card */}
+          <Card>
+            <div className="flex flex-col items-center text-center gap-3 py-4">
+              {profile.avatarUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={profile.avatarUrl}
+                  alt="Avatar"
+                  className="w-20 h-20 rounded-full object-cover border-4 border-emerald-100 shadow-sm"
+                />
+              ) : (
+                <div className="w-20 h-20 rounded-full bg-gradient-to-br from-fizza-secondary to-fizza-primary flex items-center justify-center text-3xl font-bold text-white shadow-sm">
+                  {profile.fullName?.charAt(0)?.toUpperCase() ?? '?'}
+                </div>
+              )}
+              <div>
+                <p className="font-bold text-gray-900 text-lg">{profile.fullName}</p>
+                <p className="text-sm text-gray-500">{profile.user.email}</p>
+              </div>
+              <Badge variant={ROLE_BADGE[role] ?? 'gray'}>
+                {ROLE_LABEL[role] ?? role}
+              </Badge>
+            </div>
 
-          {profile?.avatarUrl && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={profile.avatarUrl}
-              alt="Avatar"
-              className="w-16 h-16 rounded-full object-cover mb-4 border-2 border-emerald-200"
-            />
+            <div className="divider" />
+
+            <div className="space-y-3 text-sm">
+              <div className="flex items-center justify-between">
+                <span className="text-gray-500">Email</span>
+                <span className="font-medium text-gray-800 truncate ml-2">{profile.user.email}</span>
+              </div>
+              {profile.phone && (
+                <div className="flex items-center justify-between">
+                  <span className="text-gray-500">Phone</span>
+                  <span className="font-medium text-gray-800">{profile.phone}</span>
+                </div>
+              )}
+              <div className="flex items-center justify-between">
+                <span className="text-gray-500">Account type</span>
+                <Badge variant={ROLE_BADGE[role] ?? 'gray'}>
+                  {ROLE_LABEL[role] ?? role}
+                </Badge>
+              </div>
+            </div>
+          </Card>
+
+          {/* Driver CTA / Driver status */}
+          {role !== 'DRIVER' && role !== 'ADMIN' && (
+            <Card className="bg-gradient-to-br from-emerald-50 to-white border-emerald-200">
+              <div className="flex items-start gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-fizza-secondary/10 text-fizza-secondary shrink-0">
+                  🚗
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h3 className="font-semibold text-gray-900">Become a Driver</h3>
+                  <p className="text-sm text-gray-500 mt-0.5">
+                    Apply and earn on your own schedule.
+                  </p>
+                  <Link href="/driver-application" className="btn-secondary btn-sm mt-3 inline-flex">
+                    Apply Now →
+                  </Link>
+                </div>
+              </div>
+            </Card>
           )}
 
-          <form onSubmit={handleSubmit(onSubmit)} className="space-y-3">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
-              <input
-                className="input"
-                placeholder="Full Name"
-                {...register('fullName', { required: 'Name is required' })}
-              />
-              {errors.fullName && (
-                <p className="text-red-500 text-xs mt-1">{errors.fullName.message}</p>
-              )}
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
-              <input className="input" placeholder="+966 5X XXX XXXX" {...register('phone')} />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Avatar URL{' '}
-                <span className="text-gray-400 font-normal">(optional)</span>
-              </label>
-              <input
-                className="input"
-                placeholder="https://example.com/avatar.jpg"
-                {...register('avatarUrl')}
-              />
-            </div>
-
-            {success && (
-              <p className="text-emerald-700 bg-emerald-50 rounded-lg px-3 py-2 text-sm">
-                {success}
-              </p>
-            )}
-            {error && (
-              <p className="text-red-600 bg-red-50 rounded-lg px-3 py-2 text-sm">{error}</p>
-            )}
-
-            <button type="submit" className="btn-primary w-full" disabled={saving}>
-              {saving ? 'Saving…' : 'Save Changes'}
-            </button>
-          </form>
+          {role === 'DRIVER' && (
+            <Card className="bg-amber-50 border-amber-200">
+              <div className="flex items-center gap-3">
+                <div className="text-2xl">✅</div>
+                <div>
+                  <h3 className="font-semibold text-amber-900">Driver Account</h3>
+                  <p className="text-sm text-amber-700">Your application is approved.</p>
+                </div>
+              </div>
+            </Card>
+          )}
         </div>
 
-        {/* Account info */}
-        <div className="space-y-4">
-          <div className="card">
-            <h2 className="font-semibold text-lg mb-4">Account</h2>
-            <div className="space-y-3 text-sm">
-              <div>
-                <span className="text-gray-500">Email</span>
-                <p className="font-medium mt-0.5">{profile?.user.email}</p>
-              </div>
-              <div>
-                <span className="text-gray-500">Role</span>
-                <p className="mt-0.5">
-                  <span
-                    className={`inline-block px-2 py-0.5 rounded-full text-xs font-semibold ${
-                      ROLE_COLORS[profile?.user.role ?? ''] ?? 'bg-gray-100 text-gray-700'
-                    }`}
-                  >
-                    {ROLE_LABELS[profile?.user.role ?? ''] ?? profile?.user.role}
-                  </span>
-                </p>
-              </div>
-            </div>
-          </div>
+        {/* Right — edit form */}
+        <div className="md:col-span-3">
+          <Card>
+            <h2 className="text-base font-semibold text-gray-900 mb-5">Personal Information</h2>
 
-          {/* Driver application CTA — hide for existing approved drivers */}
-          {profile?.user.role !== 'DRIVER' && profile?.user.role !== 'ADMIN' && (
-            <div className="card border-emerald-200 bg-emerald-50">
-              <h2 className="font-semibold text-emerald-900 mb-1">Become a Driver</h2>
-              <p className="text-sm text-emerald-700 mb-3">
-                Apply to drive on the FIZZA platform and earn on your own schedule.
-              </p>
-              <Link href={{ pathname: '/driver-application' }} className="btn-primary text-sm px-4 py-2 inline-block rounded-xl">
-                Apply Now →
-              </Link>
-            </div>
-          )}
+            {success && (
+              <Alert variant="success" className="mb-4" onClose={() => setSuccess('')}>{success}</Alert>
+            )}
+            {error && (
+              <Alert variant="error" className="mb-4" onClose={() => setError('')}>{error}</Alert>
+            )}
 
-          {profile?.user.role === 'DRIVER' && (
-            <div className="card border-amber-200 bg-amber-50">
-              <h2 className="font-semibold text-amber-900 mb-1">Driver Account</h2>
-              <p className="text-sm text-amber-700">Your driver application is approved.</p>
-            </div>
-          )}
+            <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+              <Input
+                label="Full name"
+                placeholder="Your full name"
+                required
+                error={errors.fullName?.message}
+                {...register('fullName', { required: 'Name is required' })}
+              />
+              <Input
+                label="Phone number"
+                type="tel"
+                placeholder="+966 5X XXX XXXX"
+                helpText="Used for trip notifications"
+                {...register('phone')}
+              />
+              <Input
+                label="Avatar URL"
+                type="url"
+                placeholder="https://example.com/avatar.jpg"
+                helpText="Link to a profile photo (optional)"
+                {...register('avatarUrl')}
+              />
+
+              <div className="pt-2">
+                <Button type="submit" variant="primary" loading={saving} className="w-full sm:w-auto">
+                  {saving ? 'Saving…' : 'Save Changes'}
+                </Button>
+              </div>
+            </form>
+          </Card>
         </div>
       </div>
     </AppShell>
