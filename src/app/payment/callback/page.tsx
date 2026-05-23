@@ -14,9 +14,13 @@
  *
  * Local development: works on localhost because the browser returns here.
  * Webhook (POST) requires a public URL (ngrok etc.) — see README.
+ *
+ * NOTE: useSearchParams() must be inside a <Suspense> boundary to allow
+ * Next.js static prerendering. PaymentCallbackContent is the real component;
+ * PaymentCallbackPage is the thin wrapper that provides the boundary.
  */
 
-import { useEffect, useState, useCallback } from 'react';
+import { Suspense, useEffect, useState, useCallback } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 
@@ -46,9 +50,27 @@ function Spinner() {
   );
 }
 
-// ─── Page ─────────────────────────────────────────────────────────────────────
+// ─── Suspense fallback shown while Next.js resolves the search params ─────────
 
-export default function PaymentCallbackPage() {
+function PaymentCallbackLoading() {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
+      <div className="w-full max-w-sm">
+        <div className="bg-white rounded-2xl shadow-lg p-8 text-center space-y-4">
+          <div className="flex justify-center">
+            <Spinner />
+          </div>
+          <h1 className="text-lg font-semibold text-gray-800">Preparing payment verification…</h1>
+          <p className="text-sm text-gray-500">Please wait a moment.</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Inner component — safe to call useSearchParams() here ───────────────────
+
+function PaymentCallbackContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
 
@@ -256,5 +278,15 @@ export default function PaymentCallbackPage() {
         )}
       </div>
     </div>
+  );
+}
+
+// ─── Page export — wraps content in Suspense for static prerender ─────────────
+
+export default function PaymentCallbackPage() {
+  return (
+    <Suspense fallback={<PaymentCallbackLoading />}>
+      <PaymentCallbackContent />
+    </Suspense>
   );
 }
