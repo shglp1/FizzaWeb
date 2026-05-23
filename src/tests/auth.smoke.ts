@@ -30,11 +30,18 @@ describe('signToken / verifyToken', () => {
 
   it('returns null for a tampered token', async () => {
     const token = await signToken('user-789', 'PARENT');
-    const parts = token.split('.');
-    parts[2] = parts[2]!.slice(0, -1) + (parts[2]!.endsWith('a') ? 'b' : 'a');
-    const tampered = parts.join('.');
-    const payload = await verifyToken(tampered);
-    assert.equal(payload, null, 'tampered token should return null');
+    // Split into header.payload.signature
+    const [header, payloadB64, signature] = token.split('.') as [string, string, string];
+
+    // Decode, mutate the payload, re-encode — keeps original signature
+    // jose verifies HMAC(header.payload) === signature, so any payload change breaks it
+    const decoded = JSON.parse(Buffer.from(payloadB64, 'base64url').toString('utf8')) as Record<string, unknown>;
+    decoded['role'] = decoded['role'] === 'ADMIN' ? 'PARENT' : 'ADMIN'; // flip role
+    const tamperedPayloadB64 = Buffer.from(JSON.stringify(decoded)).toString('base64url');
+
+    const tampered = [header, tamperedPayloadB64, signature].join('.');
+    const result = await verifyToken(tampered);
+    assert.equal(result, null, 'token with tampered payload but original signature must return null');
   });
 
   it('returns null for an arbitrary string', async () => {
