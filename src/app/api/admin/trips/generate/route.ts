@@ -69,14 +69,32 @@ export async function POST(req: Request) {
       );
     }
 
-    // Fetch ACTIVE subscriptions with schedules and all riders
+    // Load global excluded dates from SystemConfiguration (YYYY-MM-DD strings)
+    const excludedDatesConfig = await prisma.systemConfiguration.findUnique({
+      where: { key: 'excludedDates' },
+    });
+    const excludedDates = new Set<string>(
+      Array.isArray(excludedDatesConfig?.value) ? (excludedDatesConfig!.value as string[]) : [],
+    );
+
+    // Fetch ACTIVE subscriptions with schedules, riders, and assigned driver
     const subscriptions = await prisma.userSubscription.findMany({
       where: { status: 'ACTIVE' },
-      include: {
-        schedules: { where: { isOffDay: false } },
-        subscriptionRiders: {
-          select: { riderId: true, isPrimary: true },
-        },
+      select: {
+        id: true,
+        pickupLocation: true,
+        dropoffLocation: true,
+        pickupTime: true,
+        returnTime: true,
+        tripDirection: true,
+        riderId: true,
+        assignedDriverId: true,
+        pickupLat: true,
+        pickupLng: true,
+        dropoffLat: true,
+        dropoffLng: true,
+        schedules: { where: { isOffDay: false }, select: { weekday: true } },
+        subscriptionRiders: { select: { riderId: true, isPrimary: true } },
       },
     });
 
@@ -99,13 +117,22 @@ export async function POST(req: Request) {
 
       // Determine legs based on tripDirection
       const isRoundTrip = sub.tripDirection === 'ROUND_TRIP';
-      type LegDef = { legType: 'OUTBOUND' | 'RETURN'; pickup: string; dropoff: string; time: string };
+      type LegDef = {
+        legType: 'OUTBOUND' | 'RETURN';
+        pickup: string; dropoff: string; time: string;
+        pickupLat: number | null; pickupLng: number | null;
+        dropoffLat: number | null; dropoffLng: number | null;
+      };
       const legs: LegDef[] = [
         {
           legType: 'OUTBOUND',
           pickup: sub.pickupLocation,
           dropoff: sub.dropoffLocation,
           time: sub.pickupTime,
+          pickupLat: sub.pickupLat ?? null,
+          pickupLng: sub.pickupLng ?? null,
+          dropoffLat: sub.dropoffLat ?? null,
+          dropoffLng: sub.dropoffLng ?? null,
         },
         ...(isRoundTrip
           ? [{
@@ -113,6 +140,11 @@ export async function POST(req: Request) {
               pickup: sub.dropoffLocation,
               dropoff: sub.pickupLocation,
               time: sub.returnTime,
+              // For RETURN leg, pickup/dropoff coordinates are swapped
+              pickupLat: sub.dropoffLat ?? null,
+              pickupLng: sub.dropoffLng ?? null,
+              dropoffLat: sub.pickupLat ?? null,
+              dropoffLng: sub.pickupLng ?? null,
             }]
           : []),
       ];
@@ -120,6 +152,10 @@ export async function POST(req: Request) {
       for (const date of dates) {
         const weekday = date.getDay(); // 0=Sun … 6=Sat
         if (!activeWeekdays.has(weekday)) continue;
+
+        // Skip globally excluded dates (school holidays, public holidays, etc.)
+        const dateStr = date.toISOString().slice(0, 10);
+        if (excludedDates.has(dateStr)) continue;
 
         for (const riderId of riderIds) {
           for (const leg of legs) {
@@ -141,12 +177,19 @@ export async function POST(req: Request) {
                 data: {
                   subscriptionId: sub.id,
                   riderId,
+                  // Inherit assigned driver from subscription (Task 11H)
+                  driverId: sub.assignedDriverId ?? null,
                   scheduledDate: date,
                   scheduledPickupTime: parseTime(leg.time, date),
                   pickupLocation: leg.pickup,
                   dropoffLocation: leg.dropoff,
+                  // Inherit precise coordinates from subscription (Task 11H)
+                  pickupLat: leg.pickupLat,
+                  pickupLng: leg.pickupLng,
+                  dropoffLat: leg.dropoffLat,
+                  dropoffLng: leg.dropoffLng,
                   legType: leg.legType,
-                  status: 'SCHEDULED',
+                  status: sub.assignedDriverId ? 'DRIVER_ASSIGNED' : 'SCHEDULED',
                 },
               });
 

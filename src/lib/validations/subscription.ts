@@ -85,6 +85,20 @@ export const subscriptionQuoteSchema = z.object({
   dropoffLocation: locationInputSchema,
   tripDirection: z.enum(['ONE_WAY', 'ROUND_TRIP']).default('ROUND_TRIP'),
   riderIds: z.array(z.string().uuid()).min(1, 'At least one rider is required').max(10),
+  /**
+   * Days of week the rider travels (0=Sun … 6=Sat).
+   * Defaults to Mon–Fri ([1,2,3,4,5]) when omitted.
+   * Used with the package billing cycle to compute actualServiceDays.
+   */
+  weekdays: z
+    .array(z.number().int().min(0).max(6))
+    .optional()
+    .default([1, 2, 3, 4, 5]),
+  /**
+   * Desired subscription start date (YYYY-MM-DD).
+   * Defaults to today when omitted. Used with billingCycle to determine service window.
+   */
+  startsOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Start date must be YYYY-MM-DD').optional(),
 });
 
 export const adminSubscriptionUpdateSchema = z.object({

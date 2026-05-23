@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { requireAuth } from '@/lib/session';
 import { subscriptionCreateSchema } from '@/lib/validations/subscription';
 import { getPricingConfig, calculateSubscriptionQuote } from '@/lib/pricing/subscriptionPricing';
+import { computeServiceDayBreakdown } from '@/lib/pricing/serviceDays';
 import {
   calculateRouteDistanceKm,
   calculateRouteDistanceKmFromCoords,
@@ -188,12 +189,13 @@ export async function POST(req: Request) {
       addOnsPriceSar = foundAddOns.reduce((sum, a) => sum + Number(a.priceSar), 0);
     }
 
-    // Fetch package price server-side
+    // Fetch package price + billing cycle server-side
     let packagePriceSar = 0;
+    let billingCycle = 'monthly';
     if (packageId) {
       const pkg = await prisma.subscriptionPackage.findFirst({
         where: { id: packageId, isActive: true },
-        select: { priceSar: true },
+        select: { priceSar: true, billingCycle: true },
       });
       if (!pkg) {
         return NextResponse.json(
@@ -202,6 +204,7 @@ export async function POST(req: Request) {
         );
       }
       packagePriceSar = Number(pkg.priceSar);
+      billingCycle = pkg.billingCycle;
     }
 
     // ── Calculate road distance server-side (never trust the client's quoted price) ──
@@ -258,13 +261,18 @@ export async function POST(req: Request) {
       );
     }
 
+    // ── Service-day breakdown (multi-day pricing) ─────────────────────────────
+    const dailyChargeableDistanceKm = chargeableDistanceKm; // per-day (already 1× or 2×)
+    const serviceDays = computeServiceDayBreakdown(startsOn, billingCycle, weekdays);
+    const totalChargeableDistanceKm = round2(dailyChargeableDistanceKm * serviceDays.actualServiceDays);
+
     // ── Server-side pricing calculation (final price, never trust the client) ──
     const config = await getPricingConfig();
     const extraRiderCount = Math.max(0, resolvedRiderIds.length - 1);
     const pricing = calculateSubscriptionQuote(
       packagePriceSar,
       addOnsPriceSar,
-      chargeableDistanceKm,
+      totalChargeableDistanceKm, // charge across ALL service days
       extraRiderCount,
       config,
     );
@@ -295,7 +303,7 @@ export async function POST(req: Request) {
           startsOn: startsOn ? new Date(startsOn) : null,
           // Distance & coordinate snapshots (immutable after creation)
           oneWayDistanceKm,
-          chargeableDistanceKm,
+          chargeableDistanceKm: totalChargeableDistanceKm, // total across all service days
           distanceProvider,
           pickupLat,
           pickupLng,
@@ -304,6 +312,10 @@ export async function POST(req: Request) {
           normalizedPickupLabel,
           normalizedDropoffLabel,
           pricePerKmSarSnapshot: config.pricePerKmSar,
+          // Multi-day breakdown fields
+          actualServiceDays: serviceDays.actualServiceDays,
+          dailyChargeableDistanceKm,
+          totalChargeableDistanceKm,
           // Price snapshots (payment always uses these, never live recalculation)
           packagePriceSar: pricing.packagePriceSar,
           addOnsPriceSar: pricing.addOnsPriceSar,
@@ -341,7 +353,7 @@ export async function POST(req: Request) {
           title: 'Subscription Created',
           message: `Your ${subscriptionType} subscription has been created and is pending payment. ${
             tripDirection === 'ROUND_TRIP' ? 'Round-trip' : 'One-way'
-          } (${chargeableDistanceKm} km chargeable). Final price: SAR ${pricing.finalPriceSar.toFixed(2)}.`,
+          }, ${serviceDays.actualServiceDays} service days (${totalChargeableDistanceKm} km total). Final price: SAR ${pricing.finalPriceSar.toFixed(2)}.`,
           type: 'SUBSCRIPTION',
         },
       });
@@ -381,4 +393,8 @@ export async function POST(req: Request) {
       { status: 500 },
     );
   }
+}
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
 }

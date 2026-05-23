@@ -112,7 +112,7 @@ export async function POST(request: NextRequest) {
 
       await prisma.payment.update({
         where: { id: payment.id },
-        data: { invoiceId: result.invoiceId, externalRef: result.invoiceId },
+        data: { invoiceId: result.invoiceId, externalRef: result.invoiceId, invoiceUrl: result.invoiceUrl },
       });
 
       await prisma.auditLog.create({
@@ -159,7 +159,7 @@ export async function POST(request: NextRequest) {
     // Check for existing PENDING payment
     const existingPayment = await prisma.payment.findFirst({
       where: { subscriptionId: subscriptionId!, status: 'PENDING' },
-      select: { id: true, invoiceId: true, status: true },
+      select: { id: true, invoiceId: true, invoiceUrl: true, status: true },
     });
 
     if (existingPayment) {
@@ -167,6 +167,7 @@ export async function POST(request: NextRequest) {
         data: {
           paymentId: existingPayment.id,
           invoiceId: existingPayment.invoiceId,
+          invoiceUrl: existingPayment.invoiceUrl ?? null,
           status: 'PENDING',
           message: 'Payment already initiated',
         },
@@ -230,7 +231,7 @@ export async function POST(request: NextRequest) {
 
     await prisma.payment.update({
       where: { id: payment.id },
-      data: { invoiceId: result.invoiceId, externalRef: result.invoiceId },
+      data: { invoiceId: result.invoiceId, externalRef: result.invoiceId, invoiceUrl: result.invoiceUrl },
     });
 
     await prisma.auditLog.create({

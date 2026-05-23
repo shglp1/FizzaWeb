@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { requireAuth } from '@/lib/session';
 import { subscriptionQuoteSchema } from '@/lib/validations/subscription';
 import { getPricingConfig, calculateSubscriptionQuote } from '@/lib/pricing/subscriptionPricing';
+import { computeServiceDayBreakdown } from '@/lib/pricing/serviceDays';
 import {
   calculateRouteDistanceKmFromCoords,
   calculateChargeableDistanceKm,
@@ -27,8 +28,10 @@ export async function POST(req: Request) {
       );
     }
 
-    const { packageId, addOnIds, pickupLocation, dropoffLocation, tripDirection, riderIds } =
-      parsed.data;
+    const {
+      packageId, addOnIds, pickupLocation, dropoffLocation,
+      tripDirection, riderIds, weekdays, startsOn,
+    } = parsed.data;
 
     // Validate all riderIds belong to this user
     const riders = await prisma.rider.findMany({
@@ -42,13 +45,14 @@ export async function POST(req: Request) {
       );
     }
 
-    // Fetch package price
+    // Fetch package price + billing cycle
     let packagePriceSar = 0;
     let packageName: string | null = null;
+    let billingCycle = 'monthly'; // default fallback
     if (packageId) {
       const pkg = await prisma.subscriptionPackage.findFirst({
         where: { id: packageId, isActive: true },
-        select: { priceSar: true, name: true },
+        select: { priceSar: true, name: true, billingCycle: true },
       });
       if (!pkg) {
         return NextResponse.json(
@@ -58,6 +62,7 @@ export async function POST(req: Request) {
       }
       packagePriceSar = Number(pkg.priceSar);
       packageName = pkg.name;
+      billingCycle = pkg.billingCycle;
     }
 
     // Fetch add-ons prices
@@ -145,14 +150,24 @@ export async function POST(req: Request) {
     const { oneWayDistanceKm, providerUsed, pickupCoordinates, dropoffCoordinates,
       normalizedPickupLabel, normalizedDropoffLabel } = routeResult;
 
-    const chargeableDistanceKm = calculateChargeableDistanceKm(oneWayDistanceKm, tripDirection);
+    // Per-day chargeable distance (1× or 2× depending on direction)
+    const dailyChargeableDistanceKm = calculateChargeableDistanceKm(oneWayDistanceKm, tripDirection);
+
+    // Compute service-day breakdown using weekdays + package billing cycle
+    const serviceDays = computeServiceDayBreakdown(startsOn, billingCycle, weekdays);
+    const { actualServiceDays, serviceStartDate, serviceEndDate } = serviceDays;
+
+    // Total chargeable distance across all service days
+    const totalChargeableDistanceKm = round2(dailyChargeableDistanceKm * actualServiceDays);
+
     const config = await getPricingConfig();
     const extraRiderCount = Math.max(0, riderIds.length - 1);
 
+    // Price is calculated on the TOTAL chargeable distance, not daily
     const breakdown = calculateSubscriptionQuote(
       packagePriceSar,
       addOnsPriceSar,
-      chargeableDistanceKm,
+      totalChargeableDistanceKm,
       extraRiderCount,
       config,
     );
@@ -160,11 +175,20 @@ export async function POST(req: Request) {
     return NextResponse.json({
       data: {
         quote: {
+          // ── Distance ────────────────────────────────────────────────────────
+          oneWayDistanceKm,
+          dailyChargeableDistanceKm,
+          totalChargeableDistanceKm,
+          tripDirection,
+          // ── Service days ────────────────────────────────────────────────────
+          weekdays,
+          actualServiceDays,
+          serviceStartDate,
+          serviceEndDate,
+          billingCycle,
+          // ── Price breakdown ─────────────────────────────────────────────────
           packagePriceSar: breakdown.packagePriceSar,
           addOnsPriceSar: breakdown.addOnsPriceSar,
-          oneWayDistanceKm,
-          chargeableDistanceKm,
-          tripDirection,
           pricePerKmSar: config.pricePerKmSar,
           distanceChargeSar: breakdown.distancePriceSar,
           primaryFinalSar: breakdown.primaryFinalSar,
@@ -172,6 +196,7 @@ export async function POST(req: Request) {
           extraRiderSameDropoffMultiplier: config.extraRiderSameDropoffMultiplier,
           extraRiderChargeSar: breakdown.extraRidersPriceSar,
           finalPriceSar: breakdown.finalPriceSar,
+          // ── Meta ─────────────────────────────────────────────────────────────
           distanceProvider: providerUsed,
           pickupCoordinates,
           dropoffCoordinates,
@@ -192,4 +217,8 @@ export async function POST(req: Request) {
       { status: 500 },
     );
   }
+}
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
 }
