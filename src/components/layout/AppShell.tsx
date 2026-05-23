@@ -1,6 +1,7 @@
 'use client';
 
 import { type ReactNode } from 'react';
+import { usePathname } from 'next/navigation';
 import { Sidebar } from './Sidebar';
 import { MobileNav } from './MobileNav';
 import { Logo } from './Logo';
@@ -30,6 +31,14 @@ function MobileTopBar() {
 // ─── AppShell ─────────────────────────────────────────────────────────────────
 
 export function AppShell({ children }: { children: ReactNode }) {
+  const pathname = usePathname();
+  const isAdminRoute = pathname === '/admin' || pathname.startsWith('/admin/');
+
+  // /admin uses AdminShell — never render parent/driver sidebar here
+  if (isAdminRoute) {
+    return <>{children}</>;
+  }
+
   return (
     <div className="flex min-h-screen bg-fizza-bg">
       {/* Desktop sidebar */}

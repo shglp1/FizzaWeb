@@ -1,0 +1,72 @@
+/** Admin dashboard sections — single nav source for AdminShell and tests. */
+
+export type AdminSection =
+  | 'overview'
+  | 'users'
+  | 'riders'
+  | 'drivers'
+  | 'applications'
+  | 'packages'
+  | 'subscriptions'
+  | 'trips'
+  | 'financials'
+  | 'safety'
+  | 'sysconfig'
+  | 'audit';
+
+export type AdminNavItem = {
+  label: string;
+  section: AdminSection;
+  icon: string;
+};
+
+export const ADMIN_SECTIONS: AdminNavItem[] = [
+  { label: 'Overview',            section: 'overview',      icon: 'dashboard' },
+  { label: 'Users',               section: 'users',         icon: 'profile' },
+  { label: 'Riders',              section: 'riders',        icon: 'riders' },
+  { label: 'Drivers',             section: 'drivers',       icon: 'trips' },
+  { label: 'Driver Applications', section: 'applications',  icon: 'driverApp' },
+  { label: 'Packages & Add-ons',  section: 'packages',      icon: 'subscriptions' },
+  { label: 'Subscriptions',       section: 'subscriptions', icon: 'subscriptions' },
+  { label: 'Trips',               section: 'trips',         icon: 'trips' },
+  { label: 'Financials',          section: 'financials',    icon: 'wallet' },
+  { label: 'Safety Reports',      section: 'safety',        icon: 'safety' },
+  { label: 'System Config',       section: 'sysconfig',     icon: 'admin' },
+  { label: 'Audit Logs',          section: 'audit',         icon: 'subscriptions' },
+];
+
+export const ADMIN_SECTION_LABELS: Record<AdminSection, string> = {
+  overview: 'Overview',
+  users: 'Users',
+  riders: 'Riders',
+  drivers: 'Drivers',
+  applications: 'Driver Applications',
+  packages: 'Packages & Add-ons',
+  subscriptions: 'Subscriptions',
+  trips: 'Trips',
+  financials: 'Financials',
+  safety: 'Safety Reports',
+  sysconfig: 'System Config',
+  audit: 'Audit Logs',
+};
+
+export function adminSectionHref(section: AdminSection): string {
+  return `/admin?section=${section}`;
+}
+
+export function parseAdminSection(value: string | null): AdminSection {
+  const valid = ADMIN_SECTIONS.map((s) => s.section);
+  if (value && valid.includes(value as AdminSection)) {
+    return value as AdminSection;
+  }
+  return 'overview';
+}
+
+/** Parent nav hrefs that must not appear on /admin. */
+export const PARENT_ONLY_NAV_HREFS = [
+  '/dashboard',
+  '/riders',
+  '/subscriptions',
+  '/wallet',
+  '/driver-application',
+];

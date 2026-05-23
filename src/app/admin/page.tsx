@@ -2,7 +2,13 @@
 import { Suspense } from 'react';
 import { useEffect, useState, useCallback } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { AppShell } from '@/components/layout/AppShell';
+import { AdminShell } from '@/components/layout/AdminShell';
+import { useCurrentUser } from '@/hooks/useCurrentUser';
+import {
+  ADMIN_SECTION_LABELS,
+  parseAdminSection,
+  type AdminSection,
+} from '@/lib/adminNav';
 import {
   PageHeader, Card, Alert, StatusBadge, Button, Textarea,
   Tabs, Pagination, LoadingState, ErrorState, EmptyState,
@@ -136,64 +142,38 @@ function fmtTime(dt: string | null): string {
 
 // ─── Section rail ─────────────────────────────────────────────────────────────
 
-type Section = 'overview' | 'users' | 'riders' | 'drivers' | 'applications' | 'subscriptions' | 'trips' | 'financials' | 'safety' | 'packages' | 'sysconfig' | 'audit';
+type Section = AdminSection;
 
-const SECTIONS: { label: string; value: Section; icon: string }[] = [
-  { label: 'Overview',      value: 'overview',      icon: '📊' },
-  { label: 'Users',         value: 'users',         icon: '👤' },
-  { label: 'Riders',        value: 'riders',        icon: '🧒' },
-  { label: 'Drivers',       value: 'drivers',       icon: '🚗' },
-  { label: 'Applications',  value: 'applications',  icon: '📝' },
-  { label: 'Subscriptions', value: 'subscriptions', icon: '📋' },
-  { label: 'Trips',         value: 'trips',         icon: '🗓️' },
-  { label: 'Financials',    value: 'financials',    icon: '💰' },
-  { label: 'Safety',        value: 'safety',        icon: '🛡️' },
-  { label: 'Packages',      value: 'packages',      icon: '📦' },
-  { label: 'Config',        value: 'sysconfig',     icon: '⚙️' },
-  { label: 'Audit Logs',    value: 'audit',         icon: '📋' },
-];
+const ROLE_REFRESH_HINT =
+  'If your role was recently changed to Admin, sign out and sign in again to refresh your session.';
 
-// Desktop vertical section rail
-function SectionRail({ active, onChange }: { active: Section; onChange: (s: Section) => void }) {
+function AdminForbidden() {
   return (
-    <aside className="hidden lg:flex flex-col w-48 shrink-0 gap-0.5">
-      {SECTIONS.map((s) => (
-        <button
-          key={s.value}
-          onClick={() => onChange(s.value)}
-          className={`flex items-center gap-2.5 rounded-xl px-3 py-2 text-sm font-medium text-left transition-all ${
-            active === s.value
-              ? 'bg-fizza-primary text-white'
-              : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
-          }`}
-        >
-          <span className="text-base">{s.icon}</span>
-          <span className="truncate">{s.label}</span>
-        </button>
-      ))}
-    </aside>
-  );
-}
-
-// Mobile horizontal scroll picker
-function MobileSectionPicker({ active, onChange }: { active: Section; onChange: (s: Section) => void }) {
-  return (
-    <div className="lg:hidden -mx-4 mb-5">
-      <div className="flex gap-2 overflow-x-auto px-4 pb-2 scrollbar-none">
-        {SECTIONS.map((s) => (
+    <div className="min-h-screen bg-fizza-bg flex items-center justify-center p-6">
+      <div className="max-w-md w-full text-center card-md p-8">
+        <div className="inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-red-50 text-3xl mb-4">
+          🚫
+        </div>
+        <h1 className="text-xl font-bold text-gray-900 mb-2">Admin access required</h1>
+        <p className="text-sm text-gray-500 mb-4">
+          You do not have permission to view the admin dashboard.
+        </p>
+        <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 mb-6">
+          {ROLE_REFRESH_HINT}
+        </p>
+        <div className="flex flex-col sm:flex-row gap-3 justify-center">
+          <a href="/dashboard" className="btn-primary btn-md">Go to Dashboard</a>
           <button
-            key={s.value}
-            onClick={() => onChange(s.value)}
-            className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold whitespace-nowrap transition-all ${
-              active === s.value
-                ? 'bg-fizza-primary text-white shadow-sm'
-                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-            }`}
+            type="button"
+            className="btn-secondary btn-md"
+            onClick={async () => {
+              await fetch('/api/auth/logout', { method: 'POST' });
+              window.location.href = '/login?from=/admin';
+            }}
           >
-            <span>{s.icon}</span>
-            <span>{s.label}</span>
+            Sign out
           </button>
-        ))}
+        </div>
       </div>
     </div>
   );
@@ -204,43 +184,67 @@ function MobileSectionPicker({ active, onChange }: { active: Section; onChange: 
 function AdminContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
+  const { user, loading, isUnauthorized } = useCurrentUser();
 
-  const activeSection = (searchParams.get('section') ?? 'overview') as Section;
+  const activeSection = parseAdminSection(searchParams.get('section'));
 
-  const navigate = (s: Section) => {
-    router.push(`/admin?section=${s}`, { scroll: false });
-  };
+  useEffect(() => {
+    if (loading) return;
+    if (isUnauthorized) {
+      window.location.href = '/login?from=/admin';
+      return;
+    }
+    if (user && user.role !== 'ADMIN') {
+      const dest =
+        user.driverState === 'APPROVED_DRIVER'
+          ? '/driver/dashboard'
+          : user.driverState === 'DRIVER_APPLICANT'
+          ? '/driver-application'
+          : '/forbidden';
+      router.replace(dest);
+    }
+  }, [loading, isUnauthorized, user, router]);
+
+  if (loading) {
+    return (
+      <AdminShell>
+        <LoadingState message="Loading admin dashboard…" />
+      </AdminShell>
+    );
+  }
+
+  if (isUnauthorized || !user || user.role !== 'ADMIN') {
+    return <AdminForbidden />;
+  }
+
+  const sectionTitle = ADMIN_SECTION_LABELS[activeSection];
 
   return (
-    <AppShell>
+    <AdminShell>
       <PageHeader
-        title="Admin Dashboard"
+        title={sectionTitle}
         subtitle="Platform management and operations"
       />
 
-      {/* Mobile section picker */}
-      <MobileSectionPicker active={activeSection} onChange={navigate} />
+      <p className="text-xs text-gray-400 -mt-4 mb-6 hidden md:block">
+        Admin session active. {ROLE_REFRESH_HINT}
+      </p>
 
-      {/* Desktop: rail + content side-by-side */}
-      <div className="flex gap-6">
-        <SectionRail active={activeSection} onChange={navigate} />
-
-        <div className="flex-1 min-w-0">
-          {activeSection === 'overview'      && <OverviewSection onNavigate={(s) => navigate(s as Section)} />}
-          {activeSection === 'users'         && <UsersSection />}
-          {activeSection === 'riders'        && <RidersSection />}
-          {activeSection === 'drivers'       && <DriversSection />}
-          {activeSection === 'applications'  && <ApplicationsSection />}
-          {activeSection === 'subscriptions' && <SubscriptionsSection />}
-          {activeSection === 'trips'         && <TripsSection />}
-          {activeSection === 'financials'    && <FinancialsSection />}
-          {activeSection === 'safety'        && <SafetySection />}
-          {activeSection === 'packages'      && <PackagesSection />}
-          {activeSection === 'sysconfig'     && <SystemConfigSection />}
-          {activeSection === 'audit'         && <AuditLogsSection />}
-        </div>
+      <div className="min-w-0">
+        {activeSection === 'overview'      && <OverviewSection onNavigate={(s) => router.push(`/admin?section=${s}`, { scroll: false })} />}
+        {activeSection === 'users'         && <UsersSection />}
+        {activeSection === 'riders'        && <RidersSection />}
+        {activeSection === 'drivers'       && <DriversSection />}
+        {activeSection === 'applications'  && <ApplicationsSection />}
+        {activeSection === 'subscriptions' && <SubscriptionsSection />}
+        {activeSection === 'trips'         && <TripsSection />}
+        {activeSection === 'financials'    && <FinancialsSection />}
+        {activeSection === 'safety'        && <SafetySection />}
+        {activeSection === 'packages'      && <PackagesSection />}
+        {activeSection === 'sysconfig'     && <SystemConfigSection />}
+        {activeSection === 'audit'         && <AuditLogsSection />}
       </div>
-    </AppShell>
+    </AdminShell>
   );
 }
 
@@ -248,7 +252,13 @@ function AdminContent() {
 
 export default function AdminPage() {
   return (
-    <Suspense fallback={<AppShell><LoadingState message="Loading admin dashboard…" /></AppShell>}>
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-fizza-bg flex items-center justify-center">
+          <LoadingState message="Loading admin dashboard…" />
+        </div>
+      }
+    >
       <AdminContent />
     </Suspense>
   );

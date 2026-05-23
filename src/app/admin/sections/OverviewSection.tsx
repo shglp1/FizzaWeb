@@ -42,8 +42,13 @@ export function OverviewSection({ onNavigate }: { onNavigate: (section: string) 
     return () => clearInterval(id);
   }, [load]);
 
+  const errorWithHint =
+    error === 'Unauthorized' || error === 'Forbidden'
+      ? `${error}. If your role was recently changed to Admin, sign out and sign in again.`
+      : error;
+
   if (loading) return <LoadingState message="Loading overview…" />;
-  if (error)   return <ErrorState message={error} onRetry={() => load()} />;
+  if (error)   return <ErrorState message={errorWithHint} onRetry={() => load()} />;
   if (!stats)  return null;
 
   return (
