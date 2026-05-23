@@ -219,10 +219,11 @@ describe('security — admin users API response shape', () => {
 // ─── UI badge label mapping ───────────────────────────────────────────────────
 
 describe('UI — Account Type badge labels', () => {
+  // Task 10.9: APPROVED_DRIVER label updated to 'Approved Driver' for clarity
   const ACCOUNT_TYPE_LABEL: Record<AccountType, string> = {
     FAMILY_PARENT:    'Parent',
     DRIVER_APPLICANT: 'Driver Applicant',
-    APPROVED_DRIVER:  'Driver',
+    APPROVED_DRIVER:  'Approved Driver',
     ADMIN:            'Admin',
   };
 
@@ -234,8 +235,10 @@ describe('UI — Account Type badge labels', () => {
     assert.equal(ACCOUNT_TYPE_LABEL.DRIVER_APPLICANT, 'Driver Applicant');
     assert.notEqual(ACCOUNT_TYPE_LABEL.DRIVER_APPLICANT, 'PARENT');
   });
-  it('APPROVED_DRIVER shows Driver', () => {
-    assert.equal(ACCOUNT_TYPE_LABEL.APPROVED_DRIVER, 'Driver');
+  it('APPROVED_DRIVER shows Approved Driver (not raw DRIVER or PARENT)', () => {
+    assert.equal(ACCOUNT_TYPE_LABEL.APPROVED_DRIVER, 'Approved Driver');
+    assert.notEqual(ACCOUNT_TYPE_LABEL.APPROVED_DRIVER, 'DRIVER');
+    assert.notEqual(ACCOUNT_TYPE_LABEL.APPROVED_DRIVER, 'PARENT');
   });
   it('ADMIN shows Admin', () => {
     assert.equal(ACCOUNT_TYPE_LABEL.ADMIN, 'Admin');
