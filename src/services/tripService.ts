@@ -19,6 +19,15 @@ export const tripService = {
     return res.json();
   },
 
+  reportLate: async (id: string, type: 'DRIVER' | 'RIDER', reason?: string) => {
+    const res = await fetch(`/api/trips/${encodeURIComponent(id)}/late`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type, reason }),
+    });
+    return res.json();
+  },
+
   updateStatus: async (
     id: string,
     status: string,

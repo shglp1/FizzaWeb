@@ -97,6 +97,8 @@ export function isCancellable(status: TripStatus): boolean {
   return ['SCHEDULED', 'DRIVER_ASSIGNED', 'PRE_TRIP', 'ON_THE_WAY'].includes(status);
 }
 
+const TERMINAL_STATUSES: TripStatus[] = ['COMPLETED', 'CANCELLED', 'NO_SHOW'];
+
 /** Whether the chat window should be open based on scheduled pickup time. */
 export function isChatWindowOpen(
   scheduledPickupTime: Date | null,
@@ -104,16 +106,61 @@ export function isChatWindowOpen(
   chatOpenedAt: Date | null,
   chatClosedAt: Date | null,
   nowMs: number = Date.now(),
+  /** When the trip reached a terminal status (completion/cancel/no-show). */
+  tripEndedAt: Date | null = null,
 ): boolean {
-  // If admin manually closed chat, respect that
+  // Admin hard-close
   if (chatClosedAt) return false;
-  // If already explicitly opened, it's open
+
+  // Terminal trips: chat stays open for 30 minutes after end
+  if (TERMINAL_STATUSES.includes(tripStatus)) {
+    if (!tripEndedAt) return false;
+    return nowMs <= tripEndedAt.getTime() + 30 * 60 * 1000;
+  }
+
   if (chatOpenedAt) return true;
-  // Open if within 20 minutes of pickup
+
   if (!scheduledPickupTime) return false;
   const pickupMs = scheduledPickupTime.getTime();
   const windowOpenMs = pickupMs - 20 * 60 * 1000;
-  if (nowMs >= windowOpenMs) return true;
+  return nowMs >= windowOpenMs;
+}
+
+/** Whether a driver may push GPS for this trip right now. */
+export function isLocationSharingAllowed(
+  tripStatus: TripStatus,
+  scheduledPickupTime: Date | null,
+  nowMs: number = Date.now(),
+): boolean {
+  if (TERMINAL_STATUSES.includes(tripStatus) || tripStatus === 'SCHEDULED') return false;
+
+  if (
+    tripStatus === 'PICKED_UP' ||
+    tripStatus === 'EN_ROUTE_DROPOFF' ||
+    tripStatus === 'ARRIVED_DROPOFF' ||
+    tripStatus === 'ARRIVED_PICKUP'
+  ) {
+    return true;
+  }
+
+  if (tripStatus === 'PRE_TRIP' || tripStatus === 'ON_THE_WAY' || tripStatus === 'DRIVER_ASSIGNED') {
+    return isPreTripWindowOpen(scheduledPickupTime, nowMs) || tripStatus === 'ON_THE_WAY';
+  }
+
+  return false;
+}
+
+/** Whether a parent may view live GPS (10 min before pickup or active leg). */
+export function isParentLocationVisible(
+  tripStatus: TripStatus,
+  scheduledPickupTime: Date | null,
+  nowMs: number = Date.now(),
+): boolean {
+  if (TERMINAL_STATUSES.includes(tripStatus)) return false;
+  if (isActiveStatus(tripStatus)) return true;
+  if (tripStatus === 'DRIVER_ASSIGNED') {
+    return isPreTripWindowOpen(scheduledPickupTime, nowMs);
+  }
   return false;
 }
 

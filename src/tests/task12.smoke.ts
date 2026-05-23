@@ -16,6 +16,8 @@ import {
   isCancellable,
   isChatWindowOpen,
   isPreTripWindowOpen,
+  isLocationSharingAllowed,
+  isParentLocationVisible,
   haversineMetres,
   DRIVER_TRANSITIONS,
   TRIP_STATUS_LABEL,
@@ -223,6 +225,50 @@ describe('isChatWindowOpen', () => {
 
   it('returns false when scheduledPickupTime is null', () => {
     assert.ok(!isChatWindowOpen(null, 'DRIVER_ASSIGNED', null, null));
+  });
+
+  it('stays open for 30 minutes after completion', () => {
+    const ended = new Date(Date.now() - 10 * 60 * 1000);
+    assert.ok(isChatWindowOpen(null, 'COMPLETED', new Date(), null, Date.now(), ended));
+  });
+
+  it('closes more than 30 minutes after completion', () => {
+    const ended = new Date(Date.now() - 35 * 60 * 1000);
+    assert.ok(!isChatWindowOpen(null, 'COMPLETED', new Date(), null, Date.now(), ended));
+  });
+});
+
+describe('isLocationSharingAllowed', () => {
+  const pickupIn5min = new Date(Date.now() + 5 * 60 * 1000);
+  const pickupIn15min = new Date(Date.now() + 15 * 60 * 1000);
+
+  it('allows ON_THE_WAY inside pre-trip window', () => {
+    assert.ok(isLocationSharingAllowed('ON_THE_WAY', pickupIn5min));
+  });
+
+  it('blocks PRE_TRIP outside 10-min window', () => {
+    assert.ok(!isLocationSharingAllowed('PRE_TRIP', pickupIn15min));
+  });
+
+  it('blocks COMPLETED', () => {
+    assert.ok(!isLocationSharingAllowed('COMPLETED', pickupIn5min));
+  });
+
+  it('allows PICKED_UP anytime', () => {
+    assert.ok(isLocationSharingAllowed('PICKED_UP', null));
+  });
+});
+
+describe('isParentLocationVisible', () => {
+  const pickupIn5min = new Date(Date.now() + 5 * 60 * 1000);
+  const pickupIn15min = new Date(Date.now() + 15 * 60 * 1000);
+
+  it('parent sees location when driver is ON_THE_WAY in window', () => {
+    assert.ok(isParentLocationVisible('ON_THE_WAY', pickupIn5min));
+  });
+
+  it('parent cannot see DRIVER_ASSIGNED too early', () => {
+    assert.ok(!isParentLocationVisible('DRIVER_ASSIGNED', pickupIn15min));
   });
 });
 

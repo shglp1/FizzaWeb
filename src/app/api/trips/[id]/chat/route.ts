@@ -13,12 +13,23 @@ const chatMessageSchema = z.object({
   attachmentUrl: z.string().url().optional(),
 });
 
+function tripEndedAt(trip: {
+  status: string;
+  actualDropoffTime: Date | null;
+  updatedAt: Date;
+}): Date | null {
+  if (trip.status === 'COMPLETED') return trip.actualDropoffTime;
+  if (trip.status === 'CANCELLED' || trip.status === 'NO_SHOW') return trip.updatedAt;
+  return null;
+}
+
 async function checkChatAccess(tripId: string, auth: { userId: string; role: string }) {
   const trip = await prisma.trip.findUnique({
     where: { id: tripId },
     select: {
       id: true, status: true, scheduledPickupTime: true,
       chatOpenedAt: true, chatClosedAt: true,
+      actualDropoffTime: true, updatedAt: true,
       driver: { select: { profileId: true } },
       subscription: { select: { userId: true } },
       rider: { select: { parentId: true } },
@@ -26,15 +37,16 @@ async function checkChatAccess(tripId: string, auth: { userId: string; role: str
   });
   if (!trip) return { trip: null, allowed: false, windowOpen: false };
   const parentUserId = trip.subscription?.userId ?? trip.rider?.parentId ?? null;
-  if (auth.role === 'ADMIN') return { trip, allowed: true, windowOpen: true };
-  if (auth.role === 'DRIVER') {
-    return { trip, allowed: trip.driver?.profileId === auth.userId, windowOpen: true };
-  }
-  const allowed = parentUserId === auth.userId;
+  const endedAt = tripEndedAt(trip);
   const windowOpen = isChatWindowOpen(
     trip.scheduledPickupTime, trip.status as TripStatus,
-    trip.chatOpenedAt, trip.chatClosedAt,
+    trip.chatOpenedAt, trip.chatClosedAt, Date.now(), endedAt,
   );
+  if (auth.role === 'ADMIN') return { trip, allowed: true, windowOpen: true };
+  if (auth.role === 'DRIVER') {
+    return { trip, allowed: trip.driver?.profileId === auth.userId, windowOpen };
+  }
+  const allowed = parentUserId === auth.userId;
   return { trip, allowed, windowOpen };
 }
 
@@ -59,7 +71,10 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
         messages: visible,
         chatOpenedAt: trip.chatOpenedAt,
         chatClosedAt: trip.chatClosedAt,
-        windowOpen: isChatWindowOpen(trip.scheduledPickupTime, trip.status as TripStatus, trip.chatOpenedAt, trip.chatClosedAt),
+        windowOpen: isChatWindowOpen(
+          trip.scheduledPickupTime, trip.status as TripStatus,
+          trip.chatOpenedAt, trip.chatClosedAt, Date.now(), tripEndedAt(trip),
+        ),
       },
       error: null,
     });
@@ -89,6 +104,13 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const moderation = moderateMessage(msgBody);
     const moderationStatus = moderation.status;
 
+    if (moderationStatus === 'BLOCKED') {
+      return NextResponse.json({
+        data: null,
+        error: { message: 'Message blocked by moderation policy', matchedWords: moderation.matchedWords },
+      }, { status: 422 });
+    }
+
     if (!trip.chatOpenedAt) {
       await prisma.trip.update({ where: { id }, data: { chatOpenedAt: new Date() } });
     }
@@ -99,6 +121,15 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     });
 
     if (moderationStatus !== 'CLEAN') {
+      await prisma.tripEvent.create({
+        data: {
+          tripId: id,
+          eventType: 'MODERATION_FLAGGED',
+          actorUserId: auth.userId,
+          actorRole: auth.role,
+          message: `Flagged words: ${moderation.matchedWords.join(', ')}`,
+        },
+      });
       const admin = await prisma.user.findFirst({ where: { role: 'ADMIN' }, select: { id: true } });
       await notifyMessageFlagged({ tripId: id, adminUserId: admin?.id ?? null, messagePreview: msgBody });
     }

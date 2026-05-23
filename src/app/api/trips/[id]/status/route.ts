@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireAuth } from '@/lib/session';
 import { z } from 'zod';
-import { isValidTransition, isChatWindowOpen, haversineMetres } from '@/lib/trips/tripLifecycle';
+import { isValidTransition, isChatWindowOpen, haversineMetres, DRIVER_TRANSITIONS } from '@/lib/trips/tripLifecycle';
 import {
   notifyArrivedPickup,
   notifyRiderPickedUp,
@@ -89,6 +89,17 @@ export async function PATCH(
       }, { status: 422 });
     }
 
+    if (auth.role === 'ADMIN') {
+      const driverAllowed = DRIVER_TRANSITIONS[trip.status as TripStatus] ?? [];
+      const isAdminOverride = !driverAllowed.includes(newStatus as TripStatus);
+      if (isAdminOverride && !statusReason?.trim()) {
+        return NextResponse.json({
+          data: null,
+          error: { message: 'Admin override requires statusReason' },
+        }, { status: 422 });
+      }
+    }
+
     // Determine if chat should open
     const parentUserId = trip.subscription?.userId ?? trip.rider?.parentId ?? null;
     const shouldOpenChat = !trip.chatOpenedAt &&
@@ -103,9 +114,6 @@ export async function PATCH(
     if (shouldOpenChat) updateData.chatOpenedAt = now;
     if (newStatus === 'PICKED_UP') updateData.actualPickupTime = now;
     if (newStatus === 'COMPLETED') updateData.actualDropoffTime = now;
-    if (newStatus === 'CANCELLED' || newStatus === 'NO_SHOW') {
-      updateData.chatClosedAt = now;
-    }
 
     await prisma.trip.update({ where: { id }, data: updateData });
 

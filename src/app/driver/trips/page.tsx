@@ -31,7 +31,7 @@ type Trip = {
   vehicle: { model: string; plateNumber: string; color: string } | null;
 };
 
-type TabKey = 'today' | 'upcoming' | 'active' | 'completed' | 'cancelled';
+type TabKey = 'today' | 'tomorrow' | 'upcoming' | 'active' | 'completed' | 'cancelled';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -122,6 +122,19 @@ function ActiveTripPanel({
   const nextStatus = NEXT_STATUS[status];
   const actionLabel = ACTION_LABEL[status];
   const canNoShow = status === 'ARRIVED_PICKUP';
+  const canReportRiderLate = status === 'ARRIVED_PICKUP';
+
+  async function handleReportRiderLate() {
+    setUpdating(true);
+    setUpdateError('');
+    const res = await tripService.reportLate(trip.id, 'RIDER', 'Rider not ready at pickup');
+    setUpdating(false);
+    if (res.error) {
+      setUpdateError(res.error.message ?? 'Failed to report rider late.');
+    } else {
+      onStatusUpdate();
+    }
+  }
 
   async function handleAdvance() {
     if (!nextStatus) return;
@@ -210,6 +223,11 @@ function ActiveTripPanel({
         {actionLabel && nextStatus && (
           <Button variant="primary" size="sm" loading={updating} onClick={handleAdvance}>
             {actionLabel}
+          </Button>
+        )}
+        {canReportRiderLate && (
+          <Button variant="outline" size="sm" loading={updating} onClick={handleReportRiderLate}>
+            Rider Late
           </Button>
         )}
         {canNoShow && (
@@ -350,6 +368,11 @@ export default function DriverTripsPage() {
   const [activeTab, setActiveTab] = useState<TabKey>('today');
 
   const today = new Date().toISOString().split('T')[0]!;
+  const tomorrowDate = (() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    return d.toISOString().split('T')[0]!;
+  })();
 
   const loadTrips = useCallback(async () => {
     const res = await tripService.list();
@@ -365,6 +388,7 @@ export default function DriverTripsPage() {
 
   // Categorised views
   const todayTrips    = trips.filter((t) => t.scheduledDate.startsWith(today));
+  const tomorrowTrips = trips.filter((t) => t.scheduledDate.startsWith(tomorrowDate));
   const activeTrips   = trips.filter((t) => ACTIVE_STATUSES.has(t.status));
   const upcomingTrips = trips.filter((t) => UPCOMING_STATUSES.has(t.status));
   const completedTrips= trips.filter((t) => t.status === 'COMPLETED');
@@ -384,6 +408,7 @@ export default function DriverTripsPage() {
   function tabTrips(): Trip[] {
     switch (activeTab) {
       case 'today':     return todayTrips;
+      case 'tomorrow':  return tomorrowTrips;
       case 'upcoming':  return upcomingTrips;
       case 'active':    return activeTrips;
       case 'completed': return completedTrips;
@@ -398,6 +423,7 @@ export default function DriverTripsPage() {
 
   const tabs = [
     { label: 'Today',     value: 'today',     count: todayTrips.length },
+    { label: 'Tomorrow',  value: 'tomorrow',  count: tomorrowTrips.length },
     { label: 'Upcoming',  value: 'upcoming',  count: upcomingTrips.length },
     { label: 'Active',    value: 'active',    count: activeTrips.length },
     { label: 'Completed', value: 'completed', count: completedTrips.length },
@@ -465,6 +491,11 @@ export default function DriverTripsPage() {
             activeTab={activeTab}
             onChange={(v) => setActiveTab(v as TabKey)}
           />
+
+          <p className="text-xs text-gray-500">
+            Showing {displayTrips.length} of {trips.length} assigned trips
+            {trips.length === 0 ? '' : ' (all dates loaded from server)'}
+          </p>
 
           {/* Trip List */}
           {displayTrips.length === 0 ? (

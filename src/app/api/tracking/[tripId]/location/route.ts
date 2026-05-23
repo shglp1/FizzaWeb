@@ -6,6 +6,8 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireAuth } from '@/lib/session';
 import { z } from 'zod';
+import { isLocationSharingAllowed, isParentLocationVisible } from '@/lib/trips/tripLifecycle';
+import type { TripStatus } from '@/lib/trips/tripLifecycle';
 
 const locationSchema = z.object({
   lat: z.number().min(-90).max(90),
@@ -48,13 +50,23 @@ export async function POST(
     // Verify the driver is assigned to this trip
     const trip = await prisma.trip.findUnique({
       where: { id: tripId },
-      select: { id: true, driverId: true, status: true },
+      select: { id: true, driverId: true, status: true, scheduledPickupTime: true },
     });
     if (!trip) {
       return NextResponse.json({ data: null, error: { message: 'Trip not found' } }, { status: 404 });
     }
     if (auth.role !== 'ADMIN' && trip.driverId !== driver.id) {
       return NextResponse.json({ data: null, error: { message: 'Not your trip' } }, { status: 403 });
+    }
+
+    if (
+      auth.role !== 'ADMIN' &&
+      !isLocationSharingAllowed(trip.status as TripStatus, trip.scheduledPickupTime)
+    ) {
+      return NextResponse.json({
+        data: null,
+        error: { message: 'Location sharing is not open yet. It opens 10 minutes before pickup or when the trip is active.' },
+      }, { status: 422 });
     }
 
     await prisma.driverLocation.create({
@@ -79,15 +91,40 @@ export async function GET(
 
     const trip = await prisma.trip.findUnique({
       where: { id: tripId },
-      select: { id: true, subscription: { select: { userId: true } }, driverId: true },
+      select: {
+        id: true, status: true, scheduledPickupTime: true,
+        subscription: { select: { userId: true } },
+        riderId: true, driverId: true,
+      },
     });
     if (!trip) {
       return NextResponse.json({ data: null, error: { message: 'Trip not found' } }, { status: 404 });
     }
 
-    // Access control for parents
     if (auth.role !== 'ADMIN' && auth.role !== 'DRIVER') {
-      if (trip.subscription?.userId !== auth.userId) {
+      const parentViaSub = trip.subscription?.userId === auth.userId;
+      let isParent = parentViaSub;
+      if (!isParent && trip.riderId) {
+        const rider = await prisma.rider.findFirst({
+          where: { id: trip.riderId, parentId: auth.userId },
+          select: { id: true },
+        });
+        isParent = !!rider;
+      }
+      if (!isParent) {
+        return NextResponse.json({ data: null, error: { message: 'Forbidden' } }, { status: 403 });
+      }
+      if (!isParentLocationVisible(trip.status as TripStatus, trip.scheduledPickupTime)) {
+        return NextResponse.json({ data: { location: null, tooEarly: true }, error: null });
+      }
+    }
+
+    if (auth.role === 'DRIVER') {
+      const driver = await prisma.driver.findFirst({
+        where: { profileId: auth.userId },
+        select: { id: true },
+      });
+      if (trip.driverId !== driver?.id) {
         return NextResponse.json({ data: null, error: { message: 'Forbidden' } }, { status: 403 });
       }
     }
