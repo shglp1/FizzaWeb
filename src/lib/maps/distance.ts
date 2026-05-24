@@ -92,7 +92,7 @@ const ORS_BASE = 'https://api.openrouteservice.org';
  * Search for locations using ORS Geocoding Search. Returns up to 5 suggestions.
  * Used exclusively by the /api/maps/geocode server route.
  */
-export async function searchLocations(query: string): Promise<GeocodeSearchResult[]> {
+export async function searchLocations(query: string, options?: { lang?: string }): Promise<GeocodeSearchResult[]> {
   if (!query || query.trim().length < 3) return [];
 
   const provider = getProvider();
@@ -108,6 +108,13 @@ export async function searchLocations(query: string): Promise<GeocodeSearchResul
   url.searchParams.set('api_key', apiKey);
   url.searchParams.set('text', query.trim());
   url.searchParams.set('size', '5');
+  url.searchParams.set('boundary.country', 'SA');
+  if (options?.lang === 'ar') {
+    url.searchParams.set('boundary.rect.min_lon', '34.5');
+    url.searchParams.set('boundary.rect.min_lat', '16.0');
+    url.searchParams.set('boundary.rect.max_lon', '55.7');
+    url.searchParams.set('boundary.rect.max_lat', '32.2');
+  }
 
   let res: Response;
   try {

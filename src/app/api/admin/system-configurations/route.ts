@@ -17,6 +17,12 @@ const ALLOWED_KEYS = [
   'loyaltyPointsOnSafetyApproval',
   'driverPayRatePerKmSar',
   'driverPlatformFeePercent',
+  'chatOpenMinutesBeforePickup',
+  'chatCloseMinutesAfterDropoff',
+  'chatAllowImageAttachments',
+  'chatMaxMessageLength',
+  'chatPollingIntervalSeconds',
+  'chatProfanityModerationEnabled',
 ] as const;
 
 type AllowedKey = (typeof ALLOWED_KEYS)[number];

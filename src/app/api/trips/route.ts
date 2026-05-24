@@ -22,7 +22,7 @@ const TRIP_SELECT = {
   statusReason: true,
   cancelledBy: true,
   createdAt: true,
-  rider: { select: { id: true, name: true, relationship: true, school: true } },
+  rider: { select: { id: true, name: true, relationship: true, school: true, grade: true, specialNeeds: true, pickupNotes: true, dropoffNotes: true, emergencyContactName: true, emergencyContactPhone: true } },
   driver: {
     select: {
       id: true,

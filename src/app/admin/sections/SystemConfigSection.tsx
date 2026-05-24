@@ -151,8 +151,8 @@ export function SystemConfigSection() {
         )}
 
         {activeGroup === 'chat' && (
-          <div className="rounded-xl border border-gray-100 bg-gray-50 p-4 text-sm text-gray-600">
-            Chat moderation is managed from the Trips operations board (flagged messages panel). No additional config keys are required here.
+          <div className="mb-5 rounded-xl border border-blue-100 bg-blue-50/50 p-4 text-xs text-blue-800">
+            Message flagging and moderation actions remain in the Trips operations board. Timing and attachment defaults below apply to all new trip chats.
           </div>
         )}
 
@@ -183,13 +183,19 @@ export function SystemConfigSection() {
                 </div>
                 <input
                   id={`cfg-${key}`}
-                  type={meta.type === 'number' ? 'number' : 'text'}
+                  type={meta.type === 'number' ? 'number' : meta.type === 'boolean' ? 'text' : 'text'}
                   step={meta.type === 'number' ? 'any' : undefined}
                   className="input w-full text-sm min-h-[44px]"
                   value={form[key] ?? ''}
                   onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}
                   placeholder={meta.recommended ? `Recommended: ${meta.recommended}` : 'Enter value…'}
+                  list={meta.type === 'boolean' ? `cfg-${key}-opts` : undefined}
                 />
+                {meta.type === 'boolean' && (
+                  <datalist id={`cfg-${key}-opts`}>
+                    <option value="true" /><option value="false" />
+                  </datalist>
+                )}
                 <p className="text-xs text-gray-500 mt-2">{meta.hint}</p>
                 {meta.recommended && (
                   <p className="text-xs text-gray-400 mt-1">Recommended default: {meta.recommended}</p>

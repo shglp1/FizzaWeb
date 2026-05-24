@@ -103,6 +103,16 @@ export function isCancellable(status: TripStatus): boolean {
 const TERMINAL_STATUSES: TripStatus[] = ['COMPLETED', 'CANCELLED', 'NO_SHOW'];
 
 /** Whether the chat window should be open based on scheduled pickup time. */
+export type ChatWindowTiming = {
+  openMinutesBeforePickup?: number;
+  closeMinutesAfterDropoff?: number;
+};
+
+const DEFAULT_CHAT_TIMING: Required<ChatWindowTiming> = {
+  openMinutesBeforePickup: 20,
+  closeMinutesAfterDropoff: 60,
+};
+
 export function isChatWindowOpen(
   scheduledPickupTime: Date | null,
   tripStatus: TripStatus,
@@ -111,21 +121,25 @@ export function isChatWindowOpen(
   nowMs: number = Date.now(),
   /** When the trip reached a terminal status (completion/cancel/no-show). */
   tripEndedAt: Date | null = null,
+  timing: ChatWindowTiming = DEFAULT_CHAT_TIMING,
 ): boolean {
+  const openBefore = timing.openMinutesBeforePickup ?? DEFAULT_CHAT_TIMING.openMinutesBeforePickup;
+  const closeAfter = timing.closeMinutesAfterDropoff ?? DEFAULT_CHAT_TIMING.closeMinutesAfterDropoff;
+
   // Admin hard-close
   if (chatClosedAt) return false;
 
-  // Terminal trips: chat stays open for 30 minutes after end
+  // Terminal trips: chat stays open for configured minutes after end
   if (TERMINAL_STATUSES.includes(tripStatus)) {
     if (!tripEndedAt) return false;
-    return nowMs <= tripEndedAt.getTime() + 30 * 60 * 1000;
+    return nowMs <= tripEndedAt.getTime() + closeAfter * 60 * 1000;
   }
 
   if (chatOpenedAt) return true;
 
   if (!scheduledPickupTime) return false;
   const pickupMs = scheduledPickupTime.getTime();
-  const windowOpenMs = pickupMs - 20 * 60 * 1000;
+  const windowOpenMs = pickupMs - openBefore * 60 * 1000;
   return nowMs >= windowOpenMs;
 }
 

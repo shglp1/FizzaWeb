@@ -227,14 +227,14 @@ describe('isChatWindowOpen', () => {
     assert.ok(!isChatWindowOpen(null, 'DRIVER_ASSIGNED', null, null));
   });
 
-  it('stays open for 30 minutes after completion', () => {
+  it('stays open for configured minutes after completion', () => {
     const ended = new Date(Date.now() - 10 * 60 * 1000);
-    assert.ok(isChatWindowOpen(null, 'COMPLETED', new Date(), null, Date.now(), ended));
+    assert.ok(isChatWindowOpen(null, 'COMPLETED', new Date(), null, Date.now(), ended, { closeMinutesAfterDropoff: 60 }));
   });
 
-  it('closes more than 30 minutes after completion', () => {
-    const ended = new Date(Date.now() - 35 * 60 * 1000);
-    assert.ok(!isChatWindowOpen(null, 'COMPLETED', new Date(), null, Date.now(), ended));
+  it('closes more than configured minutes after completion', () => {
+    const ended = new Date(Date.now() - 65 * 60 * 1000);
+    assert.ok(!isChatWindowOpen(null, 'COMPLETED', new Date(), null, Date.now(), ended, { closeMinutesAfterDropoff: 60 }));
   });
 });
 

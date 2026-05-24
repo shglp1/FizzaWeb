@@ -2,6 +2,10 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireAuth } from '@/lib/session';
 import { riderCreateSchema, riderUpdateSchema } from '@/lib/validations/rider';
+import type { z } from 'zod';
+
+type RiderCreateInput = z.infer<typeof riderCreateSchema>;
+type RiderUpdateInput = Omit<z.infer<typeof riderUpdateSchema>, 'id'>;
 
 function getIp(req: Request): string | null {
   return (
@@ -9,6 +13,17 @@ function getIp(req: Request): string | null {
     req.headers.get('x-real-ip') ??
     null
   );
+}
+
+function normalizeRiderPayload(data: RiderCreateInput | RiderUpdateInput) {
+  const out: Record<string, unknown> = { ...data };
+  if (typeof out.dateOfBirth === 'string' && out.dateOfBirth) {
+    out.dateOfBirth = new Date(out.dateOfBirth as string);
+  } else if (!out.dateOfBirth) {
+    out.dateOfBirth = null;
+  }
+  if (out.avatarUrl === '') out.avatarUrl = null;
+  return out as RiderCreateInput;
 }
 
 export async function GET() {
@@ -45,7 +60,7 @@ export async function POST(req: Request) {
     }
 
     const rider = await prisma.rider.create({
-      data: { parentId: auth.userId, ...parsed.data },
+      data: { parentId: auth.userId, ...normalizeRiderPayload(parsed.data) },
     });
 
     await prisma.auditLog.create({
@@ -95,7 +110,7 @@ export async function PATCH(req: Request) {
     const rider = await prisma.rider.update({
       where: { id },
       data: Object.fromEntries(
-        Object.entries(updates).filter(([, v]) => v !== undefined),
+        Object.entries(normalizeRiderPayload(updates)).filter(([, v]) => v !== undefined),
       ),
     });
 

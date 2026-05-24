@@ -38,15 +38,28 @@ export async function saveChatImage(
   buffer: Buffer,
   ext: string,
 ): Promise<string> {
+  return saveLocalImage(['chat', tripId], buffer, ext);
+}
+
+export async function saveLocationPhoto(
+  userId: string,
+  kind: 'pickup' | 'dropoff',
+  buffer: Buffer,
+  ext: string,
+): Promise<string> {
+  return saveLocalImage(['locations', userId, kind], buffer, ext);
+}
+
+async function saveLocalImage(segments: string[], buffer: Buffer, ext: string): Promise<string> {
   const driver = (process.env.STORAGE_DRIVER ?? 'local').toLowerCase();
   if (driver !== 'local') {
-    throw new Error('Only local storage is implemented for chat attachments');
+    throw new Error('Only local storage is implemented for uploads');
   }
 
-  const dir = path.join(process.cwd(), 'public', 'uploads', 'chat', tripId);
+  const dir = path.join(process.cwd(), 'public', 'uploads', ...segments);
   await mkdir(dir, { recursive: true });
   const filename = `${randomUUID()}${ext}`;
   const fullPath = path.join(dir, filename);
   await writeFile(fullPath, buffer);
-  return `/uploads/chat/${tripId}/${filename}`;
+  return `/uploads/${segments.join('/')}/${filename}`;
 }

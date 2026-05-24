@@ -27,6 +27,7 @@ export async function GET(req: Request) {
 
     const { searchParams } = new URL(req.url);
     const q = searchParams.get('q') ?? '';
+    const lang = searchParams.get('lang') === 'ar' ? 'ar' : 'en';
 
     const parsed = querySchema.safeParse(q);
     if (!parsed.success) {
@@ -38,7 +39,7 @@ export async function GET(req: Request) {
 
     let results;
     try {
-      results = await searchLocations(parsed.data);
+      results = await searchLocations(parsed.data, { lang });
     } catch (err) {
       if (err instanceof DistanceError) {
         if (err.code === 'NOT_CONFIGURED') {

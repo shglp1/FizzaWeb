@@ -45,6 +45,11 @@ export interface MapLocationPickerProps {
   required?: boolean;
   disabled?: boolean;
   className?: string;
+  /** Search language for geocoding — Arabic and English supported */
+  searchLang?: 'ar' | 'en';
+  photoUrl?: string | null;
+  onPhotoChange?: (url: string | null) => void;
+  photoKind?: 'pickup' | 'dropoff';
 }
 
 // ─── Leaflet CSS injector (idempotent) ────────────────────────────────────────
@@ -119,6 +124,10 @@ interface MapPanelProps {
   onCancel: () => void;
 }
 
+function markerHtml(color: string, size = 28): string {
+  return `<div style="width:${size}px;height:${size}px;border-radius:50%;background:${color};border:3px solid white;box-shadow:0 2px 8px rgba(0,0,0,.25);"></div>`;
+}
+
 function MapPanel({ initialLat, initialLng, initialLabel, onConfirm, onCancel }: MapPanelProps) {
   const mapRef = useRef<HTMLDivElement>(null);
   const leafletRef = useRef<import('leaflet').Map | null>(null);
@@ -139,15 +148,6 @@ function MapPanel({ initialLat, initialLng, initialLabel, onConfirm, onCancel }:
     import('leaflet').then((L) => {
       if (cancelled || !mapRef.current) return;
 
-      // Fix default marker icon paths (bundler strips the default URL resolution)
-      const proto = L.Icon.Default.prototype as unknown as Record<string, unknown>;
-      delete proto._getIconUrl;
-      L.Icon.Default.mergeOptions({
-        iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
-        iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
-        shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-      });
-
       const map = L.map(mapRef.current!, {
         center: [initialLat, initialLng],
         zoom: 15,
@@ -159,7 +159,14 @@ function MapPanel({ initialLat, initialLng, initialLabel, onConfirm, onCancel }:
         maxZoom: 19,
       }).addTo(map);
 
-      const marker = L.marker([initialLat, initialLng], { draggable: true }).addTo(map);
+      const icon = L.divIcon({
+        html: markerHtml('#059669', 32),
+        className: 'fizza-map-marker',
+        iconSize: [32, 32],
+        iconAnchor: [16, 16],
+      });
+
+      const marker = L.marker([initialLat, initialLng], { draggable: true, icon }).addTo(map);
       marker.bindPopup('Drag me to refine the pickup location', { maxWidth: 200 }).openPopup();
 
       marker.on('dragend', () => {
@@ -241,6 +248,10 @@ export function MapLocationPicker({
   required = false,
   disabled = false,
   className = '',
+  searchLang = 'en',
+  photoUrl,
+  onPhotoChange,
+  photoKind = 'pickup',
 }: MapLocationPickerProps) {
   const inputId = useId();
   const listboxId = useId();
@@ -256,6 +267,9 @@ export function MapLocationPicker({
   const [staging, setStaging] = useState<GeocodeResult | null>(null);
   const [locating, setLocating] = useState(false);
   const [geoMessage, setGeoMessage] = useState('');
+
+  const [searchLangState, setSearchLangState] = useState<'ar' | 'en'>(searchLang);
+  const [photoUploading, setPhotoUploading] = useState(false);
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -279,7 +293,7 @@ export function MapLocationPicker({
     }
     setSearching(true); setSearchError('');
     try {
-      const res = await fetch(`/api/maps/geocode?q=${encodeURIComponent(q.trim())}`);
+      const res = await fetch(`/api/maps/geocode?q=${encodeURIComponent(q.trim())}&lang=${searchLangState}`);
       const json = await res.json() as { data?: GeocodeResult[]; error?: { message: string } };
       if (json.data) {
         setSuggestions(json.data); setShowDropdown(true); setActiveIndex(-1);
@@ -293,7 +307,22 @@ export function MapLocationPicker({
     } finally {
       setSearching(false);
     }
-  }, []);
+  }, [searchLangState]);
+
+  const uploadPhoto = async (file: File) => {
+    if (!onPhotoChange) return;
+    setPhotoUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('kind', photoKind);
+      const res = await fetch('/api/subscriptions/location-photo', { method: 'POST', body: fd });
+      const json = await res.json() as { data?: { url: string }; error?: { message: string } };
+      if (json.data?.url) onPhotoChange(json.data.url);
+    } finally {
+      setPhotoUploading(false);
+    }
+  };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const q = e.target.value;
@@ -391,6 +420,25 @@ export function MapLocationPicker({
                 Open in Google Maps
               </a>
             </div>
+            {!disabled && onPhotoChange && (
+              <div className="mt-3 pt-3 border-t border-emerald-200/60">
+                <p className="text-xs text-gray-600 mb-2">
+                  Optional: add a photo of the {photoKind} point to help the driver identify the exact location.
+                </p>
+                {photoUrl ? (
+                  <div className="flex items-center gap-3">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={photoUrl} alt="" className="h-16 w-16 rounded-lg object-cover border border-gray-200" />
+                    <button type="button" onClick={() => onPhotoChange(null)} className="text-xs text-red-600 hover:underline">Remove photo</button>
+                  </div>
+                ) : (
+                  <label className="inline-flex items-center gap-2 rounded-lg border border-dashed border-gray-300 px-3 py-2 text-xs text-gray-600 cursor-pointer hover:bg-gray-50">
+                    <input type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" disabled={photoUploading} onChange={(e) => { const f = e.target.files?.[0]; if (f) void uploadPhoto(f); e.target.value = ''; }} />
+                    {photoUploading ? 'Uploading…' : 'Add location photo'}
+                  </label>
+                )}
+              </div>
+            )}
             {!disabled && (
               <button
                 type="button"
@@ -410,8 +458,12 @@ export function MapLocationPicker({
   // ── Search + optional map-refinement ──
   return (
     <div ref={wrapperRef} className={`space-y-1 ${className}`}>
-      <label htmlFor={inputId} className="text-sm font-medium text-gray-700">
-        {label}{required && <span className="ml-0.5 text-red-500">*</span>}
+      <label htmlFor={inputId} className="text-sm font-medium text-gray-700 flex flex-wrap items-center justify-between gap-2">
+        <span>{label}{required && <span className="ml-0.5 text-red-500">*</span>}</span>
+        <span className="inline-flex rounded-lg border border-gray-200 overflow-hidden text-xs">
+          <button type="button" className={`px-2.5 py-1 ${searchLangState === 'en' ? 'bg-emerald-600 text-white' : 'bg-white text-gray-600'}`} onClick={() => setSearchLangState('en')}>EN</button>
+          <button type="button" className={`px-2.5 py-1 ${searchLangState === 'ar' ? 'bg-emerald-600 text-white' : 'bg-white text-gray-600'}`} onClick={() => setSearchLangState('ar')}>AR</button>
+        </span>
       </label>
 
       {/* Search input — hidden when staging (map visible) */}
