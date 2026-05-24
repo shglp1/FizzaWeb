@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireRole } from '@/lib/session';
+import { buildPaginationMeta, parsePaginationParams } from '@/lib/pagination';
 
 export async function GET(req: Request) {
   try {
@@ -11,8 +12,7 @@ export async function GET(req: Request) {
     const status = searchParams.get('status');
     const date = searchParams.get('date');
     const driverId = searchParams.get('driverId');
-    const page = Math.max(1, parseInt(searchParams.get('page') ?? '1', 10));
-    const limit = 20;
+    const { page, limit, skip } = parsePaginationParams(searchParams);
 
     const where: Record<string, unknown> = {};
     if (status && ['SCHEDULED', 'DRIVER_ASSIGNED', 'ON_THE_WAY', 'PICKED_UP', 'COMPLETED', 'CANCELLED'].includes(status)) {
@@ -56,7 +56,7 @@ export async function GET(req: Request) {
           subscription: { select: { id: true, subscriptionType: true } },
         },
         orderBy: [{ scheduledDate: 'asc' }, { scheduledPickupTime: 'asc' }],
-        skip: (page - 1) * limit,
+        skip,
         take: limit,
       }),
       prisma.trip.count({ where }),
@@ -65,7 +65,7 @@ export async function GET(req: Request) {
     return NextResponse.json({
       data: {
         trips,
-        meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
+        meta: buildPaginationMeta(page, limit, total),
       },
       error: null,
     });

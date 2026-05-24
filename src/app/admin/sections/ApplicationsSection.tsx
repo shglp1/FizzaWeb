@@ -3,7 +3,9 @@
 import { FileText, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
 import { useEffect, useState, useCallback } from 'react';
 import { driverApplicationService } from '@/services/driverApplicationService';
-import { Button, Alert, Textarea, Pagination, ErrorState } from '@/components/ui';
+import { Button, Alert, Textarea, ErrorState } from '@/components/ui';
+import { AdminPagination } from '@/components/admin/AdminPagination';
+import { DEFAULT_ADMIN_PAGE_LIMIT } from '@/lib/ui/adminPagination';
 import {
   AdminSectionHeader,
   AdminTabs,
@@ -67,6 +69,7 @@ export function ApplicationsSection() {
   const [pageError, setPageError] = useState('');
   const [activeTab, setActiveTab] = useState('');
   const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(DEFAULT_ADMIN_PAGE_LIMIT);
   const [selected, setSelected] = useState<Application | null>(null);
   const [reviewAction, setReviewAction] = useState<'APPROVE' | 'REJECT' | 'NEEDS_CHANGES' | null>(null);
   const [reasonText, setReasonText] = useState('');
@@ -74,10 +77,10 @@ export function ApplicationsSection() {
   const [reviewMsg, setReviewMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
   const [counts, setCounts] = useState<Record<string, number>>({});
 
-  const loadApplications = useCallback((status: string, p: number) => {
+  const loadApplications = useCallback((status: string, p: number, l: number) => {
     setLoading(true);
     setPageError('');
-    driverApplicationService.adminList(status || undefined, p).then((res) => {
+    driverApplicationService.adminList(status || undefined, p, l).then((res) => {
       if (res.data) {
         setApplications(res.data.applications ?? []);
         setMeta(res.data.meta ?? null);
@@ -88,7 +91,7 @@ export function ApplicationsSection() {
     });
   }, []);
 
-  useEffect(() => { loadApplications(activeTab, page); }, [activeTab, page, loadApplications]);
+  useEffect(() => { loadApplications(activeTab, page, limit); }, [activeTab, page, limit, loadApplications]);
 
   useEffect(() => {
     Promise.all(
@@ -123,7 +126,7 @@ export function ApplicationsSection() {
         setReviewMsg({ text: `Application ${reviewAction.toLowerCase().replace('_', ' ')} successfully.`, type: 'success' });
         setSelected(null);
         setReviewAction(null);
-        loadApplications(activeTab, page);
+        loadApplications(activeTab, page, limit);
       } else {
         setReviewMsg({ text: res.error?.message ?? 'Action failed.', type: 'error' });
       }
@@ -171,7 +174,7 @@ export function ApplicationsSection() {
       {loading ? (
         <AdminSectionLoading message="Loading applications…" />
       ) : pageError ? (
-        <ErrorState message={pageError} onRetry={() => loadApplications(activeTab, page)} />
+        <ErrorState message={pageError} onRetry={() => loadApplications(activeTab, page, limit)} />
       ) : applications.length === 0 ? (
         <AdminEmptyState icon={FileText} title="No applications found" description="No driver applications match this filter." />
       ) : (
@@ -201,8 +204,13 @@ export function ApplicationsSection() {
         </div>
       )}
 
-      {meta && meta.totalPages > 1 && (
-        <Pagination page={meta.page} totalPages={meta.totalPages} onPageChange={setPage} className="mt-5" />
+      {meta && (
+        <AdminPagination
+          meta={meta}
+          onPageChange={setPage}
+          onLimitChange={(l) => { setLimit(l); setPage(1); }}
+          className="mt-5"
+        />
       )}
 
       <AdminDrawer

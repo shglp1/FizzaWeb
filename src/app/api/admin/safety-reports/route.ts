@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireRole } from '@/lib/session';
 import { safetyListQuerySchema } from '@/lib/validations/safety';
+import { categoriesForSeverity } from '@/lib/ui/safetySeverity';
 
 export async function GET(request: NextRequest) {
   try {
@@ -17,12 +18,15 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const { page, limit, status, category, dateFrom, dateTo } = parsed.data;
+    const { page, limit, status, category, severity, dateFrom, dateTo } = parsed.data;
     const skip = (page - 1) * limit;
 
     const where: Record<string, unknown> = {};
     if (status) where.status = status;
     if (category) where.category = category;
+    if (severity && !category) {
+      where.category = { in: categoriesForSeverity(severity) };
+    }
     if (dateFrom || dateTo) {
       where.createdAt = {
         ...(dateFrom ? { gte: new Date(dateFrom) } : {}),

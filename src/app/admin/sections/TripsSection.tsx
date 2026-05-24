@@ -4,7 +4,9 @@ import { RefreshCw, Calendar, MapPin } from 'lucide-react';
 import { useEffect, useState, useCallback } from 'react';
 import { tripService } from '@/services/tripService';
 import { tripToGoogleMapsUrl } from '@/lib/maps/googleMapsLink';
-import { Button, Alert, Pagination, ErrorState } from '@/components/ui';
+import { Button, Alert, ErrorState } from '@/components/ui';
+import { AdminPagination } from '@/components/admin/AdminPagination';
+import { DEFAULT_ADMIN_PAGE_LIMIT } from '@/lib/ui/adminPagination';
 import { TripOperationsBoard } from './TripOperationsBoard';
 import {
   AdminSectionHeader,
@@ -62,6 +64,7 @@ export function TripsSection() {
   const [statusFilter, setStatusFilter] = useState('');
   const [dateFilter, setDateFilter] = useState(new Date().toISOString().slice(0, 10));
   const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(DEFAULT_ADMIN_PAGE_LIMIT);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [viewMode, setViewMode] = useState<'board' | 'list'>('board');
 
@@ -76,10 +79,10 @@ export function TripsSection() {
   const [genEndDate, setGenEndDate] = useState('');
   const [genMsg, setGenMsg] = useState<{ text: string; type: 'success' | 'error'; result?: { generated: number; skipped: number } } | null>(null);
 
-  const loadTrips = useCallback((status: string, date: string, p: number, silent = false) => {
+  const loadTrips = useCallback((status: string, date: string, p: number, l: number, silent = false) => {
     if (!silent) setLoading(true);
     setPageError('');
-    tripService.adminList({ status: status || undefined, date: date || undefined, page: p }).then((res) => {
+    tripService.adminList({ status: status || undefined, date: date || undefined, page: p, limit: l }).then((res) => {
       if (res.data) {
         setTrips(res.data.trips ?? []);
         setMeta(res.data.meta ?? null);
@@ -91,12 +94,12 @@ export function TripsSection() {
     });
   }, []);
 
-  useEffect(() => { loadTrips(statusFilter, dateFilter, page); }, [statusFilter, dateFilter, page, loadTrips]);
+  useEffect(() => { loadTrips(statusFilter, dateFilter, page, limit); }, [statusFilter, dateFilter, page, limit, loadTrips]);
   useEffect(() => { tripService.adminListDrivers().then((res) => { if (res.data) setDrivers(res.data.drivers ?? []); }); }, []);
   useEffect(() => {
-    const id = setInterval(() => loadTrips(statusFilter, dateFilter, page, true), 25_000);
+    const id = setInterval(() => loadTrips(statusFilter, dateFilter, page, limit, true), 25_000);
     return () => clearInterval(id);
-  }, [statusFilter, dateFilter, page, loadTrips]);
+  }, [statusFilter, dateFilter, page, limit, loadTrips]);
 
   const submitAssign = async (tripId: string) => {
     if (!selectedDriverId) { setAssignMsg({ text: 'Please select a driver.', type: 'error' }); return; }
@@ -107,7 +110,7 @@ export function TripsSection() {
     if (res.data) {
       setAssignMsg({ text: 'Driver assigned successfully.', type: 'success' });
       setAssigningTripId(null);
-      loadTrips(statusFilter, dateFilter, page);
+      loadTrips(statusFilter, dateFilter, page, limit);
     } else {
       setAssignMsg({ text: res.error?.message ?? 'Assignment failed.', type: 'error' });
     }
@@ -120,7 +123,7 @@ export function TripsSection() {
     setGenerating(false);
     if (res.data) {
       setGenMsg({ text: 'Trip generation complete.', type: 'success', result: { generated: res.data.generated ?? 0, skipped: res.data.skipped ?? 0 } });
-      loadTrips(statusFilter, dateFilter, page);
+      loadTrips(statusFilter, dateFilter, page, limit);
     } else {
       setGenMsg({ text: res.error?.message ?? 'Generation failed.', type: 'error' });
     }
@@ -128,7 +131,7 @@ export function TripsSection() {
 
   const handleLateCheck = async () => {
     await tripService.adminCheckLate();
-    loadTrips(statusFilter, dateFilter, page);
+    loadTrips(statusFilter, dateFilter, page, limit);
   };
 
   return (
@@ -139,7 +142,7 @@ export function TripsSection() {
         lastUpdated={lastUpdated?.toLocaleTimeString()}
         primaryAction={
           <div className="flex flex-wrap gap-2">
-            <Button variant="outline" size="sm" onClick={() => loadTrips(statusFilter, dateFilter, page)} className="min-h-[44px]">
+            <Button variant="outline" size="sm" onClick={() => loadTrips(statusFilter, dateFilter, page, limit)} className="min-h-[44px]">
               <RefreshCw className="h-4 w-4 mr-1" aria-hidden /> Refresh
             </Button>
             <Button variant="outline" size="sm" onClick={handleLateCheck} className="min-h-[44px]">Check late</Button>
@@ -224,7 +227,7 @@ export function TripsSection() {
           {loading ? (
             <AdminSectionLoading message="Loading trips…" />
           ) : pageError ? (
-            <ErrorState message={pageError} onRetry={() => loadTrips(statusFilter, dateFilter, page)} />
+            <ErrorState message={pageError} onRetry={() => loadTrips(statusFilter, dateFilter, page, limit)} />
           ) : trips.length === 0 ? (
             <AdminEmptyState icon={Calendar} title="No trips found" description="No trips match the selected filters." />
           ) : (
@@ -289,8 +292,13 @@ export function TripsSection() {
             </div>
           )}
 
-          {meta && meta.totalPages > 1 && (
-            <Pagination page={meta.page} totalPages={meta.totalPages} onPageChange={setPage} className="mt-5" />
+          {meta && (
+            <AdminPagination
+              meta={meta}
+              onPageChange={setPage}
+              onLimitChange={(l) => { setLimit(l); setPage(1); }}
+              className="mt-5"
+            />
           )}
         </>
       )}

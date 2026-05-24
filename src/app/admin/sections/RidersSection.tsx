@@ -3,7 +3,9 @@
 import { Users, Heart, School, Bus } from 'lucide-react';
 import { useEffect, useState, useCallback } from 'react';
 import { adminRiderService } from '@/services/adminService';
-import { Button, Alert, Pagination, ErrorState } from '@/components/ui';
+import { Button, Alert, ErrorState } from '@/components/ui';
+import { AdminPagination } from '@/components/admin/AdminPagination';
+import { DEFAULT_ADMIN_PAGE_LIMIT } from '@/lib/ui/adminPagination';
 import {
   AdminSectionHeader,
   AdminToolbar,
@@ -47,17 +49,18 @@ export function RidersSection() {
   const [activeFilter, setActiveFilter] = useState('');
   const [specialFilter, setSpecialFilter] = useState('');
   const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(DEFAULT_ADMIN_PAGE_LIMIT);
   const [activeCount, setActiveCount] = useState<number | null>(null);
   const [selected, setSelected] = useState<RiderRow | null>(null);
   const [confirmDeactivate, setConfirmDeactivate] = useState<RiderRow | null>(null);
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [toggleMsg, setToggleMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
-  const load = useCallback((s: string, a: string, p: number) => {
+  const load = useCallback((s: string, a: string, p: number, l: number) => {
     setLoading(true);
     setError('');
     const isActive = a === 'true' ? true : a === 'false' ? false : undefined;
-    adminRiderService.list({ search: s || undefined, isActive, page: p }).then((res) => {
+    adminRiderService.list({ search: s || undefined, isActive, page: p, limit: l }).then((res) => {
       if (res.data) {
         setRiders((res.data as { riders: RiderRow[]; meta: Meta }).riders ?? []);
         setMeta((res.data as { riders: RiderRow[]; meta: Meta }).meta ?? null);
@@ -68,7 +71,7 @@ export function RidersSection() {
     });
   }, []);
 
-  useEffect(() => { load(debouncedSearch, activeFilter, page); }, [debouncedSearch, activeFilter, page, load]);
+  useEffect(() => { load(debouncedSearch, activeFilter, page, limit); }, [debouncedSearch, activeFilter, page, limit, load]);
 
   useEffect(() => {
     adminRiderService.list({ isActive: true, page: 1 }).then((res) => {
@@ -94,7 +97,7 @@ export function RidersSection() {
     if (res.data) {
       setToggleMsg({ text: `${rider.name} ${!rider.isActive ? 'activated' : 'deactivated'}.`, type: 'success' });
       setSelected(null);
-      load(debouncedSearch, activeFilter, page);
+      load(debouncedSearch, activeFilter, page, limit);
     } else {
       setToggleMsg({ text: res.error?.message ?? 'Update failed.', type: 'error' });
     }
@@ -178,7 +181,7 @@ export function RidersSection() {
       {loading ? (
         <AdminSectionLoading message="Loading riders…" />
       ) : error ? (
-        <ErrorState message={error} onRetry={() => load(debouncedSearch, activeFilter, page)} />
+        <ErrorState message={error} onRetry={() => load(debouncedSearch, activeFilter, page, limit)} />
       ) : filteredRiders.length === 0 ? (
         <AdminEmptyState
           icon={Users}
@@ -213,8 +216,13 @@ export function RidersSection() {
         </div>
       )}
 
-      {meta && meta.totalPages > 1 && (
-        <Pagination page={meta.page} totalPages={meta.totalPages} onPageChange={setPage} className="mt-5" />
+      {meta && (
+        <AdminPagination
+          meta={meta}
+          onPageChange={setPage}
+          onLimitChange={(l) => { setLimit(l); setPage(1); }}
+          className="mt-5"
+        />
       )}
 
       <AdminDrawer

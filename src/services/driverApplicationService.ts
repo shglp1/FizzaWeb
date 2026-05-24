@@ -34,8 +34,8 @@ export const driverApplicationService = {
     return parseResponse(res);
   },
   // Admin
-  adminList: async (status?: string, page = 1) => {
-    const params = new URLSearchParams({ page: String(page) });
+  adminList: async (status?: string, page = 1, limit = 10) => {
+    const params = new URLSearchParams({ page: String(page), limit: String(limit) });
     if (status) params.set('status', status);
     const res = await fetch(`/api/admin/driver-applications?${params}`);
     return res.json();
