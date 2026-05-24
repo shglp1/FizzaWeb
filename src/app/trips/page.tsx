@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { AppShell } from '@/components/layout/AppShell';
 import { DriverRouteSheet } from '@/components/driver/DriverRouteSheet';
+import { TripChatDrawer } from '@/components/trips/TripChatDrawer';
 import {
   PageHeader,
   Card,
@@ -104,6 +105,7 @@ export default function TripsPage() {
   const [cancelTarget, setCancelTarget] = useState<Trip | null>(null);
   const [actionMsg, setActionMsg]       = useState<{ text: string; type: 'success' | 'error' } | null>(null);
   const [userRole, setUserRole]         = useState<string | null>(null);
+  const [chatTrip, setChatTrip]           = useState<Trip | null>(null);
 
   useEffect(() => {
     fetch('/api/me')
@@ -191,6 +193,7 @@ export default function TripsPage() {
           {trips.map((trip) => {
             const showTracking = TRACKABLE.includes(trip.status);
             const showCancel   = CANCELLABLE.includes(trip.status);
+            const showChat     = trip.driver && !['CANCELLED', 'NO_SHOW', 'COMPLETED'].includes(trip.status);
 
             return (
               <Card key={trip.id}>
@@ -275,8 +278,13 @@ export default function TripsPage() {
                 )}
 
                 {/* Actions */}
-                {(showTracking || showCancel) && (
+                {(showTracking || showCancel || showChat) && (
                   <div className="flex gap-2 flex-wrap pt-1">
+                    {showChat && (
+                      <Button variant="outline" size="sm" onClick={() => setChatTrip(trip)}>
+                        Message driver
+                      </Button>
+                    )}
                     {showTracking && (
                       <Link href={`/tracking/${trip.id}`}>
                         <Button variant="outline" size="sm">
@@ -317,6 +325,21 @@ export default function TripsPage() {
         onConfirm={doCancel}
         onCancel={() => setCancelTarget(null)}
       />
+
+      {chatTrip && (
+        <TripChatDrawer
+          open={!!chatTrip}
+          onClose={() => setChatTrip(null)}
+          tripId={chatTrip.id}
+          userRole="PARENT"
+          tripSummary={{
+            riderName: chatTrip.rider?.name ?? 'Rider',
+            pickup: chatTrip.pickupLocation,
+            dropoff: chatTrip.dropoffLocation,
+            scheduledPickupTime: chatTrip.scheduledPickupTime,
+          }}
+        />
+      )}
     </AppShell>
   );
 }

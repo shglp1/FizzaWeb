@@ -35,7 +35,7 @@ test('driver nav labels updated for route sheet and live GPS', () => {
 
 test('mobile nav for approved driver uses route sheet label', () => {
   const items = getMobileNavItemsForDriverState('APPROVED_DRIVER')!;
-  assert.ok(items.some((i) => i.label === 'Route Sheet' && i.href === '/trips'));
+  assert.ok(items.some((i) => i.label === 'Route' && i.href === '/trips'));
   assert.ok(items.some((i) => i.label === 'Live GPS' && i.href === '/tracking'));
   assert.ok(!items.some((i) => i.href === '/riders'));
 });

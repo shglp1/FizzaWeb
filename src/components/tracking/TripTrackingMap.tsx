@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 export type TripMapPoint = {
   driverLat?: number | null;
@@ -35,7 +35,16 @@ export function TripTrackingMap({
   stale = false,
   className = '',
   height = 360,
-}: TripMapPoint & { className?: string; height?: number }) {
+  onReadyChange,
+  routeGeometry,
+  routeSource = 'approximate',
+}: TripMapPoint & {
+  className?: string;
+  height?: number;
+  onReadyChange?: (ready: boolean) => void;
+  routeGeometry?: [number, number][];
+  routeSource?: 'road' | 'approximate';
+}) {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<import('leaflet').Map | null>(null);
   const layersRef = useRef<{
@@ -44,6 +53,11 @@ export function TripTrackingMap({
     dropoff?: import('leaflet').Marker;
     route?: import('leaflet').Polyline;
   }>({});
+  const [tilesReady, setTilesReady] = useState(false);
+
+  useEffect(() => {
+    onReadyChange?.(tilesReady);
+  }, [tilesReady, onReadyChange]);
 
   useEffect(() => {
     if (!document.querySelector('#leaflet-css')) {
@@ -58,6 +72,7 @@ export function TripTrackingMap({
   useEffect(() => {
     if (!mapRef.current) return;
     let cancelled = false;
+    setTilesReady(false);
 
     import('leaflet').then((L) => {
       if (cancelled || !mapRef.current) return;
@@ -86,7 +101,9 @@ export function TripTrackingMap({
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
           attribution: '&copy; OpenStreetMap contributors',
           maxZoom: 19,
-        }).addTo(map);
+        }).addTo(map).on('load', () => {
+          if (!cancelled) setTilesReady(true);
+        });
       }
 
       const map = mapInstanceRef.current;
@@ -143,20 +160,30 @@ export function TripTrackingMap({
         delete layersRef.current.dropoff;
       }
 
-      const routePoints: [number, number][] = [];
-      if (pLat != null && pLng != null) routePoints.push([pLat, pLng]);
-      if (doLat != null && doLng != null) routePoints.push([doLat, doLng]);
+      const routePoints: [number, number][] =
+        routeGeometry && routeGeometry.length >= 2
+          ? routeGeometry
+          : (() => {
+              const pts: [number, number][] = [];
+              if (pLat != null && pLng != null) pts.push([pLat, pLng]);
+              if (doLat != null && doLng != null) pts.push([doLat, doLng]);
+              return pts;
+            })();
+
+      const isApprox = routeSource === 'approximate' || !routeGeometry || routeGeometry.length < 2;
 
       if (routePoints.length >= 2) {
+        const style = {
+          color: '#0B683A',
+          weight: isApprox ? 3 : 5,
+          opacity: isApprox ? 0.55 : 0.85,
+          dashArray: isApprox ? '8 6' : undefined as string | undefined,
+        };
         if (layersRef.current.route) {
           layersRef.current.route.setLatLngs(routePoints);
+          layersRef.current.route.setStyle(style);
         } else {
-          layersRef.current.route = L.polyline(routePoints, {
-            color: '#0B683A',
-            weight: 4,
-            opacity: 0.7,
-            dashArray: '8 6',
-          }).addTo(map);
+          layersRef.current.route = L.polyline(routePoints, style).addTo(map);
         }
       } else if (layersRef.current.route) {
         map.removeLayer(layersRef.current.route);
@@ -173,11 +200,14 @@ export function TripTrackingMap({
       requestAnimationFrame(() => {
         map.invalidateSize();
       });
-      setTimeout(() => map.invalidateSize(), 200);
+      setTimeout(() => {
+        map.invalidateSize();
+        if (!cancelled) setTilesReady(true);
+      }, 400);
     }).catch(() => { /* leaflet load failed */ });
 
     return () => { cancelled = true; };
-  }, [driverLat, driverLng, pickupLat, pickupLng, dropoffLat, dropoffLng, stale]);
+  }, [driverLat, driverLng, pickupLat, pickupLng, dropoffLat, dropoffLng, stale, routeGeometry, routeSource]);
 
   useEffect(() => () => {
     mapInstanceRef.current?.remove();

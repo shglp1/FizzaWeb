@@ -7,6 +7,7 @@ import { getDisplayLabel } from '@/lib/trips/statusCatalog';
 const TRIP_SELECT = {
   id: true,
   status: true,
+  legType: true,
   scheduledDate: true,
   scheduledPickupTime: true,
   scheduledDropoffTime: true,

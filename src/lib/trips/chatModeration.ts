@@ -79,14 +79,13 @@ export const PARENT_QUICK_REPLIES = [
   'Call me please.',
 ] as const;
 
-/** Driver quick-reply options. */
+/** Driver quick-reply options (Task 13.4.2). */
 export const DRIVER_QUICK_REPLIES = [
-  'I am on my way.',
   'I have arrived.',
-  'Please come outside.',
-  'Traffic delay.',
-  'I picked up the rider.',
-  'I dropped off the rider safely.',
+  'I am on my way.',
+  'Please come to the pickup point.',
+  'There is a short delay.',
+  'I cannot find the pickup location.',
 ] as const;
 
 export type ParentQuickReply = (typeof PARENT_QUICK_REPLIES)[number];

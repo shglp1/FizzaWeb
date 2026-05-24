@@ -1,5 +1,5 @@
 /**
- * Driver portal helpers — pure, testable (Task 13.4).
+ * Driver portal helpers — pure, testable (Task 13.4 / 13.4.1).
  */
 
 import type { TripStatus } from '../trips/tripLifecycle.ts';
@@ -25,6 +25,7 @@ export const DRIVER_ROUTE_SHEET_TABS: { label: string; value: DriverTripTab }[] 
 export const DRIVER_NAV_LABELS = {
   dashboard: 'Dashboard',
   routeSheet: 'Route Sheet',
+  routeSheetMobile: 'Route',
   liveGps: 'Live GPS',
   safetyCenter: 'Safety Center',
   notifications: 'Notifications',
@@ -34,6 +35,15 @@ export const DRIVER_NAV_LABELS = {
 export const DRIVER_TRACKING_LIST_COPY = {
   driver: 'Share your live location for assigned trips so families can follow the ride safely.',
   parent: "Track your child's active trips",
+} as const;
+
+export const MAP_FALLBACK_LABEL =
+  'Map unavailable because this trip does not have confirmed coordinates.';
+
+export const TRACKING_GROUP_LABELS = {
+  available_now: 'Available now',
+  opens_soon: 'Opens soon',
+  upcoming: 'Upcoming',
 } as const;
 
 export type DriverPrimaryAction = {
@@ -88,7 +98,7 @@ export function getDriverPrimaryAction(status: TripStatus, withinTrackingWindow 
       label: 'Navigate to pickup',
       kind: 'navigate',
       disabled: true,
-      disabledReason: 'GPS tracking opens about 10 minutes before pickup.',
+      disabledReason: 'GPS opens 10 minutes before pickup.',
     };
   }
   if (status === 'DRIVER_ASSIGNED' || status === 'PRE_TRIP') {
@@ -120,33 +130,55 @@ export type TrackingAvailability =
   | 'closed'
   | 'not_assigned';
 
+export type TrackingGroupKey = 'available_now' | 'opens_soon' | 'upcoming';
+
 export function getTrackingAvailability(input: {
   status: string;
   scheduledPickupTime: string | null;
   hasLiveLocation?: boolean;
   nowMs?: number;
-}): { availability: TrackingAvailability; label: string } {
+}): { availability: TrackingAvailability; label: string; group: TrackingGroupKey } {
   const now = input.nowMs ?? Date.now();
   const status = input.status as TripStatus;
   if (['COMPLETED', 'CANCELLED', 'NO_SHOW'].includes(status)) {
-    return { availability: 'closed', label: 'Closed' };
+    return { availability: 'closed', label: 'Closed', group: 'upcoming' };
   }
   if (status === 'SCHEDULED') {
-    return { availability: 'not_assigned', label: 'Not yet active' };
+    return { availability: 'not_assigned', label: 'Not yet active', group: 'upcoming' };
   }
   if (input.hasLiveLocation && isTrackableStatus(status)) {
-    return { availability: 'active_sharing', label: 'Active sharing' };
+    return { availability: 'active_sharing', label: 'Active sharing', group: 'available_now' };
   }
   const mins = input.scheduledPickupTime
     ? Math.round((new Date(input.scheduledPickupTime).getTime() - now) / 60_000)
     : null;
   if (mins != null && mins > 10 && !isActiveStatus(status)) {
-    return { availability: 'opens_soon', label: `Opens in ~${mins} min` };
+    return { availability: 'opens_soon', label: `Opens in ~${mins} min`, group: 'opens_soon' };
   }
   if (isTrackableStatus(status)) {
-    return { availability: 'available_now', label: 'Available now' };
+    return { availability: 'available_now', label: 'Available now', group: 'available_now' };
   }
-  return { availability: 'opens_soon', label: 'Opens soon' };
+  return { availability: 'opens_soon', label: 'Opens soon', group: 'opens_soon' };
+}
+
+export function groupTripsByTrackingAvailability<T extends { status: string; scheduledPickupTime: string | null }>(
+  trips: T[],
+  nowMs = Date.now(),
+): Record<TrackingGroupKey, T[]> {
+  const groups: Record<TrackingGroupKey, T[]> = {
+    available_now: [],
+    opens_soon: [],
+    upcoming: [],
+  };
+  for (const trip of trips) {
+    const { group } = getTrackingAvailability({
+      status: trip.status,
+      scheduledPickupTime: trip.scheduledPickupTime,
+      nowMs,
+    });
+    groups[group].push(trip);
+  }
+  return groups;
 }
 
 export type SafetyStatusKey = 'PENDING' | 'APPROVED' | 'REJECTED' | 'RESOLVED';
@@ -179,6 +211,12 @@ export function mapNotificationCategory(type: string): 'Trip' | 'Dispatch' | 'Sa
   if (type.includes('PAYMENT') || type === 'WALLET' || type === 'WALLET_TOP_UP') return 'Payment';
   if (type === 'DRIVER_APPLICATION') return 'Dispatch';
   return 'System';
+}
+
+export function truncateRouteLabel(text: string, max = 42): string {
+  const trimmed = text.trim();
+  if (trimmed.length <= max) return trimmed;
+  return `${trimmed.slice(0, max - 1)}…`;
 }
 
 export function hasRouteCoordinates(trip: {
@@ -215,6 +253,15 @@ export function minutesUntilPickup(scheduledPickupTime: string | null, nowMs = D
   return Math.round((new Date(scheduledPickupTime).getTime() - nowMs) / 60_000);
 }
 
+export function formatCountdown(mins: number | null): string | null {
+  if (mins == null) return null;
+  if (mins <= 0) return 'Now';
+  if (mins < 60) return `${mins} min`;
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return m > 0 ? `${h}h ${m}m` : `${h}h`;
+}
+
 export function isWithinTrackingWindow(scheduledPickupTime: string | null, nowMs = Date.now()): boolean {
   const mins = minutesUntilPickup(scheduledPickupTime, nowMs);
   if (mins == null) return true;
@@ -235,3 +282,214 @@ export function fmtDriverDate(d: string): string {
   if (dt.toDateString() === tomorrow.toDateString()) return 'Tomorrow';
   return dt.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
 }
+
+/** Returns true when page should render driver-specific UI (not parent). */
+export function isDriverRole(role: string | null | undefined): boolean {
+  return role === 'DRIVER';
+}
+
+// ─── Task 13.4.2 production helpers ───────────────────────────────────────────
+
+export const CHAT_WINDOW_MINUTES_BEFORE = 20;
+export const CHAT_UNAVAILABLE_BEFORE_LABEL = 'Chat opens 20 minutes before pickup.';
+export const CHAT_BLOCKED_LABEL = 'Your chat access is restricted due to FIZZA safety rules.';
+export const ROUTE_GEOMETRY_FALLBACK_LABEL = 'Road route unavailable; showing approximate route.';
+
+export function getWeekDateRange(now = new Date()): { from: string; to: string } {
+  const from = now.toISOString().split('T')[0]!;
+  const end = new Date(now);
+  end.setDate(end.getDate() + 6);
+  return { from, to: end.toISOString().split('T')[0]! };
+}
+
+export function buildDriverTripsListParams(
+  tab: DriverTripTab,
+  page: number,
+  limit = 50,
+  now = new Date(),
+): { status?: string; from?: string; to?: string; page: number; limit: number } {
+  const today = now.toISOString().split('T')[0]!;
+  const tomorrowDate = new Date(now);
+  tomorrowDate.setDate(tomorrowDate.getDate() + 1);
+  const tomorrow = tomorrowDate.toISOString().split('T')[0]!;
+  const week = getWeekDateRange(now);
+
+  switch (tab) {
+    case 'today':
+      return { from: today, to: today, page, limit };
+    case 'tomorrow':
+      return { from: tomorrow, to: tomorrow, page, limit };
+    case 'week':
+      return { from: week.from, to: week.to, page, limit };
+    case 'active':
+      return { status: 'active', page, limit };
+    case 'completed':
+      return { status: 'completed', page, limit };
+    case 'cancelled':
+      return { status: 'cancelled', page, limit };
+    default:
+      return { page, limit };
+  }
+}
+
+export function getChatUnavailableReason(input: {
+  windowOpen: boolean;
+  scheduledPickupTime: string | null;
+  chatClosedAt: string | null;
+  status: string;
+}): string | null {
+  if (input.chatClosedAt) return 'Chat is closed for this trip.';
+  if (input.windowOpen) return null;
+  if (['COMPLETED', 'CANCELLED', 'NO_SHOW'].includes(input.status)) {
+    return 'Chat window has closed for this trip.';
+  }
+  const mins = minutesUntilPickup(input.scheduledPickupTime);
+  if (mins != null && mins > CHAT_WINDOW_MINUTES_BEFORE) {
+    return CHAT_UNAVAILABLE_BEFORE_LABEL;
+  }
+  return CHAT_UNAVAILABLE_BEFORE_LABEL;
+}
+
+export type MoreMenuAction = {
+  id: string;
+  label: string;
+  disabled?: boolean;
+  disabledReason?: string;
+  href?: string;
+  onClick?: () => void;
+  destructive?: boolean;
+};
+
+export function getDriverMoreMenuActions(
+  trip: {
+    id: string;
+    status: string;
+    scheduledPickupTime: string | null;
+    pickupLocation: string;
+    dropoffLocation: string;
+    pickupLat?: number | null;
+    pickupLng?: number | null;
+    dropoffLat?: number | null;
+    dropoffLng?: number | null;
+  },
+  options?: { supportPhone?: string | null },
+): MoreMenuAction[] {
+  const status = trip.status as TripStatus;
+  const mapsUrl = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(trip.pickupLocation)}&destination=${encodeURIComponent(trip.dropoffLocation)}`;
+  const canNoShow = status === 'ARRIVED_PICKUP';
+  const canReportLate = ['ON_THE_WAY', 'ARRIVED_PICKUP', 'PRE_TRIP', 'DRIVER_ASSIGNED'].includes(status);
+  const terminal = ['COMPLETED', 'CANCELLED', 'NO_SHOW'].includes(status);
+
+  const actions: MoreMenuAction[] = [
+    { id: 'details', label: 'View trip details', href: `/tracking/${trip.id}` },
+    {
+      id: 'tracking',
+      label: 'Open tracking',
+      href: `/tracking/${trip.id}`,
+      disabled: terminal,
+      disabledReason: terminal ? 'Trip is no longer active.' : undefined,
+    },
+    { id: 'maps', label: 'Open route in Google Maps', href: mapsUrl },
+    { id: 'safety', label: 'Report safety issue', href: `/safety?tripId=${trip.id}` },
+  ];
+
+  if (canReportLate) {
+    actions.push({
+      id: 'late',
+      label: 'Report rider late',
+      disabled: !['ON_THE_WAY', 'ARRIVED_PICKUP'].includes(status),
+      disabledReason: status === 'PRE_TRIP' || status === 'DRIVER_ASSIGNED'
+        ? 'Available once you are en route to pickup.'
+        : undefined,
+    });
+  }
+
+  if (canNoShow) {
+    actions.push({
+      id: 'no_show',
+      label: 'Mark no-show',
+      destructive: true,
+    });
+  }
+
+  if (options?.supportPhone) {
+    actions.push({
+      id: 'support',
+      label: 'Contact support',
+      href: `tel:${options.supportPhone}`,
+    });
+  }
+
+  actions.push({
+    id: 'copy_pickup',
+    label: 'Copy pickup address',
+  });
+  actions.push({
+    id: 'copy_dropoff',
+    label: 'Copy dropoff address',
+  });
+
+  return actions;
+}
+
+const ACTIVITY_LABELS: Record<string, string> = {
+  DRIVER_ASSIGNED: 'Driver assigned',
+  LOCATION_SHARING: 'GPS sharing started',
+  NEAR_PICKUP: 'Near pickup',
+  ARRIVED_PICKUP: 'Arrived at pickup',
+  RIDER_PICKED_UP: 'Rider picked up',
+  NEAR_DROPOFF: 'Near drop-off',
+  ARRIVED_DROPOFF: 'Arrived at drop-off',
+  TRIP_COMPLETED: 'Trip completed',
+  DRIVER_LATE: 'Driver reported late',
+  RIDER_LATE: 'Rider reported late',
+  TRIP_CANCELLED: 'Trip cancelled',
+  NO_SHOW: 'No-show recorded',
+  STATUS_CHANGE: 'Status updated',
+  MODERATION_FLAGGED: 'Chat message flagged',
+  CHAT_MESSAGE_FLAGGED: 'Chat message flagged',
+};
+
+export function formatTripActivityLabel(eventType: string, message: string | null): string {
+  if (message?.trim()) return message.trim();
+  return ACTIVITY_LABELS[eventType] ?? eventType.replace(/_/g, ' ').toLowerCase().replace(/^\w/, (c) => c.toUpperCase());
+}
+
+export type GpsPermissionUiState =
+  | 'unsupported'
+  | 'unknown'
+  | 'prompt_needed'
+  | 'granted'
+  | 'denied'
+  | 'denied_permanent'
+  | 'active'
+  | 'stale'
+  | 'stopped'
+  | 'error'
+  | 'outside_window';
+
+export const GPS_PERMISSION_EXPLAIN =
+  'FIZZA uses your live location only during assigned trips so families can track the ride safely.';
+
+export const GPS_DENIED_INSTRUCTIONS =
+  'Open browser site settings → Location → Allow for this site, then tap Retry.';
+
+export const GPS_OUTSIDE_WINDOW_LABEL = 'GPS sharing opens 10 minutes before pickup.';
+
+export function getGpsPermissionLabel(state: GpsPermissionUiState): string {
+  switch (state) {
+    case 'unsupported': return 'GPS not supported in this browser';
+    case 'unknown': return 'Location permission not checked yet';
+    case 'prompt_needed': return 'Enable GPS sharing';
+    case 'granted': return 'Location permission granted';
+    case 'denied': return 'Location permission denied';
+    case 'denied_permanent': return 'Location blocked in browser settings';
+    case 'active': return 'GPS sharing active';
+    case 'stale': return 'GPS signal delayed';
+    case 'stopped': return 'GPS sharing stopped';
+    case 'error': return 'GPS sharing error';
+    case 'outside_window': return 'GPS not available yet';
+    default: return 'GPS status';
+  }
+}
+

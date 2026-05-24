@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { AppShell } from '@/components/layout/AppShell';
 import {
   PageHeader,
@@ -17,7 +18,8 @@ import {
 import { safetyService } from '@/services/safetyService';
 import { tripService } from '@/services/tripService';
 import {
-  DriverPageHeader,
+  DriverCommandHeader,
+  DriverSafetyHero,
   DriverSafetyKpiRow,
   DriverEmptyState,
   DriverErrorState,
@@ -81,6 +83,15 @@ const EMPTY_FORM = { category: '', description: '', tripId: '', attachmentUrl: '
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function SafetyPage() {
+  return (
+    <Suspense fallback={<AppShell><LoadingState message="Loading safety center…" /></AppShell>}>
+      <SafetyPageContent />
+    </Suspense>
+  );
+}
+
+function SafetyPageContent() {
+  const searchParams = useSearchParams();
   const [reports, setReports]           = useState<Report[]>([]);
   const [loading, setLoading]           = useState(true);
   const [pageError, setPageError]       = useState('');
@@ -106,6 +117,14 @@ export default function SafetyPage() {
   };
 
   useEffect(() => { loadReports(); }, []);
+
+  useEffect(() => {
+    const tripId = searchParams.get('tripId');
+    if (tripId) {
+      setForm((p) => ({ ...p, tripId }));
+      setShowForm(true);
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     fetch('/api/me')
@@ -179,15 +198,11 @@ export default function SafetyPage() {
   };
 
   const header = isDriver ? (
-    <DriverPageHeader
+    <DriverCommandHeader
       title="Safety Center"
       subtitle="Report incidents and review admin responses."
       action={
-        <Button
-          variant={showForm ? 'ghost' : 'primary'}
-          size="sm"
-          onClick={() => { setShowForm((p) => !p); setFormError(''); setFormSuccess(''); }}
-        >
+        <Button variant={showForm ? 'ghost' : 'primary'} size="sm" onClick={() => { setShowForm((p) => !p); setFormError(''); setFormSuccess(''); }}>
           {showForm ? 'Cancel' : 'New Report'}
         </Button>
       }
@@ -217,7 +232,14 @@ export default function SafetyPage() {
 
   return (
     <AppShell>
+      <div className="max-w-3xl mx-auto driver-portal pb-24 md:pb-6">
       {header}
+
+      {isDriver && !showForm && !loading && (
+        <div className="mb-4">
+          <DriverSafetyHero onNewReport={() => { setShowForm(true); setFormError(''); setFormSuccess(''); }} />
+        </div>
+      )}
 
       {isDriver && !loading && reports.length >= 0 && (
         <div className="mb-5">
@@ -447,6 +469,7 @@ export default function SafetyPage() {
           ))}
         </div>
       )}
+      </div>
     </AppShell>
   );
 }
