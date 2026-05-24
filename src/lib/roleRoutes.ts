@@ -80,7 +80,7 @@ const DRIVER_APPLICANT_PREFIXES = [
 ];
 
 const DRIVER_PREFIXES = [
-  '/driver/dashboard', '/trips', '/profile', '/notifications',
+  '/driver/dashboard', '/driver/earnings', '/trips', '/profile', '/notifications',
   '/safety', '/tracking',
 ];
 
@@ -155,6 +155,7 @@ export const DRIVER_APPLICANT_SECONDARY_NAV: NavItem[] = [
 export const DRIVER_NAV: NavItem[] = [
   { label: 'Dashboard',        href: '/driver/dashboard',   icon: 'dashboard' },
   { label: 'Route Sheet',      href: '/trips',              icon: 'trips' },
+  { label: 'Earnings',         href: '/driver/earnings',    icon: 'wallet' },
   { label: 'Live GPS',         href: '/tracking',           icon: 'tracking' },
   { label: 'Safety Center',    href: '/safety',             icon: 'safety' },
   { label: 'Notifications',    href: '/notifications',      icon: 'notifications' },

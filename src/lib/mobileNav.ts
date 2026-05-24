@@ -51,8 +51,8 @@ const APPLICANT_ITEMS: MobileNavItem[] = [
 const APPROVED_DRIVER_ITEMS: MobileNavItem[] = [
   { label: 'Dashboard', href: '/driver/dashboard', icon: 'home' },
   { label: 'Route', href: '/trips', icon: 'trips' },
+  { label: 'Earnings', href: '/driver/earnings', icon: 'wallet' },
   { label: 'Live GPS', href: '/tracking', icon: 'tracking' },
-  { label: 'Safety', href: '/safety', icon: 'safety' },
   { label: 'Profile', href: '/profile', icon: 'profile' },
 ];
 

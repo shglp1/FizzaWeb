@@ -1,9 +1,10 @@
 'use client';
 
-import { Car, Star, Clock, AlertTriangle, UserCheck, MessageSquareOff } from 'lucide-react';
+import { Car, Star, Clock, AlertTriangle, UserCheck, MessageSquareOff, Banknote } from 'lucide-react';
 import { useEffect, useState, useCallback } from 'react';
 import { adminDriverService } from '@/services/adminService';
-import { Button, Alert, Textarea, ErrorState } from '@/components/ui';
+import { payrollService } from '@/services/payrollService';
+import { Button, Alert, Textarea, ErrorState, Input } from '@/components/ui';
 import { AdminPagination } from '@/components/admin/AdminPagination';
 import { DEFAULT_ADMIN_PAGE_LIMIT } from '@/lib/ui/adminPagination';
 import {
@@ -78,6 +79,21 @@ export function DriversSection() {
   const [actionMsg, setActionMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
+  const [payRate, setPayRate] = useState('');
+  const [payFee, setPayFee] = useState('');
+  const [payProfileLoading, setPayProfileLoading] = useState(false);
+  const [payProfileSaving, setPayProfileSaving] = useState(false);
+  const [payoutInfo, setPayoutInfo] = useState<{
+    bankIban?: string | null;
+    bankAccountHolderName?: string | null;
+    myfatoorahSupplierCode?: number | null;
+    supplierStatus?: string;
+    supplierStatusNote?: string | null;
+  } | null>(null);
+  const [payoutLoading, setPayoutLoading] = useState(false);
+  const [payoutSyncing, setPayoutSyncing] = useState(false);
+  const [multiVendorConfigured, setMultiVendorConfigured] = useState(false);
+
   const load = useCallback((
     sf: string,
     af: string,
@@ -107,6 +123,60 @@ export function DriversSection() {
       setLoading(false);
     });
   }, []);
+
+  const loadPayProfile = useCallback((driverId: string) => {
+    setPayProfileLoading(true);
+    setPayoutLoading(true);
+    Promise.all([
+      payrollService.getDriverPayProfile(driverId),
+      payrollService.getDriverPayoutProfile(driverId),
+    ]).then(([payRes, payoutRes]) => {
+      const profile = payRes.data as { ratePerKmSar: string | null; platformFeePercent: string | null } | null;
+      if (profile) {
+        setPayRate(profile.ratePerKmSar != null ? String(Number(profile.ratePerKmSar)) : '');
+        setPayFee(profile.platformFeePercent != null ? String(Number(profile.platformFeePercent)) : '');
+      } else {
+        setPayRate('');
+        setPayFee('');
+      }
+      if (payoutRes.data) {
+        setPayoutInfo(payoutRes.data.profile as typeof payoutInfo);
+        setMultiVendorConfigured(!!payoutRes.data.multiVendorConfigured);
+      } else {
+        setPayoutInfo(null);
+      }
+      setPayProfileLoading(false);
+      setPayoutLoading(false);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (selected) loadPayProfile(selected.id);
+  }, [selected, loadPayProfile]);
+
+  const savePayProfile = async () => {
+    if (!selected) return;
+    setPayProfileSaving(true);
+    const res = await payrollService.updateDriverPayProfile(selected.id, {
+      ratePerKmSar: payRate.trim() === '' ? null : parseFloat(payRate),
+      platformFeePercent: payFee.trim() === '' ? null : parseFloat(payFee),
+    });
+    setPayProfileSaving(false);
+    if (res.error) setActionMsg({ text: res.error.message, type: 'error' });
+    else setActionMsg({ text: 'Pay profile saved.', type: 'success' });
+  };
+
+  const syncSupplier = async () => {
+    if (!selected) return;
+    setPayoutSyncing(true);
+    const res = await payrollService.syncDriverSupplier(selected.id);
+    setPayoutSyncing(false);
+    if (res.error) setActionMsg({ text: res.error.message, type: 'error' });
+    else {
+      setActionMsg({ text: 'MyFatoorah supplier synced.', type: 'success' });
+      loadPayProfile(selected.id);
+    }
+  };
 
   useEffect(() => {
     load(suspendedFilter, availabilityFilter, vehicleTypeFilter, cityFilter, page, limit);
@@ -387,6 +457,53 @@ export function DriversSection() {
               <AdminDrawerRow label="Rating" value={selected.rating ? Number(selected.rating).toFixed(1) : '—'} />
               <AdminDrawerRow label="Total trips" value={selected._count.trips} />
               <AdminDrawerRow label="Member since" value={new Date(selected.createdAt).toLocaleDateString()} />
+            </AdminDrawerSection>
+
+            <AdminDrawerSection title="Trip pay overrides">
+              <p className="text-xs text-gray-500 mb-3">
+                Leave blank to use global payroll rules. Set values to override rate or platform fee for this driver.
+              </p>
+              {payProfileLoading ? (
+                <p className="text-sm text-gray-500">Loading…</p>
+              ) : (
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Rate per km (SAR)</label>
+                    <Input type="number" min={0} step={0.01} placeholder="Global default" value={payRate} onChange={(e) => setPayRate(e.target.value)} />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Platform fee (%)</label>
+                    <Input type="number" min={0} max={100} step={0.1} placeholder="Global default" value={payFee} onChange={(e) => setPayFee(e.target.value)} />
+                  </div>
+                  <Button size="sm" variant="outline" loading={payProfileSaving} onClick={savePayProfile} className="min-h-[44px]">
+                    <Banknote className="h-4 w-4 mr-1.5" aria-hidden />
+                    Save pay overrides
+                  </Button>
+                </div>
+              )}
+            </AdminDrawerSection>
+
+            <AdminDrawerSection title="Payout bank (MyFatoorah)">
+              {payoutLoading ? (
+                <p className="text-sm text-gray-500">Loading…</p>
+              ) : payoutInfo?.bankIban ? (
+                <div className="space-y-2 text-sm">
+                  <AdminDrawerRow label="Account name" value={payoutInfo.bankAccountHolderName ?? '—'} />
+                  <AdminDrawerRow label="IBAN" value={payoutInfo.bankIban} />
+                  <AdminDrawerRow label="Supplier code" value={payoutInfo.myfatoorahSupplierCode ?? 'Not synced'} />
+                  <AdminDrawerRow label="Supplier status" value={payoutInfo.supplierStatus ?? 'NOT_SUBMITTED'} />
+                  {payoutInfo.supplierStatusNote && (
+                    <p className="text-xs text-gray-500">{payoutInfo.supplierStatusNote}</p>
+                  )}
+                  {multiVendorConfigured && (
+                    <Button size="sm" variant="outline" loading={payoutSyncing} onClick={syncSupplier} className="min-h-[44px]">
+                      Sync MyFatoorah supplier
+                    </Button>
+                  )}
+                </div>
+              ) : (
+                <p className="text-sm text-gray-500">Driver has not submitted bank details yet (Earnings → Payout setup).</p>
+              )}
             </AdminDrawerSection>
 
             {selected.activeChatBlock && (

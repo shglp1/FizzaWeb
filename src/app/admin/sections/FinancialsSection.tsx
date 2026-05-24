@@ -1,6 +1,6 @@
 'use client';
 
-import { DollarSign, CreditCard, Wallet, TrendingUp } from 'lucide-react';
+import { DollarSign, CreditCard, Wallet, TrendingUp, Banknote } from 'lucide-react';
 import { useEffect, useState, useCallback } from 'react';
 import { adminFinancialService } from '@/services/adminService';
 import { ErrorState, Button } from '@/components/ui';
@@ -34,6 +34,12 @@ type Overview = {
   subscriptionRevenueSar: number;
   subscriptionPaymentsCount: number;
   totalWalletBalanceSar: number;
+  driverPayrollPaidSar: number;
+  driverPayrollPaidCount: number;
+  driverPayrollApprovedSar: number;
+  driverPayrollApprovedCount: number;
+  driverPayrollDraftSar: number;
+  driverPayrollDraftCount: number;
 };
 
 type Payment = {
@@ -157,21 +163,37 @@ export function FinancialsSection() {
       />
 
       {ovLoading ? (
-        <AdminLoadingGrid count={8} />
+        <AdminLoadingGrid count={11} />
       ) : overview ? (
-        <AdminMetricGrid
-          columns={4}
-          items={[
-            { label: 'Total Revenue', value: formatSar(overview.totalRevenueSar), icon: DollarSign, color: '#059669' },
-            { label: 'Paid Payments', value: overview.paidPaymentsCount, icon: TrendingUp, color: '#059669' },
-            { label: 'Pending Revenue', value: formatSar(overview.pendingRevenueSar), color: '#D97706' },
-            { label: 'Pending Payments', value: overview.pendingPaymentsCount, color: '#D97706' },
-            { label: 'Failed Payments', value: overview.failedPaymentsCount, color: '#DC2626' },
-            { label: 'Wallet Top-ups', value: formatSar(overview.walletTopUpRevenueSar), icon: Wallet, color: '#2563EB' },
-            { label: 'Subscription Revenue', value: formatSar(overview.subscriptionRevenueSar), icon: CreditCard, color: '#6366F1' },
-            { label: 'Total Wallet Balance', value: formatSar(overview.totalWalletBalanceSar), icon: Wallet, color: '#7C3AED' },
-          ]}
-        />
+        <>
+          <AdminMetricGrid
+            columns={4}
+            items={[
+              { label: 'Total Revenue', value: formatSar(overview.totalRevenueSar), icon: DollarSign, color: '#059669' },
+              { label: 'Paid Payments', value: overview.paidPaymentsCount, icon: TrendingUp, color: '#059669' },
+              { label: 'Pending Revenue', value: formatSar(overview.pendingRevenueSar), color: '#D97706' },
+              { label: 'Pending Payments', value: overview.pendingPaymentsCount, color: '#D97706' },
+              { label: 'Failed Payments', value: overview.failedPaymentsCount, color: '#DC2626' },
+              { label: 'Wallet Top-ups', value: formatSar(overview.walletTopUpRevenueSar), icon: Wallet, color: '#2563EB' },
+              { label: 'Subscription Revenue', value: formatSar(overview.subscriptionRevenueSar), icon: CreditCard, color: '#6366F1' },
+              { label: 'Total Wallet Balance', value: formatSar(overview.totalWalletBalanceSar), icon: Wallet, color: '#7C3AED' },
+            ]}
+          />
+          <div className="mt-6 mb-2">
+            <AdminSectionHeader
+              title="Driver Payroll"
+              subtitle="Trip-based driver compensation (separate from parent wallet revenue)"
+            />
+          </div>
+          <AdminMetricGrid
+            columns={3}
+            items={[
+              { label: 'Paid to drivers', value: formatSar(overview.driverPayrollPaidSar), icon: Banknote, color: '#047857' },
+              { label: 'Approved (awaiting payout)', value: formatSar(overview.driverPayrollApprovedSar), color: '#2563EB' },
+              { label: 'Draft payroll', value: formatSar(overview.driverPayrollDraftSar), color: '#D97706' },
+            ]}
+          />
+        </>
       ) : null}
 
       <AdminSectionHeader

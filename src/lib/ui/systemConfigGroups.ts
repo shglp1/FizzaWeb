@@ -17,6 +17,7 @@ export type ConfigGroupId =
   | 'notifications'
   | 'chat'
   | 'payment'
+  | 'payroll'
   | 'support';
 
 export type ConfigGroup = {
@@ -102,6 +103,20 @@ export const CONFIG_FIELD_META: Record<string, ConfigFieldMeta> = {
     defaultValue: 50,
     recommended: '50',
   },
+  driverPayRatePerKmSar: {
+    label: 'Driver pay rate per km (SAR)',
+    type: 'number',
+    hint: 'Default trip-based pay rate for drivers (billable km × rate). Separate from parent subscription pricing.',
+    defaultValue: 1.5,
+    recommended: '1.50',
+  },
+  driverPlatformFeePercent: {
+    label: 'Driver platform fee (%)',
+    type: 'number',
+    hint: 'Percentage deducted from driver trip gross earnings before payout.',
+    defaultValue: 15,
+    recommended: '15',
+  },
 };
 
 export const CONFIG_GROUPS: ConfigGroup[] = [
@@ -140,6 +155,12 @@ export const CONFIG_GROUPS: ConfigGroup[] = [
     label: 'Payment',
     description: 'Loyalty rewards tied to payments.',
     keys: ['loyaltyPointsPerSar', 'loyaltyPointsOnSafetyApproval'],
+  },
+  {
+    id: 'payroll',
+    label: 'Driver Payroll',
+    description: 'Trip-based driver compensation defaults.',
+    keys: ['driverPayRatePerKmSar', 'driverPlatformFeePercent'],
   },
   {
     id: 'support',

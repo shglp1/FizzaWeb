@@ -42,10 +42,10 @@ describe('MobileNav driverState mapping', () => {
     assert.ok(!items.some((i) => i.href === '/riders'));
   });
 
-  it('APPROVED_DRIVER gets driver nav with Safety, not family Riders', () => {
+  it('APPROVED_DRIVER gets driver nav with Earnings, not family Riders', () => {
     const items = getMobileNavItemsForDriverState('APPROVED_DRIVER')!;
     assert.ok(items.some((i) => i.href === '/driver/dashboard'));
-    assert.ok(items.some((i) => i.href === '/safety'));
+    assert.ok(items.some((i) => i.href === '/driver/earnings'));
     assert.ok(!items.some((i) => i.href === '/riders'));
     assert.ok(!items.some((i) => i.href === '/wallet'));
   });

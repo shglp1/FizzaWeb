@@ -136,6 +136,8 @@ model Profile {
   driverAssignmentsMade SubscriptionDriverAssignment[] @relation("AssignedBy")
   chatBlocksReceived    ChatBlock[]                    @relation("ChatBlockUser")
   chatBlocksIssued      ChatBlock[]                    @relation("ChatBlockAdmin")
+  payrollRunsGenerated  PayrollRun[]                   @relation("PayrollRunGeneratedBy")
+  payrollLinesApproved  DriverPayrollLine[]            @relation("PayrollLineApprovedBy")
 
   @@map("profiles")
 }
@@ -350,6 +352,9 @@ model Driver {
   assignedSubscriptions UserSubscription[]             @relation("SubscriptionAssignedDriver")
   driverAssignments     SubscriptionDriverAssignment[] @relation("DriverAssignments")
   chatBlocks            ChatBlock[]
+  payProfile            DriverPayProfile?
+  tripEarnings          DriverTripEarning[]
+  payrollLines          DriverPayrollLine[]
 
   @@index([profileId])
   @@index([isSuspended])
@@ -375,6 +380,8 @@ model Trip {
   /// Dropoff coordinates inherited from the subscription's LocationPicker selection (Task 11H).
   dropoffLat           Float?              @map("dropoff_lat")
   dropoffLng           Float?              @map("dropoff_lng")
+  /// Admin-entered billable km when trip coordinates are missing or disputed.
+  billableKmOverride   Decimal?            @map("billable_km_override") @db.Decimal(10, 3)
   status               TripStatus          @default(SCHEDULED)
   legType              TripLegType         @default(OUTBOUND) @map("leg_type")
   /// True when trip is waiting for admin dispatch (timeline infeasible for default driver).
@@ -400,6 +407,7 @@ model Trip {
   safetyReports        SafetyReport[]
   events               TripEvent[]
   chatMessages         TripChatMessage[]
+  tripEarning          DriverTripEarning?
 
   @@index([subscriptionId])
   @@index([riderId])
@@ -693,4 +701,126 @@ model ChatBlock {
   @@index([active])
   @@index([targetType])
   @@map("chat_blocks")
+}
+
+enum PayrollLineStatus {
+  DRAFT
+  APPROVED
+  PAID
+}
+
+enum KmSource {
+  ROAD
+  HAVERSINE
+  MANUAL
+}
+
+enum SupplierPayoutStatus {
+  NOT_SUBMITTED
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum PayrollPayoutMethod {
+  MANUAL
+  MYFATOORAH
+}
+
+/// Optional per-driver overrides for trip-based pay (null fields inherit global rules).
+model DriverPayProfile {
+  id                    String               @id @default(cuid())
+  driverId              String               @unique @map("driver_id")
+  ratePerKmSar          Decimal?             @map("rate_per_km_sar") @db.Decimal(10, 4)
+  platformFeePercent    Decimal?             @map("platform_fee_percent") @db.Decimal(5, 2)
+  bankAccountHolderName String?              @map("bank_account_holder_name")
+  bankIban              String?              @map("bank_iban")
+  bankAccountNumber     String?              @map("bank_account_number")
+  bankId                String?              @map("bank_id")
+  myfatoorahSupplierCode Int?                @map("myfatoorah_supplier_code")
+  supplierStatus        SupplierPayoutStatus @default(NOT_SUBMITTED) @map("supplier_status")
+  supplierStatusNote    String?              @map("supplier_status_note") @db.Text
+  createdAt             DateTime             @default(now()) @map("created_at")
+  updatedAt             DateTime             @updatedAt @map("updated_at")
+  driver                Driver               @relation(fields: [driverId], references: [id], onDelete: Cascade)
+
+  @@map("driver_pay_profiles")
+}
+
+/// Snapshot of pay for one completed trip — immutable once linked to a payroll line.
+model DriverTripEarning {
+  id                 String             @id @default(cuid())
+  tripId             String             @unique @map("trip_id")
+  driverId           String             @map("driver_id")
+  payrollLineId      String?            @map("payroll_line_id")
+  billableKm         Decimal            @map("billable_km") @db.Decimal(10, 3)
+  kmSource           KmSource           @map("km_source")
+  ratePerKmSar       Decimal            @map("rate_per_km_sar") @db.Decimal(10, 4)
+  platformFeePercent Decimal            @map("platform_fee_percent") @db.Decimal(5, 2)
+  grossSar           Decimal            @map("gross_sar") @db.Decimal(10, 2)
+  platformFeeSar     Decimal            @map("platform_fee_sar") @db.Decimal(10, 2)
+  netSar             Decimal            @map("net_sar") @db.Decimal(10, 2)
+  tripCompletedAt    DateTime           @map("trip_completed_at")
+  createdAt          DateTime           @default(now()) @map("created_at")
+  trip               Trip               @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  driver             Driver             @relation(fields: [driverId], references: [id], onDelete: Cascade)
+  payrollLine        DriverPayrollLine? @relation(fields: [payrollLineId], references: [id], onDelete: SetNull)
+
+  @@index([driverId])
+  @@index([payrollLineId])
+  @@index([tripCompletedAt])
+  @@map("driver_trip_earnings")
+}
+
+/// Monthly payroll batch generated by admin.
+model PayrollRun {
+  id               String              @id @default(cuid())
+  year             Int
+  month            Int
+  status           String              @default("GENERATED")
+  triggeredBy      String              @default("ADMIN") @map("triggered_by")
+  skippedTripCount Int                 @default(0) @map("skipped_trip_count")
+  skippedTrips     Json?               @map("skipped_trips")
+  generatedAt      DateTime            @default(now()) @map("generated_at")
+  generatedById    String?             @map("generated_by_id")
+  notes            String?             @db.Text
+  lines            DriverPayrollLine[]
+  generatedBy      Profile?            @relation("PayrollRunGeneratedBy", fields: [generatedById], references: [id], onDelete: SetNull)
+
+  @@unique([year, month])
+  @@map("payroll_runs")
+}
+
+/// Aggregated monthly pay line for one driver.
+model DriverPayrollLine {
+  id              String              @id @default(cuid())
+  payrollRunId    String              @map("payroll_run_id")
+  driverId        String              @map("driver_id")
+  tripCount       Int                 @default(0) @map("trip_count")
+  totalBillableKm Decimal             @default(0) @map("total_billable_km") @db.Decimal(10, 3)
+  grossSar        Decimal             @default(0) @map("gross_sar") @db.Decimal(10, 2)
+  platformFeeSar  Decimal             @default(0) @map("platform_fee_sar") @db.Decimal(10, 2)
+  tripNetSar      Decimal             @default(0) @map("trip_net_sar") @db.Decimal(10, 2)
+  deductionsSar   Decimal             @default(0) @map("deductions_sar") @db.Decimal(10, 2)
+  bonusesSar      Decimal             @default(0) @map("bonuses_sar") @db.Decimal(10, 2)
+  netPaySar       Decimal             @default(0) @map("net_pay_sar") @db.Decimal(10, 2)
+  status          PayrollLineStatus   @default(DRAFT)
+  adminNotes      String?             @map("admin_notes") @db.Text
+  paidAt          DateTime?           @map("paid_at")
+  approvedAt      DateTime?           @map("approved_at")
+  approvedById    String?             @map("approved_by_id")
+  payoutMethod    PayrollPayoutMethod? @map("payout_method")
+  payoutRef       String?             @map("payout_ref")
+  payoutError     String?             @map("payout_error") @db.Text
+  createdAt       DateTime            @default(now()) @map("created_at")
+  updatedAt       DateTime            @updatedAt @map("updated_at")
+  payrollRun      PayrollRun          @relation(fields: [payrollRunId], references: [id], onDelete: Cascade)
+  driver          Driver              @relation(fields: [driverId], references: [id], onDelete: Cascade)
+  tripEarnings    DriverTripEarning[]
+  approvedBy      Profile?            @relation("PayrollLineApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+
+  @@unique([payrollRunId, driverId])
+  @@index([driverId])
+  @@index([status])
+  @@map("driver_payroll_lines")
 }

@@ -108,6 +108,6 @@ test('notification category mapping', () => {
 test('driver nav from DRIVER_NAV constant', () => {
   assert.deepEqual(
     DRIVER_NAV.map((i) => i.label),
-    ['Dashboard', 'Route Sheet', 'Live GPS', 'Safety Center', 'Notifications'],
+    ['Dashboard', 'Route Sheet', 'Earnings', 'Live GPS', 'Safety Center', 'Notifications'],
   );
 });

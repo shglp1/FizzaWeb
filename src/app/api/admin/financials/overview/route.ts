@@ -25,6 +25,9 @@ export async function GET(req: Request) {
       walletTopUpsPaid,
       subscriptionPaymentsPaid,
       totalWalletBalance,
+      payrollPaid,
+      payrollApproved,
+      payrollPending,
     ] = await Promise.all([
       prisma.payment.aggregate({ where: { status: 'PAID', ...paymentWhere }, _sum: { amountSar: true }, _count: true }),
       prisma.payment.aggregate({ where: { status: 'PENDING', ...paymentWhere }, _sum: { amountSar: true }, _count: true }),
@@ -40,6 +43,21 @@ export async function GET(req: Request) {
         _count: true,
       }),
       prisma.wallet.aggregate({ _sum: { balanceSar: true } }),
+      prisma.driverPayrollLine.aggregate({
+        where: { status: 'PAID', ...(hasDateFilter ? { paidAt: dateFilter } : {}) },
+        _sum: { netPaySar: true },
+        _count: true,
+      }),
+      prisma.driverPayrollLine.aggregate({
+        where: { status: 'APPROVED' },
+        _sum: { netPaySar: true },
+        _count: true,
+      }),
+      prisma.driverPayrollLine.aggregate({
+        where: { status: 'DRAFT' },
+        _sum: { netPaySar: true },
+        _count: true,
+      }),
     ]);
 
     return NextResponse.json({
@@ -55,6 +73,12 @@ export async function GET(req: Request) {
         subscriptionRevenueSar: Number(subscriptionPaymentsPaid._sum.amountSar ?? 0),
         subscriptionPaymentsCount: subscriptionPaymentsPaid._count,
         totalWalletBalanceSar: Number(totalWalletBalance._sum.balanceSar ?? 0),
+        driverPayrollPaidSar: Number(payrollPaid._sum.netPaySar ?? 0),
+        driverPayrollPaidCount: payrollPaid._count,
+        driverPayrollApprovedSar: Number(payrollApproved._sum.netPaySar ?? 0),
+        driverPayrollApprovedCount: payrollApproved._count,
+        driverPayrollDraftSar: Number(payrollPending._sum.netPaySar ?? 0),
+        driverPayrollDraftCount: payrollPending._count,
         dateFrom: dateFrom || null,
         dateTo: dateTo || null,
       },
