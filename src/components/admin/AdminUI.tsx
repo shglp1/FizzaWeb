@@ -271,6 +271,66 @@ export function AdminMetaItem({ label, value }: { label: string; value: ReactNod
   );
 }
 
+export type AdminRevenueFlowRow = {
+  label: string;
+  value: string;
+  tone?: 'neutral' | 'inflow' | 'outflow' | 'emphasis';
+  helper?: string;
+};
+
+export function AdminRevenueFlow({
+  title,
+  subtitle,
+  rows,
+  totalLabel,
+  totalValue,
+  totalHelper,
+  footnote,
+}: {
+  title: string;
+  subtitle?: string;
+  rows: AdminRevenueFlowRow[];
+  totalLabel: string;
+  totalValue: string;
+  totalHelper?: string;
+  footnote?: string;
+}) {
+  const toneClass = {
+    neutral: 'text-gray-800',
+    inflow: 'text-emerald-700',
+    outflow: 'text-amber-700',
+    emphasis: 'text-indigo-700 font-semibold',
+  };
+
+  return (
+    <div className="rounded-2xl border border-gray-100 bg-gradient-to-br from-white to-gray-50/80 p-5 shadow-card">
+      <div className="mb-4">
+        <h3 className="text-sm font-semibold text-gray-900">{title}</h3>
+        {subtitle && <p className="text-xs text-gray-500 mt-1 leading-relaxed">{subtitle}</p>}
+      </div>
+      <div className="space-y-0 divide-y divide-gray-100 rounded-xl border border-gray-100 bg-white overflow-hidden">
+        {rows.map((row) => (
+          <div key={row.label} className="flex items-start justify-between gap-4 px-4 py-3">
+            <div className="min-w-0">
+              <p className="text-sm text-gray-700">{row.label}</p>
+              {row.helper && <p className="text-[11px] text-gray-400 mt-0.5">{row.helper}</p>}
+            </div>
+            <p className={`text-sm tabular-nums shrink-0 ${toneClass[row.tone ?? 'neutral']}`}>{row.value}</p>
+          </div>
+        ))}
+        <div className="flex items-start justify-between gap-4 px-4 py-3.5 bg-emerald-50/60">
+          <div>
+            <p className="text-sm font-semibold text-gray-900">{totalLabel}</p>
+            {totalHelper && <p className="text-[11px] text-gray-500 mt-0.5">{totalHelper}</p>}
+          </div>
+          <p className="text-base font-bold text-emerald-800 tabular-nums shrink-0">{totalValue}</p>
+        </div>
+      </div>
+      {footnote && <p className="text-[11px] text-gray-400 mt-3 leading-relaxed">{footnote}</p>}
+    </div>
+  );
+}
+
 // ─── AdminTable ────────────────────────────────────────────────────────────────
 
 export type AdminTableColumn<T> = {

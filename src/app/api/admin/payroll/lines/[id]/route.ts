@@ -55,6 +55,14 @@ export async function PATCH(req: Request, context: RouteParams) {
     };
     if (parsed.data.adminNotes !== undefined) updateData.adminNotes = parsed.data.adminNotes;
 
+    const finalNotes = parsed.data.adminNotes ?? line.adminNotes ?? '';
+    if (deductionsSar > 0 && !finalNotes.trim()) {
+      return NextResponse.json(
+        { data: null, error: { message: 'Admin notes are required when applying deductions' } },
+        { status: 400 },
+      );
+    }
+
     if (parsed.data.status === 'APPROVED') {
       updateData.status = 'APPROVED';
       updateData.approvedAt = new Date();

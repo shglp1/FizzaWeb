@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireRole } from '@/lib/session';
+import { combinedPlatformRevenue } from '@/lib/payroll/platformEconomics';
 
 export async function GET(req: Request) {
   try {
@@ -28,6 +29,11 @@ export async function GET(req: Request) {
       payrollPaid,
       payrollApproved,
       payrollPending,
+      platformFeePaid,
+      platformFeeApproved,
+      platformFeeDraft,
+      deductionsPaid,
+      bonusesPaid,
     ] = await Promise.all([
       prisma.payment.aggregate({ where: { status: 'PAID', ...paymentWhere }, _sum: { amountSar: true }, _count: true }),
       prisma.payment.aggregate({ where: { status: 'PENDING', ...paymentWhere }, _sum: { amountSar: true }, _count: true }),
@@ -58,11 +64,43 @@ export async function GET(req: Request) {
         _sum: { netPaySar: true },
         _count: true,
       }),
+      prisma.driverPayrollLine.aggregate({
+        where: { status: 'PAID', ...(hasDateFilter ? { paidAt: dateFilter } : {}) },
+        _sum: { platformFeeSar: true },
+      }),
+      prisma.driverPayrollLine.aggregate({
+        where: { status: 'APPROVED' },
+        _sum: { platformFeeSar: true },
+      }),
+      prisma.driverPayrollLine.aggregate({
+        where: { status: 'DRAFT' },
+        _sum: { platformFeeSar: true },
+      }),
+      prisma.driverPayrollLine.aggregate({
+        where: { status: 'PAID', ...(hasDateFilter ? { paidAt: dateFilter } : {}) },
+        _sum: { deductionsSar: true },
+      }),
+      prisma.driverPayrollLine.aggregate({
+        where: { status: 'PAID', ...(hasDateFilter ? { paidAt: dateFilter } : {}) },
+        _sum: { bonusesSar: true },
+      }),
     ]);
+
+    const parentRevenueSar = Number(paidPayments._sum.amountSar ?? 0);
+    const driverPlatformFeePaidSar = Number(platformFeePaid._sum.platformFeeSar ?? 0);
+    const driverDeductionsPaidSar = Number(deductionsPaid._sum.deductionsSar ?? 0);
+    const driverBonusesPaidSar = Number(bonusesPaid._sum.bonusesSar ?? 0);
+    const driverRetentionPaidSar = driverPlatformFeePaidSar + driverDeductionsPaidSar - driverBonusesPaidSar;
+    const totalPlatformRevenueSar = combinedPlatformRevenue({
+      parentPaymentsSar: parentRevenueSar,
+      driverPlatformFeePaidSar,
+      driverDeductionsPaidSar,
+      driverBonusesPaidSar,
+    });
 
     return NextResponse.json({
       data: {
-        totalRevenueSar: Number(paidPayments._sum.amountSar ?? 0),
+        totalRevenueSar: parentRevenueSar,
         paidPaymentsCount: paidPayments._count,
         pendingRevenueSar: Number(pendingPayments._sum.amountSar ?? 0),
         pendingPaymentsCount: pendingPayments._count,
@@ -79,6 +117,13 @@ export async function GET(req: Request) {
         driverPayrollApprovedCount: payrollApproved._count,
         driverPayrollDraftSar: Number(payrollPending._sum.netPaySar ?? 0),
         driverPayrollDraftCount: payrollPending._count,
+        driverPlatformFeePaidSar,
+        driverPlatformFeeApprovedSar: Number(platformFeeApproved._sum.platformFeeSar ?? 0),
+        driverPlatformFeeDraftSar: Number(platformFeeDraft._sum.platformFeeSar ?? 0),
+        driverDeductionsPaidSar,
+        driverBonusesPaidSar,
+        driverRetentionPaidSar,
+        totalPlatformRevenueSar,
         dateFrom: dateFrom || null,
         dateTo: dateTo || null,
       },

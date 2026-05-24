@@ -17,6 +17,11 @@ import {
   DEFAULT_DRIVER_PLATFORM_FEE_PERCENT,
   resolveDriverPayRules,
 } from '../lib/payroll/payRules.ts';
+import {
+  aggregatePeriodEconomics,
+  combinedPlatformRevenue,
+  fizzaRetentionFromDrivers,
+} from '../lib/payroll/platformEconomics.ts';
 import { ADMIN_SECTIONS, ADMIN_SECTION_LABELS } from '../lib/adminNav.ts';
 import { DRIVER_NAV, getNavigationForRole, isRouteAllowedForRole } from '../lib/roleRoutes.ts';
 import { getMobileNavItemsForDriverState } from '../lib/mobileNav.ts';
@@ -35,6 +40,30 @@ test('trip earning formula: km × rate minus platform fee', () => {
 
 test('period net pay applies deductions and bonuses', () => {
   assert.equal(calculatePeriodNetPay({ tripNetSar: 100, deductionsSar: 10, bonusesSar: 5 }), 95);
+});
+
+test('platform economics aggregates retention and total revenue', () => {
+  const economics = aggregatePeriodEconomics([
+    {
+      grossSar: 81.5,
+      platformFeeSar: 8.15,
+      tripNetSar: 73.35,
+      deductionsSar: 10,
+      bonusesSar: 0,
+      netPaySar: 63.35,
+      status: 'PAID',
+    },
+  ]);
+  assert.equal(fizzaRetentionFromDrivers(economics), 18.15);
+  assert.equal(
+    combinedPlatformRevenue({
+      parentPaymentsSar: 500,
+      driverPlatformFeePaidSar: 8.15,
+      driverDeductionsPaidSar: 10,
+      driverBonusesPaidSar: 0,
+    }),
+    518.15,
+  );
 });
 
 test('money and km rounding', () => {
