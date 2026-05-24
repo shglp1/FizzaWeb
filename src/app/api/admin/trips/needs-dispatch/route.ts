@@ -48,6 +48,11 @@ export async function GET(req: NextRequest) {
               id: true,
               assignedDriverId: true,
               user: { select: { fullName: true } },
+              assignedDriver: {
+                select: {
+                  profile: { select: { fullName: true } },
+                },
+              },
             },
           },
         },

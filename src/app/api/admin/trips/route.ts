@@ -12,11 +12,18 @@ export async function GET(req: Request) {
     const status = searchParams.get('status');
     const date = searchParams.get('date');
     const driverId = searchParams.get('driverId');
+    const q = searchParams.get('q')?.trim();
     const { page, limit, skip } = parsePaginationParams(searchParams);
 
     const where: Record<string, unknown> = {};
-    if (status && ['SCHEDULED', 'DRIVER_ASSIGNED', 'ON_THE_WAY', 'PICKED_UP', 'COMPLETED', 'CANCELLED'].includes(status)) {
+    if (searchParams.get('active') === 'true') {
+      where.status = { in: ['PRE_TRIP', 'ON_THE_WAY', 'ARRIVED_PICKUP', 'PICKED_UP', 'EN_ROUTE_DROPOFF', 'ARRIVED_DROPOFF'] };
+    } else if (status && ['SCHEDULED', 'DRIVER_ASSIGNED', 'ON_THE_WAY', 'PICKED_UP', 'COMPLETED', 'CANCELLED', 'NO_SHOW'].includes(status)) {
       where.status = status;
+    }
+    if (searchParams.get('unassigned') === 'true') {
+      where.driverId = null;
+      where.status = 'SCHEDULED';
     }
     if (date) {
       const d = new Date(date);
@@ -26,6 +33,14 @@ export async function GET(req: Request) {
     }
     if (driverId) where.driverId = driverId;
     if (searchParams.get('needsDispatch') === 'true') where.needsDispatch = true;
+    if (q) {
+      where.OR = [
+        { pickupLocation: { contains: q } },
+        { dropoffLocation: { contains: q } },
+        { rider: { name: { contains: q } } },
+        { subscription: { user: { fullName: { contains: q } } } },
+      ];
+    }
 
     const [trips, total] = await Promise.all([
       prisma.trip.findMany({
@@ -35,6 +50,7 @@ export async function GET(req: Request) {
           status: true,
           needsDispatch: true,
           dispatchNote: true,
+          legType: true,
           scheduledDate: true,
           scheduledPickupTime: true,
           scheduledDropoffTime: true,
@@ -56,7 +72,14 @@ export async function GET(req: Request) {
             },
           },
           vehicle: { select: { model: true, plateNumber: true, color: true } },
-          subscription: { select: { id: true, subscriptionType: true } },
+          subscription: {
+            select: {
+              id: true,
+              subscriptionType: true,
+              assignedDriverId: true,
+              user: { select: { fullName: true } },
+            },
+          },
         },
         orderBy: [{ scheduledDate: 'asc' }, { scheduledPickupTime: 'asc' }],
         skip,

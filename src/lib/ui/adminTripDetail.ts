@@ -5,6 +5,9 @@ export type AdminTripDetailApiData = {
     id: string;
     status: string;
     statusReason?: string | null;
+    needsDispatch?: boolean;
+    dispatchNote?: string | null;
+    legType?: string;
     scheduledDate: string;
     scheduledPickupTime: string | null;
     scheduledDropoffTime?: string | null;
@@ -23,16 +26,30 @@ export type AdminTripDetailApiData = {
       profile?: { fullName?: string; phone?: string | null } | null;
       rating?: string | number | null;
     } | null;
+    subscription?: {
+      id?: string;
+      subscriptionType?: string;
+      assignedDriverId?: string | null;
+      assignedDriver?: {
+        profile?: { fullName?: string } | null;
+      } | null;
+      package?: { name?: string } | null;
+    } | null;
     events?: { id: string; eventType: string; message?: string | null; createdAt: string }[];
+    safetyReports?: { id: string; category: string; status: string; description: string; createdAt: string }[];
   };
   parent?: { fullName?: string; phone?: string | null } | null;
-  chatSummary?: { flagged?: number };
+  chatSummary?: { flagged?: number; total?: number };
+  location?: { stale?: boolean } | null;
 };
 
 export type NormalizedAdminTripDetail = {
   id: string;
   status: string;
   statusReason?: string | null;
+  needsDispatch?: boolean;
+  dispatchNote?: string | null;
+  legType?: string;
   scheduledDate: string;
   scheduledPickupTime: string | null;
   scheduledDropoffTime?: string | null;
@@ -48,18 +65,30 @@ export type NormalizedAdminTripDetail = {
     rating?: string | number | null;
   } | null;
   parent?: { profile?: { fullName?: string; phone?: string } | null } | null;
+  subscription?: {
+    id?: string;
+    subscriptionType?: string;
+    packageName?: string;
+    defaultDriverName?: string | null;
+  } | null;
   events?: { id: string; eventType: string; message?: string | null; createdAt: string }[];
-  chatBlocked?: boolean;
+  safetyReports?: { id: string; category: string; status: string; description: string; createdAt: string }[];
+  chatFlaggedCount?: number;
+  chatTotal?: number;
+  gpsStale?: boolean;
 };
 
 export function normalizeAdminTripDetail(data: AdminTripDetailApiData): NormalizedAdminTripDetail {
-  const { trip, parent, chatSummary } = data;
+  const { trip, parent, chatSummary, location } = data;
   const parentProfile = parent ?? trip.rider?.parent ?? null;
 
   return {
     id: trip.id,
     status: trip.status,
     statusReason: trip.statusReason,
+    needsDispatch: trip.needsDispatch,
+    dispatchNote: trip.dispatchNote,
+    legType: trip.legType,
     scheduledDate: trip.scheduledDate,
     scheduledPickupTime: trip.scheduledPickupTime,
     scheduledDropoffTime: trip.scheduledDropoffTime,
@@ -86,7 +115,18 @@ export function normalizeAdminTripDetail(data: AdminTripDetailApiData): Normaliz
     parent: parentProfile
       ? { profile: { fullName: parentProfile.fullName, phone: parentProfile.phone ?? undefined } }
       : null,
+    subscription: trip.subscription
+      ? {
+          id: trip.subscription.id,
+          subscriptionType: trip.subscription.subscriptionType,
+          packageName: trip.subscription.package?.name,
+          defaultDriverName: trip.subscription.assignedDriver?.profile?.fullName ?? null,
+        }
+      : null,
     events: trip.events,
-    chatBlocked: (chatSummary?.flagged ?? 0) > 0,
+    safetyReports: trip.safetyReports,
+    chatFlaggedCount: chatSummary?.flagged ?? 0,
+    chatTotal: chatSummary?.total ?? 0,
+    gpsStale: location?.stale ?? false,
   };
 }

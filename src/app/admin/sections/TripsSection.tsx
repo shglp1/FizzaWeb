@@ -1,11 +1,13 @@
 'use client';
 
-import { RefreshCw, Calendar, MapPin } from 'lucide-react';
+import { RefreshCw, Calendar, MapPin, CheckCircle2, AlertTriangle, Sparkles } from 'lucide-react';
 import { useEffect, useState, useCallback } from 'react';
+import Link from 'next/link';
 import { tripService } from '@/services/tripService';
 import { tripToGoogleMapsUrl } from '@/lib/maps/googleMapsLink';
 import { Button, Alert, ErrorState } from '@/components/ui';
 import { AdminPagination } from '@/components/admin/AdminPagination';
+import { TripAssignDriverModal } from '@/components/admin/TripAssignDriverModal';
 import { DEFAULT_ADMIN_PAGE_LIMIT } from '@/lib/ui/adminPagination';
 import { TripOperationsBoard } from './TripOperationsBoard';
 import {
@@ -20,10 +22,24 @@ import {
 } from '@/components/admin/AdminUI';
 import { getDisplayLabel } from '@/lib/trips/statusCatalog';
 import type { TripStatus } from '@/lib/trips/tripLifecycle';
+import {
+  formatDispatchNoteSummary,
+  formatGenerateTripsExplanation,
+  formatGenerateTripsSummary,
+  formatLegType,
+  formatRouteSummary,
+  formatTripDateTime,
+  getPrimaryTripAction,
+  getTripCardBadges,
+  type TripFilterPreset,
+} from '@/lib/ui/adminTrips';
 
 type AdminTrip = {
   id: string;
   status: TripStatus;
+  needsDispatch?: boolean;
+  dispatchNote?: string | null;
+  legType?: string;
   scheduledDate: string;
   scheduledPickupTime: string | null;
   scheduledDropoffTime: string | null;
@@ -37,24 +53,50 @@ type AdminTrip = {
   rider: { id: string; name: string; relationship: string } | null;
   driver: { id: string; rating: string | null; profile: { fullName: string; phone: string | null } | null } | null;
   vehicle: { model: string; plateNumber: string; color: string | null } | null;
-  subscription: { id: string; subscriptionType: string } | null;
+  subscription: {
+    id: string;
+    subscriptionType: string;
+    user?: { fullName: string } | null;
+  } | null;
 };
 
-type Driver = {
+type DispatchQueueItem = {
   id: string;
-  rating: string | null;
-  profile: { fullName: string; phone: string | null } | null;
-  vehicle: { model: string; plateNumber: string; color: string | null } | null;
+  scheduledDate: string;
+  scheduledPickupTime: string | null;
+  pickupLocation: string;
+  dropoffLocation: string;
+  dispatchNote: string | null;
+  legType?: string;
+  rider: { name: string } | null;
+  subscription?: {
+    user?: { fullName: string } | null;
+    assignedDriver?: { profile?: { fullName: string } | null } | null;
+  } | null;
 };
 
 type PaginationMeta = { page: number; limit: number; total: number; totalPages: number };
 
-const TRIP_STATUS_FILTERS = ['', 'SCHEDULED', 'DRIVER_ASSIGNED', 'ON_THE_WAY', 'PICKED_UP', 'COMPLETED', 'CANCELLED'];
+type GenResult = {
+  generated: number;
+  confirmed: number;
+  needsDispatch: number;
+  skipped: number;
+  failed: number;
+  startDate: string;
+  endDate: string;
+};
 
-function fmtTime(dt: string | null): string {
-  if (!dt) return '—';
-  return new Date(dt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-}
+const TRIP_STATUS_FILTERS = ['', 'SCHEDULED', 'DRIVER_ASSIGNED', 'ON_THE_WAY', 'PICKED_UP', 'COMPLETED', 'CANCELLED', 'NO_SHOW'];
+
+const PRESET_FILTERS: { value: TripFilterPreset; label: string }[] = [
+  { value: '', label: 'All trips' },
+  { value: 'needs_dispatch', label: 'Needs dispatch' },
+  { value: 'unassigned', label: 'Unassigned only' },
+  { value: 'active', label: 'Active only' },
+  { value: 'completed', label: 'Completed' },
+  { value: 'cancelled', label: 'Cancelled' },
+];
 
 export function TripsSection() {
   const [trips, setTrips] = useState<AdminTrip[]>([]);
@@ -62,28 +104,56 @@ export function TripsSection() {
   const [loading, setLoading] = useState(true);
   const [pageError, setPageError] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [presetFilter, setPresetFilter] = useState<TripFilterPreset>('');
+  const [searchQuery, setSearchQuery] = useState('');
   const [dateFilter, setDateFilter] = useState(new Date().toISOString().slice(0, 10));
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(DEFAULT_ADMIN_PAGE_LIMIT);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [viewMode, setViewMode] = useState<'board' | 'list'>('board');
+  const [refreshToken, setRefreshToken] = useState(0);
 
-  const [drivers, setDrivers] = useState<Driver[]>([]);
-  const [assigningTripId, setAssigningTripId] = useState<string | null>(null);
-  const [selectedDriverId, setSelectedDriverId] = useState('');
-  const [assigning, setAssigning] = useState(false);
-  const [assignMsg, setAssignMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+  const [assignTrip, setAssignTrip] = useState<AdminTrip | null>(null);
+  const [assignMode, setAssignMode] = useState<'assign' | 'reassign'>('assign');
+  const [toast, setToast] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
   const [generating, setGenerating] = useState(false);
   const [genStartDate, setGenStartDate] = useState('');
   const [genEndDate, setGenEndDate] = useState('');
-  const [genMsg, setGenMsg] = useState<{ text: string; type: 'success' | 'error'; result?: { generated: number; confirmed: number; needsDispatch: number; skipped: number } } | null>(null);
-  const [dispatchQueue, setDispatchQueue] = useState<{ id: string; scheduledDate: string; scheduledPickupTime: string | null; pickupLocation: string; dispatchNote: string | null; rider: { name: string } | null }[]>([]);
+  const [genMsg, setGenMsg] = useState<{ text: string; type: 'success' | 'error'; result?: GenResult } | null>(null);
 
-  const loadTrips = useCallback((status: string, date: string, p: number, l: number, silent = false) => {
+  const [dispatchQueue, setDispatchQueue] = useState<DispatchQueueItem[]>([]);
+  const [dispatchTotal, setDispatchTotal] = useState(0);
+  const [dispatchLoading, setDispatchLoading] = useState(true);
+
+  const loadDispatchQueue = useCallback(() => {
+    setDispatchLoading(true);
+    tripService.adminNeedsDispatch({ limit: 20 }).then((res) => {
+      if (res.data?.trips) {
+        setDispatchQueue(res.data.trips);
+        setDispatchTotal(res.data.meta?.total ?? res.data.trips.length);
+      }
+      setDispatchLoading(false);
+    });
+  }, []);
+
+  const loadTrips = useCallback((silent = false) => {
     if (!silent) setLoading(true);
     setPageError('');
-    tripService.adminList({ status: status || undefined, date: date || undefined, page: p, limit: l }).then((res) => {
+    const filters: Parameters<typeof tripService.adminList>[0] = {
+      date: dateFilter || undefined,
+      page,
+      limit,
+      q: searchQuery.trim() || undefined,
+    };
+    if (presetFilter === 'needs_dispatch') filters.needsDispatch = true;
+    else if (presetFilter === 'unassigned') filters.unassigned = true;
+    else if (presetFilter === 'active') filters.active = true;
+    else if (presetFilter === 'completed') filters.status = 'COMPLETED';
+    else if (presetFilter === 'cancelled') filters.status = 'CANCELLED';
+    else if (statusFilter) filters.status = statusFilter;
+
+    tripService.adminList(filters).then((res) => {
       if (res.data) {
         setTrips(res.data.trips ?? []);
         setMeta(res.data.meta ?? null);
@@ -93,33 +163,19 @@ export function TripsSection() {
       }
       setLoading(false);
     });
-  }, []);
+  }, [statusFilter, presetFilter, searchQuery, dateFilter, page, limit]);
 
-  useEffect(() => { loadTrips(statusFilter, dateFilter, page, limit); }, [statusFilter, dateFilter, page, limit, loadTrips]);
-  useEffect(() => { tripService.adminListDrivers().then((res) => { if (res.data) setDrivers(res.data.drivers ?? []); }); }, []);
+  useEffect(() => { loadTrips(); }, [loadTrips]);
+  useEffect(() => { loadDispatchQueue(); }, [loadDispatchQueue, genMsg, toast, refreshToken]);
   useEffect(() => {
-    tripService.adminNeedsDispatch({ limit: 10 }).then((res) => {
-      if (res.data?.trips) setDispatchQueue(res.data.trips);
-    });
-  }, [genMsg, assignMsg]);
-  useEffect(() => {
-    const id = setInterval(() => loadTrips(statusFilter, dateFilter, page, limit, true), 25_000);
+    const id = setInterval(() => loadTrips(true), 25_000);
     return () => clearInterval(id);
-  }, [statusFilter, dateFilter, page, limit, loadTrips]);
+  }, [loadTrips]);
 
-  const submitAssign = async (tripId: string) => {
-    if (!selectedDriverId) { setAssignMsg({ text: 'Please select a driver.', type: 'error' }); return; }
-    setAssigning(true);
-    setAssignMsg(null);
-    const res = await tripService.adminAssignDriver(tripId, selectedDriverId);
-    setAssigning(false);
-    if (res.data) {
-      setAssignMsg({ text: 'Driver assigned successfully.', type: 'success' });
-      setAssigningTripId(null);
-      loadTrips(statusFilter, dateFilter, page, limit);
-    } else {
-      setAssignMsg({ text: res.error?.message ?? 'Assignment failed.', type: 'error' });
-    }
+  const bumpRefresh = () => {
+    setRefreshToken((n) => n + 1);
+    loadTrips(true);
+    loadDispatchQueue();
   };
 
   const handleGenerate = async () => {
@@ -128,36 +184,65 @@ export function TripsSection() {
     const res = await tripService.adminGenerateTrips(genStartDate || undefined, genEndDate || undefined);
     setGenerating(false);
     if (res.data) {
+      const result: GenResult = {
+        generated: res.data.generatedCount ?? 0,
+        confirmed: res.data.confirmedCount ?? 0,
+        needsDispatch: res.data.needsDispatchCount ?? 0,
+        skipped: res.data.skippedCount ?? 0,
+        failed: res.data.failedCount ?? 0,
+        startDate: res.data.startDate ?? '',
+        endDate: res.data.endDate ?? '',
+      };
       setGenMsg({
-        text: 'Trip generation complete.',
+        text: formatGenerateTripsSummary(result),
         type: 'success',
-        result: {
-          generated: res.data.generatedCount ?? 0,
-          confirmed: res.data.confirmedCount ?? 0,
-          needsDispatch: res.data.needsDispatchCount ?? 0,
-          skipped: res.data.skippedCount ?? 0,
-        },
+        result,
       });
-      loadTrips(statusFilter, dateFilter, page, limit);
+      bumpRefresh();
     } else {
-      setGenMsg({ text: res.error?.message ?? 'Generation failed.', type: 'error' });
+      setGenMsg({ text: res.error?.message ?? 'Trip generation failed. Please try again.', type: 'error' });
     }
   };
 
   const handleLateCheck = async () => {
     await tripService.adminCheckLate();
-    loadTrips(statusFilter, dateFilter, page, limit);
+    bumpRefresh();
+  };
+
+  const openAssignFromQueue = (item: DispatchQueueItem) => {
+    setAssignTrip({
+      id: item.id,
+      status: 'SCHEDULED',
+      needsDispatch: true,
+      dispatchNote: item.dispatchNote,
+      legType: item.legType,
+      scheduledDate: item.scheduledDate,
+      scheduledPickupTime: item.scheduledPickupTime,
+      scheduledDropoffTime: null,
+      actualPickupTime: null,
+      pickupLocation: item.pickupLocation,
+      dropoffLocation: item.dropoffLocation,
+      pickupLat: null,
+      pickupLng: null,
+      dropoffLat: null,
+      dropoffLng: null,
+      rider: item.rider ? { id: '', name: item.rider.name, relationship: '' } : null,
+      driver: null,
+      vehicle: null,
+      subscription: null,
+    });
+    setAssignMode('assign');
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 max-w-full overflow-x-hidden">
       <AdminSectionHeader
         title="Trip Operations"
-        subtitle="Command center for daily trip monitoring and dispatch"
+        subtitle="Command center for daily trip monitoring, dispatch, and driver assignment"
         lastUpdated={lastUpdated?.toLocaleTimeString()}
         primaryAction={
           <div className="flex flex-wrap gap-2">
-            <Button variant="outline" size="sm" onClick={() => loadTrips(statusFilter, dateFilter, page, limit)} className="min-h-[44px]">
+            <Button variant="outline" size="sm" onClick={bumpRefresh} className="min-h-[44px]">
               <RefreshCw className="h-4 w-4 mr-1" aria-hidden /> Refresh
             </Button>
             <Button variant="outline" size="sm" onClick={handleLateCheck} className="min-h-[44px]">Check late</Button>
@@ -183,146 +268,238 @@ export function TripsSection() {
         }
       />
 
+      {toast && <Alert variant={toast.type} onClose={() => setToast(null)}>{toast.text}</Alert>}
+
+      {/* Generate trips */}
       <div className="rounded-2xl border border-emerald-100 bg-emerald-50/30 p-4 shadow-card">
-        <h3 className="text-sm font-semibold text-gray-800 mb-2">Generate trips</h3>
-        <p className="text-xs text-gray-500 mb-3">
-          Creates trips from active paid subscriptions. Auto-confirms the default driver only when the day timeline is feasible; otherwise trips go to Needs Dispatch.
-        </p>
+        <div className="flex items-start gap-2 mb-2">
+          <Sparkles className="h-4 w-4 text-emerald-600 mt-0.5 shrink-0" aria-hidden />
+          <div>
+            <h3 className="text-sm font-semibold text-gray-800">Generate trips</h3>
+            <p className="text-xs text-gray-500 mt-0.5">
+              Creates trips from active paid subscriptions. Auto-confirms the default driver when feasible; otherwise trips go to Needs Dispatch.
+            </p>
+          </div>
+        </div>
         <div className="flex flex-wrap gap-3 items-end">
-          <div>
+          <div className="w-full sm:w-auto">
             <label className="block text-[10px] font-semibold text-gray-400 uppercase mb-1">Start</label>
-            <input type="date" className="input text-sm h-11 min-h-[44px]" value={genStartDate} onChange={(e) => setGenStartDate(e.target.value)} />
+            <input type="date" className="input text-sm h-11 min-h-[44px] w-full" value={genStartDate} onChange={(e) => setGenStartDate(e.target.value)} />
           </div>
-          <div>
+          <div className="w-full sm:w-auto">
             <label className="block text-[10px] font-semibold text-gray-400 uppercase mb-1">End</label>
-            <input type="date" className="input text-sm h-11 min-h-[44px]" value={genEndDate} onChange={(e) => setGenEndDate(e.target.value)} />
+            <input type="date" className="input text-sm h-11 min-h-[44px] w-full" value={genEndDate} onChange={(e) => setGenEndDate(e.target.value)} />
           </div>
-          <Button variant="primary" size="sm" loading={generating} onClick={handleGenerate} className="min-h-[44px]">
-            Generate trips
+          <Button variant="primary" size="sm" loading={generating} onClick={handleGenerate} className="min-h-[44px] w-full sm:w-auto">
+            {generating ? 'Generating…' : 'Generate trips'}
           </Button>
         </div>
         {genMsg && (
           <Alert variant={genMsg.type} className="mt-3" onClose={() => setGenMsg(null)}>
-            {genMsg.text}
+            <p className="font-medium">{genMsg.text}</p>
             {genMsg.result && (
-              <span className="ml-2 font-semibold">
-                {genMsg.result.generated} created · {genMsg.result.confirmed} confirmed · {genMsg.result.needsDispatch} need dispatch · {genMsg.result.skipped} skipped
-              </span>
+              <p className="text-sm mt-1 opacity-90">{formatGenerateTripsExplanation(genMsg.result)}</p>
+            )}
+            {genMsg.type === 'error' && (
+              <Button variant="outline" size="sm" className="mt-2 min-h-[44px]" onClick={handleGenerate} loading={generating}>
+                Retry generation
+              </Button>
             )}
           </Alert>
         )}
       </div>
 
-      {dispatchQueue.length > 0 && (
-        <div className="rounded-2xl border border-amber-200 bg-amber-50/40 p-4 shadow-card">
-          <h3 className="text-sm font-semibold text-gray-800 mb-2">Needs dispatch ({dispatchQueue.length})</h3>
-          <p className="text-xs text-gray-500 mb-3">These trips could not auto-assign the default driver due to timeline conflicts. Assign a driver manually from the board or list.</p>
-          <ul className="space-y-2">
-            {dispatchQueue.map((t) => (
-              <li key={t.id} className="rounded-xl border border-amber-100 bg-white px-3 py-2 text-sm">
-                <p className="font-medium text-gray-900">{t.rider?.name ?? 'Rider'} · {new Date(t.scheduledDate).toLocaleDateString()}</p>
-                <p className="text-xs text-gray-500 truncate">{t.pickupLocation}</p>
-                {t.dispatchNote && <p className="text-xs text-amber-700 mt-1">{t.dispatchNote}</p>}
-              </li>
-            ))}
-          </ul>
+      {/* Needs dispatch queue — always visible */}
+      <div className={`rounded-2xl border p-4 shadow-card ${dispatchTotal > 0 ? 'border-amber-200 bg-amber-50/40' : 'border-emerald-100 bg-emerald-50/20'}`}>
+        <div className="flex items-center justify-between gap-2 mb-2">
+          <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
+            {dispatchTotal > 0 ? (
+              <><AlertTriangle className="h-4 w-4 text-amber-600" aria-hidden /> Needs dispatch ({dispatchTotal})</>
+            ) : (
+              <><CheckCircle2 className="h-4 w-4 text-emerald-600" aria-hidden /> Needs dispatch</>
+            )}
+          </h3>
         </div>
-      )}
+        {dispatchLoading ? (
+          <p className="text-sm text-gray-500">Loading dispatch queue…</p>
+        ) : dispatchQueue.length === 0 ? (
+          <p className="text-sm text-emerald-800">No trips need dispatch. All feasible trips are confirmed or awaiting generation.</p>
+        ) : (
+          <>
+            <p className="text-xs text-gray-600 mb-3">
+              These trips could not auto-assign the default driver due to timeline conflicts. Assign a driver manually.
+            </p>
+            <ul className="space-y-3">
+              {dispatchQueue.map((t) => (
+                <li key={t.id} className="rounded-xl border border-amber-100 bg-white p-3 text-sm">
+                  <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="font-semibold text-gray-900">
+                        {t.rider?.name ?? 'Rider'} · {formatTripDateTime(t.scheduledDate, t.scheduledPickupTime)}
+                      </p>
+                      <p className="text-xs text-gray-500 mt-0.5 truncate" title={formatRouteSummary(t.pickupLocation, t.dropoffLocation, 120)}>
+                        {formatRouteSummary(t.pickupLocation, t.dropoffLocation)} · {formatLegType(t.legType)}
+                      </p>
+                      {t.subscription?.user?.fullName && (
+                        <p className="text-xs text-gray-400 mt-0.5">Parent: {t.subscription.user.fullName}</p>
+                      )}
+                      {t.subscription?.assignedDriver?.profile?.fullName && (
+                        <p className="text-xs text-gray-500 mt-0.5">Default driver: {t.subscription.assignedDriver.profile.fullName}</p>
+                      )}
+                      {t.dispatchNote && (
+                        <p className="text-xs text-amber-800 mt-2 bg-amber-50 rounded-lg px-2 py-1.5">
+                          {formatDispatchNoteSummary(t.dispatchNote, 160)}
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap gap-2 shrink-0">
+                      <Button variant="primary" size="sm" className="min-h-[44px]" onClick={() => openAssignFromQueue(t)}>
+                        Assign driver
+                      </Button>
+                      <Button variant="outline" size="sm" className="min-h-[44px]" onClick={() => { setViewMode('board'); setPresetFilter('needs_dispatch'); setPage(1); }}>
+                        View details
+                      </Button>
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+      </div>
 
-      {viewMode === 'board' && <TripOperationsBoard date={dateFilter} onDateChange={setDateFilter} />}
+      {/* Shared filters for both views */}
+      <AdminToolbar
+        filters={[
+          {
+            id: 'trip-date',
+            label: 'Date',
+            element: (
+              <input
+                id="trip-date"
+                type="date"
+                className="input text-sm h-11 w-full min-h-[44px]"
+                value={dateFilter}
+                onChange={(e) => { setDateFilter(e.target.value); setPage(1); }}
+              />
+            ),
+          },
+          {
+            id: 'trip-preset',
+            label: 'View',
+            element: (
+              <AdminFilterSelect
+                id="trip-preset"
+                value={presetFilter}
+                onChange={(v) => { setPresetFilter(v as TripFilterPreset); setStatusFilter(''); setPage(1); }}
+                options={PRESET_FILTERS.map((p) => ({ value: p.value, label: p.label }))}
+              />
+            ),
+          },
+          {
+            id: 'trip-status',
+            label: 'Status',
+            element: (
+              <AdminFilterSelect
+                id="trip-status"
+                value={statusFilter}
+                onChange={(v) => { setStatusFilter(v); setPresetFilter(''); setPage(1); }}
+                options={TRIP_STATUS_FILTERS.map((s) => ({ value: s, label: s ? getDisplayLabel(s as TripStatus) : 'Any status' }))}
+              />
+            ),
+          },
+          {
+            id: 'trip-search',
+            label: 'Search',
+            element: (
+              <input
+                id="trip-search"
+                type="search"
+                placeholder="Rider, parent, route…"
+                className="input text-sm h-11 w-full min-h-[44px]"
+                value={searchQuery}
+                onChange={(e) => { setSearchQuery(e.target.value); setPage(1); }}
+              />
+            ),
+          },
+        ]}
+      />
+
+      {viewMode === 'board' && (
+        <TripOperationsBoard
+          date={dateFilter}
+          onDateChange={(d) => { setDateFilter(d); setPage(1); }}
+          onRefresh={bumpRefresh}
+          refreshToken={refreshToken}
+        />
+      )}
 
       {viewMode === 'list' && (
         <>
-          <AdminToolbar
-            filters={[
-              {
-                id: 'trip-date',
-                label: 'Date',
-                element: (
-                  <input id="trip-date" type="date" className="input text-sm h-11 w-full min-h-[44px]" value={dateFilter} onChange={(e) => { setDateFilter(e.target.value); setPage(1); }} />
-                ),
-              },
-              {
-                id: 'trip-status',
-                label: 'Status',
-                element: (
-                  <AdminFilterSelect
-                    id="trip-status"
-                    value={statusFilter}
-                    onChange={(v) => { setStatusFilter(v); setPage(1); }}
-                    options={TRIP_STATUS_FILTERS.map((s) => ({ value: s, label: s ? getDisplayLabel(s as TripStatus) : 'All statuses' }))}
-                  />
-                ),
-              },
-            ]}
-          />
-
-          {assignMsg && !assigningTripId && (
-            <Alert variant={assignMsg.type} className="mb-4" onClose={() => setAssignMsg(null)}>{assignMsg.text}</Alert>
-          )}
-
           {loading ? (
             <AdminSectionLoading message="Loading trips…" />
           ) : pageError ? (
-            <ErrorState message={pageError} onRetry={() => loadTrips(statusFilter, dateFilter, page, limit)} />
+            <ErrorState message={pageError} onRetry={() => loadTrips()} />
           ) : trips.length === 0 ? (
-            <AdminEmptyState icon={Calendar} title="No trips found" description="No trips match the selected filters." />
+            <AdminEmptyState
+              icon={Calendar}
+              title="No trips found"
+              description={presetFilter === 'needs_dispatch' ? 'No trips need dispatch for this date.' : 'No trips match the selected filters.'}
+            />
           ) : (
             <div className="grid gap-3 lg:grid-cols-2">
               {trips.map((trip) => {
-                const isAssigning = assigningTripId === trip.id;
+                const badges = getTripCardBadges(trip);
+                const action = getPrimaryTripAction(trip);
                 const mapsUrl = tripToGoogleMapsUrl(trip);
                 return (
                   <AdminDataCard
                     key={trip.id}
                     title={trip.rider?.name ?? 'Trip'}
-                    subtitle={`${fmtTime(trip.scheduledPickupTime)} · ${new Date(trip.scheduledDate).toLocaleDateString()}`}
-                    badges={<AdminStatusBadge status={trip.status} label={getDisplayLabel(trip.status)} />}
+                    subtitle={formatTripDateTime(trip.scheduledDate, trip.scheduledPickupTime)}
+                    badges={
+                      <>
+                        <AdminStatusBadge status={trip.status} label={getDisplayLabel(trip.status)} />
+                        {badges.map((b) => (
+                          <span key={b.key} className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-50 text-amber-800">{b.label}</span>
+                        ))}
+                      </>
+                    }
                     metadata={
                       <>
-                        <AdminMetaItem label="Pickup" value={trip.pickupLocation} />
-                        <AdminMetaItem label="Dropoff" value={trip.dropoffLocation} />
+                        <AdminMetaItem label="Leg" value={formatLegType(trip.legType)} />
+                        <AdminMetaItem label="Route" value={formatRouteSummary(trip.pickupLocation, trip.dropoffLocation, 28)} />
                         <AdminMetaItem label="Driver" value={trip.driver?.profile?.fullName ?? 'Unassigned'} />
-                        {!trip.driver && (
-                          <span className="col-span-2 text-xs text-amber-700 bg-amber-50 rounded-lg px-2 py-1">Needs driver assignment</span>
-                        )}
+                        <AdminMetaItem label="Parent" value={trip.subscription?.user?.fullName ?? '—'} />
                       </>
                     }
                     compact
                     actions={
-                      <a href={mapsUrl} target="_blank" rel="noopener noreferrer" className="p-2 text-gray-400 hover:text-gray-700 min-h-[44px] min-w-[44px] flex items-center justify-center">
+                      <a href={mapsUrl} target="_blank" rel="noopener noreferrer" className="p-2 text-gray-400 hover:text-gray-700 min-h-[44px] min-w-[44px] flex items-center justify-center" aria-label="Open route in maps">
                         <MapPin className="h-4 w-4" aria-hidden />
                       </a>
                     }
                   >
+                    {trip.dispatchNote && (
+                      <p className="text-xs text-amber-700 bg-amber-50 rounded-lg px-2 py-1.5 mb-2">{formatDispatchNoteSummary(trip.dispatchNote)}</p>
+                    )}
                     <div className="flex flex-wrap gap-2 mt-2">
-                      {(trip.status === 'SCHEDULED' || trip.status === 'DRIVER_ASSIGNED') && (
-                        <Button variant="outline" size="sm" onClick={() => { setAssigningTripId(isAssigning ? null : trip.id); setSelectedDriverId(''); }} className="min-h-[44px]">
-                          {isAssigning ? 'Cancel' : trip.driver ? 'Reassign' : 'Assign driver'}
+                      {(action === 'assign' || trip.needsDispatch) && (
+                        <Button variant="primary" size="sm" onClick={() => { setAssignTrip(trip); setAssignMode('assign'); }} className="min-h-[44px]">
+                          Assign driver
                         </Button>
                       )}
-                      {trip.status !== 'COMPLETED' && trip.status !== 'CANCELLED' && (
-                        <a href={`/tracking/${trip.id}`} target="_blank" rel="noopener noreferrer">
+                      {action === 'reassign' && (
+                        <Button variant="outline" size="sm" onClick={() => { setAssignTrip(trip); setAssignMode('reassign'); }} className="min-h-[44px]">
+                          Reassign
+                        </Button>
+                      )}
+                      {action === 'track' && (
+                        <Link href={`/tracking/${trip.id}`} target="_blank" rel="noopener noreferrer">
                           <Button variant="ghost" size="sm" className="min-h-[44px]">Track</Button>
-                        </a>
+                        </Link>
                       )}
                     </div>
-                    {isAssigning && (
-                      <div className="mt-3 space-y-2 border-t border-gray-100 pt-3">
-                        <select className="input text-sm w-full min-h-[44px]" value={selectedDriverId} onChange={(e) => setSelectedDriverId(e.target.value)}>
-                          <option value="">Select a driver…</option>
-                          {drivers.map((d) => (
-                            <option key={d.id} value={d.id}>
-                              {d.profile?.fullName ?? 'Driver'}
-                              {d.vehicle ? ` — ${d.vehicle.model} (${d.vehicle.plateNumber})` : ''}
-                            </option>
-                          ))}
-                        </select>
-                        <Button variant="primary" size="sm" loading={assigning} onClick={() => submitAssign(trip.id)} className="min-h-[44px]">
-                          Confirm assignment
-                        </Button>
-                      </div>
-                    )}
                   </AdminDataCard>
                 );
               })}
@@ -338,6 +515,25 @@ export function TripsSection() {
             />
           )}
         </>
+      )}
+
+      {assignTrip && (
+        <TripAssignDriverModal
+          open={!!assignTrip}
+          tripId={assignTrip.id}
+          tripLabel={assignTrip.rider?.name ?? 'Trip'}
+          tripDate={assignTrip.scheduledDate}
+          tripPickupTime={assignTrip.scheduledPickupTime}
+          pickup={assignTrip.pickupLocation}
+          dropoff={assignTrip.dropoffLocation}
+          mode={assignMode}
+          onClose={() => setAssignTrip(null)}
+          onSuccess={(msg) => {
+            setToast({ text: msg, type: 'success' });
+            setAssignTrip(null);
+            bumpRefresh();
+          }}
+        />
       )}
     </div>
   );
