@@ -1,10 +1,24 @@
 'use client';
+
+import { Car, Star, Clock, AlertTriangle, UserCheck } from 'lucide-react';
 import { useEffect, useState, useCallback } from 'react';
 import { adminDriverService } from '@/services/adminService';
+import { Button, Alert, Textarea, Pagination, ErrorState } from '@/components/ui';
 import {
-  Card, Badge, StatusBadge, Button, Alert, Textarea,
-  LoadingState, ErrorState, EmptyState, Pagination,
-} from '@/components/ui';
+  AdminSectionHeader,
+  AdminToolbar,
+  AdminMetricGrid,
+  AdminDataCard,
+  AdminMetaItem,
+  AdminStatusBadge,
+  AdminEmptyState,
+  AdminDrawer,
+  AdminDrawerSection,
+  AdminDrawerRow,
+  AdminFilterSelect,
+  AdminSectionLoading,
+  AdminAvatar,
+} from '@/components/admin/AdminUI';
 
 type DriverRow = {
   id: string;
@@ -21,18 +35,21 @@ type DriverRow = {
 type Meta = { page: number; limit: number; total: number; totalPages: number };
 
 export function DriversSection() {
-  const [drivers, setDrivers]     = useState<DriverRow[]>([]);
-  const [meta, setMeta]           = useState<Meta | null>(null);
-  const [loading, setLoading]     = useState(true);
-  const [error, setError]         = useState('');
+  const [drivers, setDrivers] = useState<DriverRow[]>([]);
+  const [meta, setMeta] = useState<Meta | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [suspendedFilter, setSuspendedFilter] = useState('');
-  const [page, setPage]           = useState(1);
+  const [availabilityFilter, setAvailabilityFilter] = useState('');
+  const [page, setPage] = useState(1);
+  const [activeCount, setActiveCount] = useState<number | null>(null);
+  const [suspendedCount, setSuspendedCount] = useState<number | null>(null);
 
-  const [actionId, setActionId]       = useState<string | null>(null);
-  const [actionType, setActionType]   = useState<'suspend' | 'unsuspend' | null>(null);
+  const [selected, setSelected] = useState<DriverRow | null>(null);
+  const [actionType, setActionType] = useState<'suspend' | 'unsuspend' | null>(null);
   const [suspendReason, setSuspendReason] = useState('');
-  const [actionMsg, setActionMsg]     = useState<{ text: string; type: 'success' | 'error' } | null>(null);
-  const [submitting, setSubmitting]   = useState(false);
+  const [actionMsg, setActionMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
   const load = useCallback((sf: string, p: number) => {
     setLoading(true);
@@ -51,29 +68,40 @@ export function DriversSection() {
 
   useEffect(() => { load(suspendedFilter, page); }, [suspendedFilter, page, load]);
 
-  const openAction = (id: string, type: 'suspend' | 'unsuspend') => {
-    if (actionId === id && actionType === type) { setActionId(null); return; }
-    setActionId(id);
-    setActionType(type);
-    setSuspendReason('');
-    setActionMsg(null);
-  };
+  useEffect(() => {
+    Promise.all([
+      adminDriverService.list({ isSuspended: false, page: 1 }),
+      adminDriverService.list({ isSuspended: true, page: 1 }),
+    ]).then(([active, suspended]) => {
+      if (active.data) setActiveCount((active.data as { meta: Meta }).meta.total);
+      if (suspended.data) setSuspendedCount((suspended.data as { meta: Meta }).meta.total);
+    });
+  }, []);
 
-  const submitAction = async (id: string) => {
+  const filtered = availabilityFilter === 'available'
+    ? drivers.filter((d) => d.availability && !d.isSuspended)
+    : availabilityFilter === 'unavailable'
+    ? drivers.filter((d) => !d.availability && !d.isSuspended)
+    : drivers;
+
+  const availableNow = drivers.filter((d) => d.availability && !d.isSuspended).length;
+
+  const submitAction = async (d: DriverRow) => {
     if (actionType === 'suspend' && !suspendReason.trim()) {
       setActionMsg({ text: 'Suspension reason is required.', type: 'error' });
       return;
     }
     setSubmitting(true);
     setActionMsg(null);
-    const res = await adminDriverService.update(id, {
+    const res = await adminDriverService.update(d.id, {
       isSuspended: actionType === 'suspend',
       suspensionReason: actionType === 'suspend' ? suspendReason.trim() : undefined,
     });
     setSubmitting(false);
     if (res.data) {
       setActionMsg({ text: `Driver ${actionType === 'suspend' ? 'suspended' : 'reinstated'} successfully.`, type: 'success' });
-      setActionId(null);
+      setActionType(null);
+      setSelected(null);
       load(suspendedFilter, page);
     } else {
       setActionMsg({ text: res.error?.message ?? 'Action failed.', type: 'error' });
@@ -81,126 +109,182 @@ export function DriversSection() {
   };
 
   return (
-    <>
-      <h2 className="text-base font-semibold text-gray-900 mb-4">Drivers</h2>
+    <div>
+      <AdminSectionHeader
+        title="Drivers"
+        subtitle="Fleet operations — availability, workload, and compliance"
+        count={meta?.total}
+        countLabel="drivers"
+      />
 
-      {/* Filter */}
-      <div className="flex flex-wrap gap-3 mb-5">
-        <select
-          className="input text-sm h-10"
-          value={suspendedFilter}
-          onChange={(e) => { setSuspendedFilter(e.target.value); setPage(1); }}
-        >
-          <option value="">All Drivers</option>
-          <option value="false">Active Only</option>
-          <option value="true">Suspended Only</option>
-        </select>
-      </div>
+      <AdminMetricGrid
+        columns={5}
+        items={[
+          { label: 'Active Drivers', value: activeCount ?? '—', icon: UserCheck, color: '#059669' },
+          { label: 'Suspended', value: suspendedCount ?? '—', icon: AlertTriangle, color: '#DC2626' },
+          { label: 'Available Now', value: availableNow, icon: Car, color: '#2563EB', helper: 'On current page' },
+          { label: 'Avg Rating', value: drivers.length ? (drivers.reduce((s, d) => s + (d.rating ? Number(d.rating) : 0), 0) / drivers.filter((d) => d.rating).length || 0).toFixed(1) : '—', icon: Star },
+          { label: 'Trips (page)', value: drivers.reduce((s, d) => s + d._count.trips, 0), icon: Clock },
+        ]}
+      />
 
-      {actionMsg && !actionId && (
-        <Alert variant={actionMsg.type} className="mb-4" onClose={() => setActionMsg(null)}>
-          {actionMsg.text}
-        </Alert>
+      <AdminToolbar
+        filters={[
+          {
+            id: 'driver-status',
+            label: 'Status',
+            element: (
+              <AdminFilterSelect
+                id="driver-status"
+                value={suspendedFilter}
+                onChange={(v) => { setSuspendedFilter(v); setPage(1); }}
+                options={[
+                  { value: '', label: 'All drivers' },
+                  { value: 'false', label: 'Active only' },
+                  { value: 'true', label: 'Suspended only' },
+                ]}
+              />
+            ),
+          },
+          {
+            id: 'driver-availability',
+            label: 'Availability',
+            element: (
+              <AdminFilterSelect
+                id="driver-availability"
+                value={availabilityFilter}
+                onChange={setAvailabilityFilter}
+                options={[
+                  { value: '', label: 'All' },
+                  { value: 'available', label: 'Available' },
+                  { value: 'unavailable', label: 'Unavailable' },
+                ]}
+              />
+            ),
+          },
+        ]}
+      />
+
+      {actionMsg && !selected && (
+        <Alert variant={actionMsg.type} className="mb-4" onClose={() => setActionMsg(null)}>{actionMsg.text}</Alert>
       )}
 
       {loading ? (
-        <LoadingState message="Loading drivers…" />
+        <AdminSectionLoading message="Loading drivers…" />
       ) : error ? (
         <ErrorState message={error} onRetry={() => load(suspendedFilter, page)} />
-      ) : drivers.length === 0 ? (
-        <EmptyState icon="car" title="No drivers found" description="No drivers match your current filter." />
+      ) : filtered.length === 0 ? (
+        <AdminEmptyState icon={Car} title="No drivers found" description="No drivers match your filters." />
       ) : (
-        <div className="space-y-4">
-          {drivers.map((d) => {
-            const isActioning = actionId === d.id;
-            return (
-              <Card key={d.id}>
-                <div className="flex items-start justify-between gap-4 mb-3">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold text-sm shrink-0">
-                      {d.profile?.fullName?.[0] ?? 'D'}
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2 mb-0.5">
-                        <p className="font-semibold text-gray-900">{d.profile?.fullName ?? 'Unknown Driver'}</p>
-                        <StatusBadge variant={d.isSuspended ? 'danger' : 'success'}>
-                          {d.isSuspended ? 'Suspended' : 'Active'}
-                        </StatusBadge>
-                        {!d.availability && !d.isSuspended && (
-                          <Badge variant="gray" className="text-[10px]">Unavailable</Badge>
-                        )}
-                      </div>
-                      <p className="text-xs text-gray-500">{d.profile?.user.email}</p>
-                      {d.profile?.phone && <p className="text-xs text-gray-400">{d.profile.phone}</p>}
-                      {d.rating && <p className="text-xs text-amber-600 font-medium mt-0.5">Rating {Number(d.rating).toFixed(1)}</p>}
-                    </div>
-                  </div>
-                  {d.vehicle && (
-                    <div className="text-right text-xs text-gray-500 shrink-0">
-                      <p className="font-medium text-gray-700">{d.vehicle.model}</p>
-                      <p className="font-mono">{d.vehicle.plateNumber}</p>
-                      {d.vehicle.color && <p>{d.vehicle.color}</p>}
-                      {d.vehicle.capacity && <p>{d.vehicle.capacity} seats</p>}
-                    </div>
+        <div className="grid gap-3 lg:grid-cols-2">
+          {filtered.map((d) => (
+            <AdminDataCard
+              key={d.id}
+              title={d.profile?.fullName ?? 'Unknown Driver'}
+              subtitle={d.profile?.user.email}
+              badges={
+                <>
+                  <AdminStatusBadge status={d.isSuspended ? 'SUSPENDED' : 'ACTIVE'} />
+                  {!d.isSuspended && (
+                    <AdminStatusBadge status={d.availability ? 'AVAILABLE' : 'UNAVAILABLE'} />
                   )}
-                </div>
-
-                <p className="text-xs text-gray-400 mb-3">{d._count.trips} total trips</p>
-
-                {d.isSuspended && d.suspensionReason && (
-                  <div className="text-xs bg-red-50 border border-red-100 rounded-xl px-3 py-2 text-red-700 mb-3">
-                    <span className="font-semibold">Reason: </span>{d.suspensionReason}
-                  </div>
-                )}
-
-                {/* Actions */}
-                <div className="flex gap-2 flex-wrap">
-                  {!d.isSuspended ? (
-                    <Button
-                      variant="danger-outline"
-                      size="sm"
-                      onClick={() => openAction(d.id, 'suspend')}
-                    >
-                      {isActioning && actionType === 'suspend' ? 'Cancel' : 'Suspend'}
-                    </Button>
-                  ) : (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      loading={submitting && actionId === d.id}
-                      onClick={() => { setActionId(d.id); setActionType('unsuspend'); submitAction(d.id); }}
-                    >
-                      Reinstate
-                    </Button>
-                  )}
-                </div>
-
-                {isActioning && actionType === 'suspend' && (
-                  <div className="mt-4 space-y-3 border-t border-gray-100 pt-4">
-                    <Textarea
-                      rows={2}
-                      placeholder="Reason for suspension (required)…"
-                      value={suspendReason}
-                      onChange={(e) => setSuspendReason(e.target.value)}
-                      error={actionMsg?.type === 'error' ? actionMsg.text : undefined}
-                    />
-                    <div className="flex gap-2">
-                      <Button variant="danger" size="sm" loading={submitting} onClick={() => submitAction(d.id)}>
-                        Confirm Suspension
-                      </Button>
-                      <Button variant="ghost" size="sm" onClick={() => setActionId(null)}>Cancel</Button>
-                    </div>
-                  </div>
-                )}
-              </Card>
-            );
-          })}
+                </>
+              }
+              onClick={() => { setSelected(d); setActionType(null); setSuspendReason(''); }}
+              metadata={
+                <>
+                  <AdminMetaItem label="Vehicle" value={d.vehicle ? `${d.vehicle.model} · ${d.vehicle.plateNumber}` : '—'} />
+                  <AdminMetaItem label="Capacity" value={d.vehicle?.capacity ? `${d.vehicle.capacity} seats` : '—'} />
+                  <AdminMetaItem label="Rating" value={d.rating ? Number(d.rating).toFixed(1) : '—'} />
+                  <AdminMetaItem label="Total trips" value={d._count.trips} />
+                </>
+              }
+              compact
+            />
+          ))}
         </div>
       )}
 
       {meta && meta.totalPages > 1 && (
         <Pagination page={meta.page} totalPages={meta.totalPages} onPageChange={setPage} className="mt-5" />
       )}
-    </>
+
+      <AdminDrawer
+        open={!!selected}
+        onClose={() => { setSelected(null); setActionType(null); }}
+        title={selected?.profile?.fullName ?? 'Driver'}
+        subtitle={selected?.profile?.phone ?? selected?.profile?.user.email}
+        footer={
+          selected && !selected.isSuspended ? (
+            <div className="flex gap-2">
+              <Button
+                variant="danger-outline"
+                size="sm"
+                className="flex-1 min-h-[44px]"
+                onClick={() => setActionType(actionType === 'suspend' ? null : 'suspend')}
+              >
+                {actionType === 'suspend' ? 'Cancel' : 'Suspend driver'}
+              </Button>
+            </div>
+          ) : selected?.isSuspended ? (
+            <Button
+              variant="primary"
+              size="sm"
+              loading={submitting}
+              className="w-full min-h-[44px]"
+              onClick={() => { setActionType('unsuspend'); submitAction(selected); }}
+            >
+              Reinstate driver
+            </Button>
+          ) : null
+        }
+      >
+        {selected && (
+          <>
+            <div className="flex items-center gap-3">
+              <AdminAvatar name={selected.profile?.fullName ?? 'D'} colorClass="bg-indigo-500" />
+              <div className="flex flex-wrap gap-1.5">
+                <AdminStatusBadge status={selected.isSuspended ? 'SUSPENDED' : 'ACTIVE'} />
+                <AdminStatusBadge status={selected.availability ? 'AVAILABLE' : 'UNAVAILABLE'} />
+              </div>
+            </div>
+
+            <AdminDrawerSection title="Vehicle">
+              <AdminDrawerRow label="Model" value={selected.vehicle?.model ?? '—'} />
+              <AdminDrawerRow label="Plate" value={selected.vehicle?.plateNumber ?? '—'} />
+              <AdminDrawerRow label="Color" value={selected.vehicle?.color ?? '—'} />
+              <AdminDrawerRow label="Capacity" value={selected.vehicle?.capacity ? `${selected.vehicle.capacity} seats` : '—'} />
+            </AdminDrawerSection>
+
+            <AdminDrawerSection title="Performance">
+              <AdminDrawerRow label="Rating" value={selected.rating ? Number(selected.rating).toFixed(1) : '—'} />
+              <AdminDrawerRow label="Total trips" value={selected._count.trips} />
+              <AdminDrawerRow label="Member since" value={new Date(selected.createdAt).toLocaleDateString()} />
+            </AdminDrawerSection>
+
+            {selected.isSuspended && selected.suspensionReason && (
+              <AdminDrawerSection title="Suspension">
+                <p className="text-sm text-red-700">{selected.suspensionReason}</p>
+              </AdminDrawerSection>
+            )}
+
+            {actionType === 'suspend' && (
+              <AdminDrawerSection title="Suspend driver">
+                <Textarea
+                  rows={3}
+                  placeholder="Reason for suspension (required)…"
+                  value={suspendReason}
+                  onChange={(e) => setSuspendReason(e.target.value)}
+                />
+                {actionMsg?.type === 'error' && <p className="text-sm text-red-600">{actionMsg.text}</p>}
+                <Button variant="danger" size="sm" loading={submitting} onClick={() => submitAction(selected)} className="mt-2 min-h-[44px]">
+                  Confirm suspension
+                </Button>
+              </AdminDrawerSection>
+            )}
+          </>
+        )}
+      </AdminDrawer>
+    </div>
   );
 }

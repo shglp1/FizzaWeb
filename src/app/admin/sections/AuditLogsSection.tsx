@@ -1,9 +1,31 @@
 'use client';
 
-import { ClipboardList } from 'lucide-react';
-
-import { useEffect, useState } from 'react';
-import { Card, Button, Input, LoadingState, ErrorState, Pagination } from '@/components/ui';
+import { ClipboardList, RefreshCw, ShieldAlert } from 'lucide-react';
+import { useEffect, useState, useCallback } from 'react';
+import { Button, Pagination, ErrorState } from '@/components/ui';
+import {
+  AdminSectionHeader,
+  AdminToolbar,
+  AdminMetricGrid,
+  AdminDataCard,
+  AdminDrawer,
+  AdminDrawerSection,
+  AdminDrawerRow,
+  AdminAuditSeverityBadge,
+  AdminEmptyState,
+  AdminJsonDetails,
+  AdminFilterSelect,
+  AdminSectionLoading,
+  AdminMetaItem,
+} from '@/components/admin/AdminUI';
+import {
+  formatAuditAction,
+  formatAuditTimestamp,
+  getAuditSeverity,
+  isCriticalAuditAction,
+  summarizeAuditDetails,
+  parseAuditDetails,
+} from '@/lib/ui/adminAudit';
 
 type Log = {
   id: string;
@@ -16,34 +38,19 @@ type Log = {
 
 type Meta = { page: number; totalPages: number; total: number };
 
-function fmt(d: string) {
-  return new Date(d).toLocaleString('en-SA', {
-    month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit',
-  });
-}
-
-const ACTION_COLORS: Record<string, string> = {
-  LOGIN:                            'bg-blue-50 text-blue-700',
-  LOGOUT:                           'bg-gray-100 text-gray-600',
-  REGISTER:                         'bg-emerald-50 text-emerald-700',
-  DRIVER_APPLICATION_SUBMITTED:     'bg-purple-50 text-purple-700',
-  DRIVER_APPLICATION_RESUBMITTED:   'bg-orange-50 text-orange-700',
-  DRIVER_APPROVED:                  'bg-green-50 text-green-700',
-  DRIVER_REJECTED:                  'bg-red-50 text-red-700',
-  DRIVER_SUSPENDED:                 'bg-red-50 text-red-700',
-  SUBSCRIPTION_CANCELLED:           'bg-amber-50 text-amber-700',
-};
-
 export function AuditLogsSection() {
-  const [logs, setLogs]     = useState<Log[]>([]);
-  const [meta, setMeta]     = useState<Meta>({ page: 1, totalPages: 1, total: 0 });
+  const [logs, setLogs] = useState<Log[]>([]);
+  const [meta, setMeta] = useState<Meta>({ page: 1, totalPages: 1, total: 0 });
   const [loading, setLoading] = useState(true);
-  const [error, setError]   = useState('');
-  const [search, setSearch] = useState('');
-  const [page, setPage]     = useState(1);
+  const [error, setError] = useState('');
+  const [actionFilter, setActionFilter] = useState('');
+  const [page, setPage] = useState(1);
+  const [selected, setSelected] = useState<Log | null>(null);
+  const [todayCount, setTodayCount] = useState<number | null>(null);
 
-  const load = (p = 1, action = search) => {
+  const load = useCallback((p = 1, action = actionFilter) => {
     setLoading(true);
+    setError('');
     const params = new URLSearchParams({ page: String(p), limit: '20' });
     if (action) params.set('action', action);
     fetch(`/api/admin/audit-logs?${params}`)
@@ -55,89 +62,150 @@ export function AuditLogsSection() {
         setLoading(false);
       })
       .catch(() => { setError('Failed to load audit logs.'); setLoading(false); });
-  };
+  }, [actionFilter]);
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { load(1); }, []);
+  useEffect(() => { load(page); }, [page, load]);
+
+  useEffect(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    fetch(`/api/admin/audit-logs?dateFrom=${today}&limit=1`)
+      .then((r) => r.json())
+      .then(({ data }) => { if (data?.meta) setTodayCount(data.meta.total); })
+      .catch(() => {});
+  }, []);
+
+  const criticalCount = logs.filter((l) => isCriticalAuditAction(l.action)).length;
 
   return (
-    <>
-      <div className="flex items-center justify-between mb-5">
-        <div>
-          <h2 className="text-base font-semibold text-gray-900">Audit Logs</h2>
-          <p className="text-xs text-gray-500 mt-0.5">{meta.total} events recorded</p>
-        </div>
-        <Button variant="ghost" size="sm" onClick={() => load(1)}>Refresh</Button>
-      </div>
+    <div className="space-y-1">
+      <AdminSectionHeader
+        title="Audit Logs"
+        subtitle="Platform activity trail for compliance and operations review"
+        count={meta.total}
+        countLabel="events"
+        primaryAction={
+          <Button variant="outline" size="sm" onClick={() => load(page)} className="min-h-[44px]">
+            <RefreshCw className="h-4 w-4 mr-1.5" aria-hidden />
+            Refresh
+          </Button>
+        }
+      />
 
-      {/* Filter */}
-      <div className="flex gap-3 mb-4">
-        <div className="flex-1 max-w-xs">
-          <Input
-            placeholder="Filter by action…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') { setPage(1); load(1, search); } }}
-          />
-        </div>
-        <Button variant="outline" size="sm" onClick={() => { setPage(1); load(1, search); }}>Filter</Button>
-        {search && (
-          <Button variant="ghost" size="sm" onClick={() => { setSearch(''); setPage(1); load(1, ''); }}>Clear</Button>
-        )}
-      </div>
+      <AdminMetricGrid
+        columns={3}
+        items={[
+          { label: 'Total Events', value: meta.total, icon: ClipboardList },
+          { label: 'Today', value: todayCount ?? '—', helper: 'Events since midnight' },
+          { label: 'Critical / Admin', value: criticalCount, icon: ShieldAlert, color: '#7C3AED', helper: 'On current page' },
+        ]}
+      />
+
+      <AdminToolbar
+        filters={[
+          {
+            id: 'audit-action-filter',
+            label: 'Action',
+            element: (
+              <AdminFilterSelect
+                id="audit-action-filter"
+                value={actionFilter}
+                onChange={(v) => { setActionFilter(v); setPage(1); load(1, v); }}
+                options={[
+                  { value: '', label: 'All actions' },
+                  { value: 'LOGIN', label: 'Sign in' },
+                  { value: 'DRIVER_APPROVED', label: 'Driver approved' },
+                  { value: 'SUBSCRIPTION', label: 'Subscription events' },
+                  { value: 'PAYMENT', label: 'Payment events' },
+                  { value: 'SYSTEM_CONFIG', label: 'System config' },
+                  { value: 'SAFETY', label: 'Safety reports' },
+                ]}
+              />
+            ),
+          },
+        ]}
+        activeChips={actionFilter ? [{ label: actionFilter, onRemove: () => { setActionFilter(''); setPage(1); load(1, ''); } }] : []}
+        onReset={() => { setActionFilter(''); setPage(1); load(1, ''); }}
+      />
 
       {loading ? (
-        <LoadingState message="Loading audit logs…" />
+        <AdminSectionLoading message="Loading audit logs…" />
       ) : error ? (
         <ErrorState message={error} onRetry={() => load(page)} />
       ) : logs.length === 0 ? (
-        <Card>
-          <div className="text-center py-10 text-gray-400">
-            <ClipboardList className="h-10 w-10 text-gray-400 mx-auto mb-2" strokeWidth={1.75} aria-hidden />
-            <p className="text-sm">No audit logs found</p>
-          </div>
-        </Card>
+        <AdminEmptyState
+          icon={ClipboardList}
+          title="No audit events found"
+          description="Try adjusting your action filter or check back later."
+        />
       ) : (
         <>
-          <Card padding="sm">
-            <div className="divide-y divide-gray-50">
-              {logs.map((log) => {
-                const colorCls = ACTION_COLORS[log.action] ?? 'bg-gray-100 text-gray-600';
-                return (
-                  <div key={log.id} className="flex items-start gap-3 py-3 px-3">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold ${colorCls}`}>
-                          {log.action.replace(/_/g, ' ')}
-                        </span>
-                        {log.user && (
-                          <span className="text-xs text-gray-500">{log.user.fullName}</span>
-                        )}
-                      </div>
-                      {log.details && (
-                        <p className="text-xs text-gray-400 mt-1 truncate">{log.details}</p>
-                      )}
-                    </div>
-                    <div className="text-right shrink-0">
-                      <p className="text-xs text-gray-500">{fmt(log.createdAt)}</p>
-                      {log.ipAddress && (
-                        <p className="text-[10px] text-gray-300 mt-0.5">{log.ipAddress}</p>
-                      )}
-                    </div>
+          <div className="space-y-3">
+            {logs.map((log) => {
+              const severity = getAuditSeverity(log.action);
+              const summary = summarizeAuditDetails(log.action, log.details);
+              return (
+                <AdminDataCard
+                  key={log.id}
+                  title={formatAuditAction(log.action)}
+                  subtitle={log.user?.fullName ?? 'System'}
+                  badges={<AdminAuditSeverityBadge severity={severity} />}
+                  onClick={() => setSelected(log)}
+                  compact
+                >
+                  <p className="text-sm text-gray-600 line-clamp-2">{summary}</p>
+                  <div className="flex flex-wrap items-center gap-3 mt-2 text-xs text-gray-400">
+                    <span>{formatAuditTimestamp(log.createdAt)}</span>
+                    {log.ipAddress && <span>IP {log.ipAddress}</span>}
                   </div>
-                );
-              })}
-            </div>
-          </Card>
-          <div className="mt-4">
+                </AdminDataCard>
+              );
+            })}
+          </div>
+
+          {meta.totalPages > 1 && (
             <Pagination
               page={page}
               totalPages={meta.totalPages}
               onPageChange={(p) => { setPage(p); load(p); }}
+              className="mt-5"
             />
-          </div>
+          )}
         </>
       )}
-    </>
+
+      <AdminDrawer
+        open={!!selected}
+        onClose={() => setSelected(null)}
+        title={selected ? formatAuditAction(selected.action) : ''}
+        subtitle={selected ? formatAuditTimestamp(selected.createdAt) : undefined}
+        width="lg"
+      >
+        {selected && (
+          <>
+            <AdminDrawerSection title="Event summary">
+              <AdminDrawerRow label="Action" value={formatAuditAction(selected.action)} />
+              <AdminDrawerRow label="Actor" value={selected.user?.fullName ?? 'System'} />
+              <AdminDrawerRow label="Severity" value={<AdminAuditSeverityBadge severity={getAuditSeverity(selected.action)} />} />
+              <AdminDrawerRow label="Summary" value={summarizeAuditDetails(selected.action, selected.details)} />
+              {selected.ipAddress && <AdminDrawerRow label="IP address" value={selected.ipAddress} />}
+            </AdminDrawerSection>
+
+            {parseAuditDetails(selected.details) && (
+              <AdminDrawerSection title="Parsed details">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {Object.entries(parseAuditDetails(selected.details)!).map(([k, v]) => (
+                    <AdminMetaItem key={k} label={k} value={String(v)} />
+                  ))}
+                </div>
+              </AdminDrawerSection>
+            )}
+
+            {selected.details && (
+              <AdminJsonDetails data={selected.details} label="Technical details (raw JSON)" />
+            )}
+          </>
+        )}
+      </AdminDrawer>
+    </div>
   );
 }
