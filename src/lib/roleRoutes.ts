@@ -153,10 +153,10 @@ export const DRIVER_APPLICANT_SECONDARY_NAV: NavItem[] = [
 // ── Approved driver nav ───────────────────────────────────────────────────────
 
 export const DRIVER_NAV: NavItem[] = [
-  { label: 'Driver Dashboard', href: '/driver/dashboard',   icon: 'dashboard' },
-  { label: 'Assigned Trips',   href: '/trips',              icon: 'trips' },
-  { label: 'GPS Tracking',     href: '/tracking',           icon: 'tracking' },
-  { label: 'Safety',           href: '/safety',             icon: 'safety' },
+  { label: 'Dashboard',        href: '/driver/dashboard',   icon: 'dashboard' },
+  { label: 'Route Sheet',      href: '/trips',              icon: 'trips' },
+  { label: 'Live GPS',         href: '/tracking',           icon: 'tracking' },
+  { label: 'Safety Center',    href: '/safety',             icon: 'safety' },
   { label: 'Notifications',    href: '/notifications',      icon: 'notifications' },
 ];
 

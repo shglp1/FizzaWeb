@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { AppShell } from '@/components/layout/AppShell';
-import { DriverGpsPanel } from '@/components/DriverGpsPanel';
+import { DriverRouteSheet } from '@/components/driver/DriverRouteSheet';
 import {
   PageHeader,
   Card,
@@ -143,6 +143,14 @@ export default function TripsPage() {
 
   const isDriver = userRole === 'DRIVER';
 
+  if (isDriver) {
+    return (
+      <AppShell>
+        <DriverRouteSheet />
+      </AppShell>
+    );
+  }
+
   return (
     <AppShell>
       <PageHeader
@@ -150,21 +158,13 @@ export default function TripsPage() {
         subtitle={`${trips.length} ${activeTab} trip${trips.length !== 1 ? 's' : ''}`}
       />
 
-      {/* Driver callout */}
-      {isDriver && (
-        <Alert variant="info" className="mb-5">
-          <span className="font-semibold">Driver mode:</span> tap{' '}
-          <span className="font-medium">Start Sharing Location</span> on an active trip to send live GPS updates to parents.
-        </Alert>
-      )}
-
+      {/* Tabs */}
       {actionMsg && (
         <Alert variant={actionMsg.type} className="mb-4" onClose={() => setActionMsg(null)}>
           {actionMsg.text}
         </Alert>
       )}
 
-      {/* Tabs */}
       <Tabs
         tabs={TABS}
         activeTab={activeTab}
@@ -182,18 +182,15 @@ export default function TripsPage() {
           title={`No ${activeTab} trips`}
           description={
             activeTab === 'upcoming'
-              ? isDriver
-                ? 'No trips have been assigned to you yet.'
-                : 'Trips are generated from your active subscriptions by the admin team.'
+              ? 'Trips are generated from your active subscriptions by the admin team.'
               : `No ${activeTab} trips found.`
           }
         />
       ) : (
         <div className="space-y-4">
           {trips.map((trip) => {
-            const showGps      = isDriver && TRACKABLE.includes(trip.status);
-            const showTracking = !isDriver && TRACKABLE.includes(trip.status);
-            const showCancel   = !isDriver && CANCELLABLE.includes(trip.status);
+            const showTracking = TRACKABLE.includes(trip.status);
+            const showCancel   = CANCELLABLE.includes(trip.status);
 
             return (
               <Card key={trip.id}>
@@ -305,8 +302,6 @@ export default function TripsPage() {
                   </div>
                 )}
 
-                {/* Driver GPS panel */}
-                {showGps && <DriverGpsPanel tripId={trip.id} />}
               </Card>
             );
           })}

@@ -15,6 +15,15 @@ import {
   Textarea,
 } from '@/components/ui';
 import { safetyService } from '@/services/safetyService';
+import { tripService } from '@/services/tripService';
+import {
+  DriverPageHeader,
+  DriverSafetyKpiRow,
+  DriverEmptyState,
+  DriverErrorState,
+  DriverLoadingState,
+} from '@/components/driver/DriverUI';
+import { DRIVER_SAFETY_STATUS_LABEL, type SafetyStatusKey } from '@/lib/ui/driverPortal';
 import type { LucideIcon } from 'lucide-react';
 import {
   Car,
@@ -23,6 +32,7 @@ import {
   MapPin,
   MessageSquare,
   Paperclip,
+  Shield,
   TriangleAlert,
   Wrench,
 } from 'lucide-react';
@@ -83,6 +93,8 @@ export default function SafetyPage() {
   const [editDesc, setEditDesc]         = useState('');
   const [editSubmitting, setEditSubmitting] = useState(false);
   const [editError, setEditError]       = useState('');
+  const [userRole, setUserRole]         = useState<string | null>(null);
+  const [tripOptions, setTripOptions]   = useState<{ id: string; label: string }[]>([]);
 
   const loadReports = () => {
     setLoading(true);
@@ -94,6 +106,29 @@ export default function SafetyPage() {
   };
 
   useEffect(() => { loadReports(); }, []);
+
+  useEffect(() => {
+    fetch('/api/me')
+      .then((r) => r.json())
+      .then((res) => {
+        if (res.data?.role) {
+          setUserRole(res.data.role);
+          if (res.data.role === 'DRIVER') {
+            tripService.list('upcoming').then((tRes) => {
+              if (tRes.data && Array.isArray(tRes.data)) {
+                setTripOptions(
+                  tRes.data.slice(0, 20).map((t: { id: string; scheduledDate: string; rider: { name: string } | null; pickupLocation: string }) => ({
+                    id: t.id,
+                    label: `${new Date(t.scheduledDate).toLocaleDateString()} · ${t.rider?.name ?? 'Rider'} · ${t.pickupLocation}`,
+                  })),
+                );
+              }
+            });
+          }
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   const handleSubmit = async () => {
     if (!form.category)                 { setFormError('Please select a category.'); return; }
@@ -134,29 +169,61 @@ export default function SafetyPage() {
   };
 
   const catMeta = (val: string) => CATEGORIES.find((c) => c.value === val) ?? CATEGORIES[CATEGORIES.length - 1];
+  const isDriver = userRole === 'DRIVER';
+
+  const kpi = {
+    submitted: reports.length,
+    underReview: reports.filter((r) => r.status === 'PENDING').length,
+    resolved: reports.filter((r) => r.status === 'RESOLVED' || r.status === 'APPROVED').length,
+    rejected: reports.filter((r) => r.status === 'REJECTED').length,
+  };
+
+  const header = isDriver ? (
+    <DriverPageHeader
+      title="Safety Center"
+      subtitle="Report incidents and review admin responses."
+      action={
+        <Button
+          variant={showForm ? 'ghost' : 'primary'}
+          size="sm"
+          onClick={() => { setShowForm((p) => !p); setFormError(''); setFormSuccess(''); }}
+        >
+          {showForm ? 'Cancel' : 'New Report'}
+        </Button>
+      }
+    />
+  ) : (
+    <PageHeader
+      title="Safety Reports"
+      subtitle={`${reports.length} report${reports.length !== 1 ? 's' : ''} submitted`}
+      action={
+        <Button
+          variant={showForm ? 'ghost' : 'primary'}
+          size="sm"
+          onClick={() => { setShowForm((p) => !p); setFormError(''); setFormSuccess(''); }}
+        >
+          {showForm ? 'Cancel' : (
+            <>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
+              </svg>
+              New Report
+            </>
+          )}
+        </Button>
+      }
+    />
+  );
 
   return (
     <AppShell>
-      <PageHeader
-        title="Safety Reports"
-        subtitle={`${reports.length} report${reports.length !== 1 ? 's' : ''} submitted`}
-        action={
-          <Button
-            variant={showForm ? 'ghost' : 'primary'}
-            size="sm"
-            onClick={() => { setShowForm((p) => !p); setFormError(''); setFormSuccess(''); }}
-          >
-            {showForm ? 'Cancel' : (
-              <>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
-                </svg>
-                New Report
-              </>
-            )}
-          </Button>
-        }
-      />
+      {header}
+
+      {isDriver && !loading && reports.length >= 0 && (
+        <div className="mb-5">
+          <DriverSafetyKpiRow {...kpi} />
+        </div>
+      )}
 
       {/* Success feedback */}
       {formSuccess && (
@@ -207,16 +274,32 @@ export default function SafetyPage() {
           />
 
           <div className="grid sm:grid-cols-2 gap-4 mt-4">
-            <div className="field">
-              <label className="label">Trip ID <span className="text-gray-400 font-normal">(optional)</span></label>
-              <input
-                type="text"
-                value={form.tripId}
-                onChange={(e) => setForm((p) => ({ ...p, tripId: e.target.value }))}
-                placeholder="Leave blank if not trip-related"
-                className="input"
-              />
-            </div>
+            {isDriver && tripOptions.length > 0 ? (
+              <div className="field sm:col-span-2">
+                <label className="label">Linked trip <span className="text-gray-400 font-normal">(optional)</span></label>
+                <select
+                  className="input"
+                  value={form.tripId}
+                  onChange={(e) => setForm((p) => ({ ...p, tripId: e.target.value }))}
+                >
+                  <option value="">Not trip-related</option>
+                  {tripOptions.map((t) => (
+                    <option key={t.id} value={t.id}>{t.label}</option>
+                  ))}
+                </select>
+              </div>
+            ) : (
+              <div className="field">
+                <label className="label">Trip ID <span className="text-gray-400 font-normal">(optional)</span></label>
+                <input
+                  type="text"
+                  value={form.tripId}
+                  onChange={(e) => setForm((p) => ({ ...p, tripId: e.target.value }))}
+                  placeholder="Leave blank if not trip-related"
+                  className="input"
+                />
+              </div>
+            )}
             <div className="field">
               <label className="label">Attachment URL <span className="text-gray-400 font-normal">(optional)</span></label>
               <input
@@ -242,16 +325,25 @@ export default function SafetyPage() {
 
       {/* Reports list */}
       {loading ? (
-        <LoadingState message="Loading safety reports…" />
+        isDriver ? <DriverLoadingState message="Loading safety reports…" /> : <LoadingState message="Loading safety reports…" />
       ) : pageError ? (
-        <ErrorState message={pageError} onRetry={loadReports} />
+        isDriver ? <DriverErrorState message={pageError} onRetry={loadReports} /> : <ErrorState message={pageError} onRetry={loadReports} />
       ) : reports.length === 0 ? (
-        <EmptyState
-          icon="shield"
-          title="No safety reports yet"
-          description="If you experienced a safety concern on a trip, please submit a report."
-          action={{ label: 'Submit First Report', onClick: () => setShowForm(true) }}
-        />
+        isDriver ? (
+          <DriverEmptyState
+            icon={Shield}
+            title="No safety reports submitted."
+            description="If you experienced a safety concern on a trip, submit a report."
+            action={<Button variant="primary" size="sm" onClick={() => setShowForm(true)}>New Report</Button>}
+          />
+        ) : (
+          <EmptyState
+            icon="shield"
+            title="No safety reports yet"
+            description="If you experienced a safety concern on a trip, please submit a report."
+            action={{ label: 'Submit First Report', onClick: () => setShowForm(true) }}
+          />
+        )
       ) : (
         <div className="space-y-4">
           {reports.map((report) => (
@@ -275,7 +367,7 @@ export default function SafetyPage() {
                   </div>
                 </div>
                 <StatusBadge variant={STATUS_VARIANT[report.status]}>
-                  {STATUS_LABEL[report.status]}
+                  {isDriver ? (DRIVER_SAFETY_STATUS_LABEL[report.status as SafetyStatusKey] ?? STATUS_LABEL[report.status]) : STATUS_LABEL[report.status]}
                 </StatusBadge>
               </div>
 

@@ -12,6 +12,17 @@ import {
   EmptyState,
 } from '@/components/ui';
 import { notificationService } from '@/services/notificationService';
+import {
+  DriverEmptyState,
+  DriverErrorState,
+  DriverLoadingState,
+  DriverNotificationGroup,
+  DriverPageHeader,
+} from '@/components/driver/DriverUI';
+import {
+  groupNotificationsByDay,
+  mapNotificationCategory,
+} from '@/lib/ui/driverPortal';
 import type { LucideIcon } from 'lucide-react';
 import {
   Bell,
@@ -73,6 +84,13 @@ export default function NotificationsPage() {
   const [markingId, setMarkingId]         = useState<string | null>(null);
   const [markingAll, setMarkingAll]       = useState(false);
   const [unreadOnly, setUnreadOnly]       = useState(false);
+  const [userRole, setUserRole]           = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch('/api/me').then((r) => r.json()).then((res) => {
+      if (res.data?.role) setUserRole(res.data.role);
+    }).catch(() => {});
+  }, []);
 
   const loadNotifications = (unread = unreadOnly) => {
     setLoading(true);
@@ -113,50 +131,137 @@ export default function NotificationsPage() {
     loadNotifications(next);
   };
 
+  const isDriver = userRole === 'DRIVER';
+  const grouped = groupNotificationsByDay(notifications);
+  const categoryVariant: Record<string, 'info' | 'success' | 'danger' | 'warning' | 'purple' | 'gray'> = {
+    Trip: 'purple',
+    Dispatch: 'warning',
+    Safety: 'danger',
+    Payment: 'success',
+    System: 'gray',
+  };
+
+  function renderNotification(notif: Notification) {
+    const meta = TYPE_META[notif.type] ?? DEFAULT_META;
+    const category = mapNotificationCategory(notif.type);
+    return (
+      <div
+        key={notif.id}
+        className={`flex items-start gap-3 px-2 py-3.5 transition-colors rounded-xl ${
+          notif.isRead ? 'opacity-60' : 'bg-emerald-50/40'
+        }`}
+      >
+        <div className="mt-1 shrink-0 flex items-center justify-center w-5">
+          {!notif.isRead && <span className="w-2 h-2 rounded-full bg-fizza-secondary" />}
+        </div>
+        <div className={`flex h-9 w-9 items-center justify-center rounded-xl shrink-0 ${notif.isRead ? 'bg-gray-100' : 'bg-emerald-50'}`}>
+          <meta.Icon className="h-5 w-5" strokeWidth={1.75} aria-hidden />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-start justify-between gap-2 mb-0.5">
+            <p className={`text-sm font-semibold truncate ${notif.isRead ? 'text-gray-600' : 'text-gray-900'}`}>
+              {notif.title}
+            </p>
+            <span className="text-xs text-gray-400 whitespace-nowrap shrink-0">{fmtDate(notif.createdAt)}</span>
+          </div>
+          <p className="text-sm text-gray-500 leading-relaxed">{notif.message}</p>
+          <div className="flex items-center gap-2 mt-1.5">
+            <Badge variant={categoryVariant[category] ?? meta.variant} className="text-[10px]">{category}</Badge>
+            <Badge variant={meta.variant} className="text-[10px]">{meta.label}</Badge>
+          </div>
+        </div>
+        {!notif.isRead && (
+          <button
+            onClick={() => handleMarkRead(notif.id)}
+            disabled={markingId === notif.id}
+            className="shrink-0 flex h-7 w-7 items-center justify-center rounded-lg text-gray-400 hover:bg-emerald-50 hover:text-fizza-secondary transition-colors disabled:opacity-50 mt-0.5"
+            title="Mark as read"
+            aria-label="Mark as read"
+          >
+            {markingId === notif.id ? (
+              <span className="animate-spin text-xs">...</span>
+            ) : (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+            )}
+          </button>
+        )}
+      </div>
+    );
+  }
+
   return (
     <AppShell>
-      <PageHeader
-        title={
-          unreadCount > 0
-            ? `Notifications · ${unreadCount} unread`
-            : 'Notifications'
-        }
-        subtitle="Stay up-to-date on trips, payments, and safety reports"
-        action={
-          <div className="flex gap-2">
-            <Button
-              variant={unreadOnly ? 'primary' : 'outline'}
-              size="sm"
-              onClick={handleFilterToggle}
-            >
-              {unreadOnly ? 'Show All' : 'Unread Only'}
-            </Button>
-            {unreadCount > 0 && (
-              <Button
-                variant="ghost"
-                size="sm"
-                loading={markingAll}
-                disabled={markingAll}
-                onClick={handleMarkAll}
-              >
-                Mark All Read
+      {isDriver ? (
+        <DriverPageHeader
+          title={unreadCount > 0 ? `Notifications · ${unreadCount} unread` : 'Notifications'}
+          subtitle="Trip, dispatch, and safety updates for your route."
+          action={
+            <div className="flex gap-2">
+              <Button variant={unreadOnly ? 'primary' : 'outline'} size="sm" onClick={handleFilterToggle}>
+                {unreadOnly ? 'Show all' : 'Unread only'}
               </Button>
-            )}
-          </div>
-        }
-      />
+              {unreadCount > 0 && (
+                <Button variant="ghost" size="sm" loading={markingAll} disabled={markingAll} onClick={handleMarkAll}>
+                  Mark all read
+                </Button>
+              )}
+            </div>
+          }
+        />
+      ) : (
+        <PageHeader
+          title={unreadCount > 0 ? `Notifications · ${unreadCount} unread` : 'Notifications'}
+          subtitle="Stay up-to-date on trips, payments, and safety reports"
+          action={
+            <div className="flex gap-2">
+              <Button variant={unreadOnly ? 'primary' : 'outline'} size="sm" onClick={handleFilterToggle}>
+                {unreadOnly ? 'Show All' : 'Unread Only'}
+              </Button>
+              {unreadCount > 0 && (
+                <Button variant="ghost" size="sm" loading={markingAll} disabled={markingAll} onClick={handleMarkAll}>
+                  Mark All Read
+                </Button>
+              )}
+            </div>
+          }
+        />
+      )}
 
       {loading ? (
-        <LoadingState message="Loading notifications…" />
+        isDriver ? <DriverLoadingState message="Loading notifications…" /> : <LoadingState message="Loading notifications…" />
       ) : pageError ? (
-        <ErrorState message={pageError} onRetry={() => loadNotifications()} />
+        isDriver ? <DriverErrorState message={pageError} onRetry={() => loadNotifications()} /> : <ErrorState message={pageError} onRetry={() => loadNotifications()} />
       ) : notifications.length === 0 ? (
-        <EmptyState
-          icon="bell"
-          title={unreadOnly ? 'No unread notifications' : 'No notifications yet'}
-          description="Notifications for payments, trips, safety reports, and more will appear here."
-          action={unreadOnly ? { label: 'Show All', onClick: handleFilterToggle } : undefined}
-        />
+        isDriver ? (
+          <DriverEmptyState
+            icon={Bell}
+            title={unreadOnly ? 'No unread notifications' : "You're all caught up."}
+            description="Dispatch, trip, and safety alerts will appear here."
+            action={unreadOnly ? <Button variant="outline" size="sm" onClick={handleFilterToggle}>Show all</Button> : undefined}
+          />
+        ) : (
+          <EmptyState
+            icon="bell"
+            title={unreadOnly ? 'No unread notifications' : 'No notifications yet'}
+            description="Notifications for payments, trips, safety reports, and more will appear here."
+            action={unreadOnly ? { label: 'Show All', onClick: handleFilterToggle } : undefined}
+          />
+        )
+      ) : isDriver ? (
+        <div className="space-y-5">
+          {grouped.today.length > 0 && (
+            <DriverNotificationGroup title="Today">
+              <Card padding="sm"><div className="divide-y divide-gray-50">{grouped.today.map(renderNotification)}</div></Card>
+            </DriverNotificationGroup>
+          )}
+          {grouped.earlier.length > 0 && (
+            <DriverNotificationGroup title="Earlier">
+              <Card padding="sm"><div className="divide-y divide-gray-50">{grouped.earlier.map(renderNotification)}</div></Card>
+            </DriverNotificationGroup>
+          )}
+        </div>
       ) : (
         <Card padding="sm">
           <div className="divide-y divide-gray-50">
