@@ -15,6 +15,8 @@ const ALLOWED_KEYS = [
   'notificationLeadTimeMinutes',
   'loyaltyPointsPerSar',
   'loyaltyPointsOnSafetyApproval',
+  'driverPayRatePerKmSar',
+  'driverPlatformFeePercent',
 ] as const;
 
 type AllowedKey = (typeof ALLOWED_KEYS)[number];

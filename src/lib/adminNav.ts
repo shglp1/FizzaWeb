@@ -10,6 +10,7 @@ export type AdminSection =
   | 'subscriptions'
   | 'trips'
   | 'financials'
+  | 'payroll'
   | 'safety'
   | 'sysconfig'
   | 'audit';
@@ -30,6 +31,7 @@ export const ADMIN_SECTIONS: AdminNavItem[] = [
   { label: 'Subscriptions',       section: 'subscriptions', icon: 'subscriptions' },
   { label: 'Trips',               section: 'trips',         icon: 'trips' },
   { label: 'Financials',          section: 'financials',    icon: 'wallet' },
+  { label: 'Driver Payroll',      section: 'payroll',       icon: 'wallet' },
   { label: 'Safety Reports',      section: 'safety',        icon: 'safety' },
   { label: 'System Config',       section: 'sysconfig',     icon: 'admin' },
   { label: 'Audit Logs',          section: 'audit',         icon: 'subscriptions' },
@@ -45,6 +47,7 @@ export const ADMIN_SECTION_LABELS: Record<AdminSection, string> = {
   subscriptions: 'Subscriptions',
   trips: 'Trips',
   financials: 'Financials',
+  payroll: 'Driver Payroll',
   safety: 'Safety Reports',
   sysconfig: 'System Config',
   audit: 'Audit Logs',

@@ -15,6 +15,7 @@ import { DriversSection } from './sections/DriversSection';
 import { ApplicationsSection } from './sections/ApplicationsSection';
 import { SubscriptionsSection } from './sections/SubscriptionsSection';
 import { FinancialsSection } from './sections/FinancialsSection';
+import { PayrollSection } from './sections/PayrollSection';
 import { SystemConfigSection } from './sections/SystemConfigSection';
 import { PackagesSection } from './sections/PackagesSection';
 import { TripsSection } from './sections/TripsSection';
@@ -101,6 +102,7 @@ function AdminContent() {
         {activeSection === 'subscriptions' && <SubscriptionsSection />}
         {activeSection === 'trips' && <TripsSection />}
         {activeSection === 'financials' && <FinancialsSection />}
+        {activeSection === 'payroll' && <PayrollSection />}
         {activeSection === 'safety' && <SafetySection />}
         {activeSection === 'packages' && <PackagesSection />}
         {activeSection === 'sysconfig' && <SystemConfigSection />}
