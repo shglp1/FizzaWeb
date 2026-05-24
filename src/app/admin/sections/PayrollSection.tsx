@@ -17,8 +17,11 @@ import {
   AdminDrawerSection,
   AdminDrawerRow,
   AdminSectionLoading,
+  AdminRevenueFlow,
 } from '@/components/admin/AdminUI';
 import { formatSar } from '@/lib/ui/adminCurrency';
+import { aggregatePeriodEconomics, fizzaRetentionFromDrivers, fizzaRetentionFromDriversPaid } from '@/lib/payroll/platformEconomics';
+import { calculatePeriodNetPay } from '@/lib/payroll/calculateTripEarning';
 
 type RunSummary = {
   id: string;
@@ -154,18 +157,13 @@ export function PayrollSection() {
     loadDetail(year, month);
   }, [year, month, loadDetail]);
 
-  const totals = useMemo(() => {
+  const economics = useMemo(() => {
     if (!runDetail) return null;
-    return runDetail.lines.reduce(
-      (acc, l) => ({
-        trips: acc.trips + l.tripCount,
-        km: acc.km + Number(l.totalBillableKm),
-        gross: acc.gross + Number(l.grossSar),
-        net: acc.net + Number(l.netPaySar),
-      }),
-      { trips: 0, km: 0, gross: 0, net: 0 },
-    );
+    return aggregatePeriodEconomics(runDetail.lines);
   }, [runDetail]);
+
+  const fizzaRetention = economics ? fizzaRetentionFromDrivers(economics) : 0;
+  const fizzaRetentionPaid = economics ? fizzaRetentionFromDriversPaid(economics) : 0;
 
   const saveGlobalRules = async () => {
     setSavingRules(true);
@@ -202,6 +200,11 @@ export function PayrollSection() {
 
   const saveLine = async (status?: 'DRAFT' | 'APPROVED') => {
     if (!selectedLine) return;
+    const deductions = parseFloat(editDeductions) || 0;
+    if (deductions > 0 && !editNotes.trim()) {
+      setMsg({ text: 'Admin notes are required when applying deductions.', type: 'error' });
+      return;
+    }
     setLineSubmitting(true);
     const res = await payrollService.updateLine(selectedLine.id, {
       deductionsSar: parseFloat(editDeductions) || 0,
@@ -353,17 +356,43 @@ export function PayrollSection() {
         <AdminSectionLoading />
       ) : (
         <>
-          {totals && (
-            <div className="mb-6">
-              <AdminMetricGrid
-                columns={4}
-                items={[
-                  { label: 'Drivers', value: runDetail?.lines.length ?? 0 },
-                  { label: 'Trips', value: totals.trips },
-                  { label: 'Billable km', value: totals.km.toFixed(1) },
-                  { label: 'Total net pay', value: formatSar(totals.net), color: '#047857' },
+          {economics && (
+            <div className="mb-6 grid gap-4 lg:grid-cols-2">
+              <AdminRevenueFlow
+                title={`Platform economics · ${periodLabel(year, month)}`}
+                subtitle="How driver trip earnings split between Fizza and driver payouts this period."
+                rows={[
+                  { label: 'Driver trip gross', value: formatSar(economics.gross), tone: 'neutral', helper: 'Billable km × rate across all drivers' },
+                  { label: 'Platform fee (Fizza revenue)', value: formatSar(economics.platformFee), tone: 'inflow', helper: 'Percentage retained from trip gross' },
+                  { label: 'Driver trip net', value: formatSar(economics.driverNet), tone: 'neutral', helper: 'Gross minus platform fee, before adjustments' },
+                  ...(economics.deductions > 0 ? [{ label: 'Deductions withheld', value: `− ${formatSar(economics.deductions)}`, tone: 'inflow' as const, helper: 'Stays with Fizza — not paid to drivers' }] : []),
+                  ...(economics.bonuses > 0 ? [{ label: 'Bonuses paid to drivers', value: `− ${formatSar(economics.bonuses)}`, tone: 'outflow' as const, helper: 'Added to driver net pay from Fizza' }] : []),
+                  { label: 'Net pay due to drivers', value: formatSar(economics.netPay), tone: 'emphasis', helper: 'Trip net − deductions + bonuses' },
                 ]}
+                totalLabel="Total Fizza retention from drivers"
+                totalValue={formatSar(fizzaRetention)}
+                totalHelper="Platform fees + deductions withheld − bonuses"
+                footnote="Parent subscription revenue is tracked separately in Financials."
               />
+              <AdminDataCard title="Settlement status" compact>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <AdminMetaItem label="Fizza retention (paid lines)" value={formatSar(fizzaRetentionPaid)} />
+                  <AdminMetaItem label="Driver payouts completed" value={formatSar(economics.paidNet)} />
+                  <AdminMetaItem label="Platform fees collected" value={formatSar(economics.paidPlatformFee)} />
+                  <AdminMetaItem label="Deductions collected" value={formatSar(economics.paidDeductions)} />
+                </div>
+                <div className="mt-4 pt-4 border-t border-gray-100">
+                  <AdminMetricGrid
+                    columns={4}
+                    items={[
+                      { label: 'Drivers', value: runDetail?.lines.length ?? 0 },
+                      { label: 'Trips', value: runDetail?.lines.reduce((n, l) => n + l.tripCount, 0) ?? 0 },
+                      { label: 'Billable km', value: runDetail?.lines.reduce((n, l) => n + Number(l.totalBillableKm), 0).toFixed(1) ?? '0' },
+                      { label: 'Platform fees', value: formatSar(economics.platformFee), color: '#059669' },
+                    ]}
+                  />
+                </div>
+              </AdminDataCard>
             </div>
           )}
 
@@ -426,6 +455,13 @@ export function PayrollSection() {
                       <AdminMetaItem label="Trips" value={line.tripCount} />
                       <AdminMetaItem label="Km" value={Number(line.totalBillableKm).toFixed(1)} />
                       <AdminMetaItem label="Gross" value={formatSar(line.grossSar)} />
+                      <AdminMetaItem label="Platform fee" value={formatSar(line.platformFeeSar)} />
+                      {Number(line.deductionsSar) > 0 && (
+                        <AdminMetaItem label="Deductions" value={`− ${formatSar(line.deductionsSar)}`} />
+                      )}
+                      {Number(line.bonusesSar) > 0 && (
+                        <AdminMetaItem label="Bonuses" value={`+ ${formatSar(line.bonusesSar)}`} />
+                      )}
                       <AdminMetaItem label="Net pay" value={formatSar(line.netPaySar)} />
                     </>
                   }
@@ -541,13 +577,22 @@ export function PayrollSection() {
           )
         }
       >
-        {selectedLine && (
+        {selectedLine && (() => {
+          const previewNet = calculatePeriodNetPay({
+            tripNetSar: Number(selectedLine.tripNetSar),
+            deductionsSar: parseFloat(editDeductions) || 0,
+            bonusesSar: parseFloat(editBonuses) || 0,
+          });
+          const previewRetention = Number(selectedLine.platformFeeSar)
+            + (parseFloat(editDeductions) || 0)
+            - (parseFloat(editBonuses) || 0);
+          return (
           <>
             <AdminDrawerSection title="Summary">
               <AdminDrawerRow label="Trips" value={selectedLine.tripCount} />
               <AdminDrawerRow label="Billable km" value={Number(selectedLine.totalBillableKm).toFixed(1)} />
               <AdminDrawerRow label="Gross" value={formatSar(selectedLine.grossSar)} />
-              <AdminDrawerRow label="Platform fee" value={formatSar(selectedLine.platformFeeSar)} />
+              <AdminDrawerRow label="Platform fee (Fizza keeps)" value={formatSar(selectedLine.platformFeeSar)} />
               <AdminDrawerRow label="Trip net" value={formatSar(selectedLine.tripNetSar)} />
             </AdminDrawerSection>
             <AdminDrawerSection title="Adjustments">
@@ -555,6 +600,7 @@ export function PayrollSection() {
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">Deductions (SAR)</label>
                   <Input type="number" min={0} step={0.01} value={editDeductions} onChange={(e) => setEditDeductions(e.target.value)} />
+                  <p className="text-[11px] text-gray-400 mt-1">Withheld by Fizza — reduces driver payout. Notes required if &gt; 0.</p>
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">Bonuses (SAR)</label>
@@ -566,8 +612,18 @@ export function PayrollSection() {
                 </div>
               </div>
             </AdminDrawerSection>
+            <div className="rounded-xl bg-emerald-50/70 border border-emerald-100 px-4 py-3 text-sm">
+              <p className="font-medium text-gray-900">Net pay preview</p>
+              <p className="text-gray-600 mt-1 tabular-nums">
+                {formatSar(selectedLine.tripNetSar)} − {formatSar(parseFloat(editDeductions) || 0)} + {formatSar(parseFloat(editBonuses) || 0)} = <span className="font-semibold text-emerald-800">{formatSar(previewNet)}</span>
+              </p>
+              <p className="text-[11px] text-gray-500 mt-2">
+                Fizza retention from this driver: {formatSar(previewRetention)} (fee + deductions − bonuses)
+              </p>
+            </div>
           </>
-        )}
+          );
+        })()}
       </AdminDrawer>
     </div>
   );
