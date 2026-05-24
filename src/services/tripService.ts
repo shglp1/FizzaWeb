@@ -58,11 +58,16 @@ export const tripService = {
     return res.json();
   },
 
-  sendChatMessage: async (id: string, body: string, messageType: 'TEXT' | 'QUICK_REPLY' = 'TEXT') => {
+  sendChatMessage: async (
+    id: string,
+    body: string,
+    messageType: 'TEXT' | 'QUICK_REPLY' | 'IMAGE' = 'TEXT',
+    attachmentUrl?: string,
+  ) => {
     const res = await fetch(`/api/trips/${encodeURIComponent(id)}/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ body, messageType }),
+      body: JSON.stringify({ body, messageType, ...(attachmentUrl ? { attachmentUrl } : {}) }),
     });
     return res.json();
   },

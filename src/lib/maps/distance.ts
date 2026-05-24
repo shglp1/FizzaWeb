@@ -340,6 +340,63 @@ async function _orsDirections(
   };
 }
 
+export type RouteGeometrySource = 'road' | 'approximate';
+
+export type RouteGeometryResult = {
+  coordinates: [number, number][];
+  source: RouteGeometrySource;
+};
+
+/** Fetch driving route geometry (lat/lng pairs) via ORS. Falls back to straight line. */
+export async function getRouteGeometryFromCoords(
+  pickup: { lat: number; lng: number },
+  dropoff: { lat: number; lng: number },
+): Promise<RouteGeometryResult> {
+  const fallback: RouteGeometryResult = {
+    coordinates: [
+      [pickup.lat, pickup.lng],
+      [dropoff.lat, dropoff.lng],
+    ],
+    source: 'approximate',
+  };
+
+  if (!isDistanceConfigured()) return fallback;
+
+  try {
+    const apiKey = getOrsApiKey();
+    const body = {
+      coordinates: [
+        [pickup.lng, pickup.lat],
+        [dropoff.lng, dropoff.lat],
+      ],
+    };
+    const routeRes = await fetch(`${ORS_BASE}/v2/directions/driving-car/geojson`, {
+      method: 'POST',
+      headers: {
+        Authorization: apiKey,
+        'Content-Type': 'application/json',
+        Accept: 'application/geo+json, application/json',
+      },
+      body: JSON.stringify(body),
+      cache: 'no-store',
+    });
+    if (!routeRes.ok) return fallback;
+
+    const geoJson = await routeRes.json() as {
+      features?: { geometry?: { type?: string; coordinates?: [number, number][] } }[];
+    };
+    const coords = geoJson.features?.[0]?.geometry?.coordinates;
+    if (!coords || coords.length < 2) return fallback;
+
+    return {
+      coordinates: coords.map(([lng, lat]) => [lat, lng] as [number, number]),
+      source: 'road',
+    };
+  } catch {
+    return fallback;
+  }
+}
+
 export interface RouteDurationResult {
   durationMinutes: number;
   distanceMeters: number;

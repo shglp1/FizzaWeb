@@ -18,7 +18,7 @@ import {
 import { Badge, Button, StatusBadge, type BadgeVariant } from '@/components/ui';
 import type { TripStatus } from '@/lib/trips/tripLifecycle';
 import { TRIP_STATUS_LABEL } from '@/lib/trips/tripLifecycle';
-import { truncateRouteLabel } from '@/lib/ui/driverPortal';
+import { truncateRouteLabel, GPS_DENIED_INSTRUCTIONS, GPS_PERMISSION_EXPLAIN } from '@/lib/ui/driverPortal';
 
 // ─── Shared tokens ────────────────────────────────────────────────────────────
 
@@ -427,12 +427,14 @@ export function DriverMapPanel({
   mapsUrl,
   loading = false,
   showLegend = true,
+  legend,
 }: {
   map: ReactNode;
   statusOverlay?: ReactNode;
   mapsUrl?: string;
   loading?: boolean;
   showLegend?: boolean;
+  legend?: ReactNode;
 }) {
   return (
     <div className={`${CARD_SHELL} overflow-hidden !p-0`}>
@@ -448,13 +450,16 @@ export function DriverMapPanel({
         {map}
       </div>
       <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2.5 border-t border-gray-100 bg-gray-50/50">
-        {showLegend && (
-          <div className="flex flex-wrap gap-3 text-[10px] font-medium text-gray-600">
-            <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-emerald-500" />Pickup</span>
-            <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-red-500" />Drop-off</span>
-            <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-blue-500" />Driver</span>
-          </div>
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          {showLegend && (
+            <div className="flex flex-wrap gap-3 text-[10px] font-medium text-gray-600">
+              <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-emerald-500" />Pickup</span>
+              <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-red-500" />Drop-off</span>
+              <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-blue-500" />Driver</span>
+            </div>
+          )}
+          {legend}
+        </div>
         {mapsUrl && (
           <a href={mapsUrl} target="_blank" rel="noopener noreferrer" className="text-xs font-semibold text-emerald-700 hover:underline inline-flex items-center gap-0.5">
             Navigate <ChevronRight className="h-3 w-3" aria-hidden />
@@ -608,8 +613,8 @@ export function DriverGpsPermissionCard({
       <DriverNotice
         variant="warning"
         title="Location permission denied"
-        message="Enable location in browser settings, then try again."
-        action={onEnable ? <Button variant="outline" size="sm" onClick={onEnable}>Try again</Button> : undefined}
+        message={GPS_DENIED_INSTRUCTIONS}
+        action={onEnable ? <Button variant="outline" size="sm" onClick={onEnable}>Retry</Button> : undefined}
       />
     );
   }
@@ -620,8 +625,8 @@ export function DriverGpsPermissionCard({
     <DriverNotice
       variant="gps"
       title="Enable GPS sharing"
-      message="Share your live location during active trips so families can follow the ride safely."
-      action={onEnable ? <Button variant="primary" size="sm" onClick={onEnable}><Navigation className="h-4 w-4 mr-1" aria-hidden />Check permission</Button> : undefined}
+      message={GPS_PERMISSION_EXPLAIN}
+      action={onEnable ? <Button variant="primary" size="sm" onClick={onEnable}><Navigation className="h-4 w-4 mr-1" aria-hidden />Enable GPS sharing</Button> : undefined}
     />
   );
 }

@@ -5,6 +5,8 @@ import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { AppShell } from '@/components/layout/AppShell';
 import { DriverGpsPanel } from '@/components/DriverGpsPanel';
+import { DriverTripActivityPanel } from '@/components/driver/DriverTripActivityPanel';
+import { TripChatDrawer } from '@/components/trips/TripChatDrawer';
 import {
   DriverActionBar,
   DriverBottomActionBar,
@@ -32,8 +34,11 @@ import {
   hasRouteCoordinates,
   hasRenderableMapPoints,
   isWithinTrackingWindow,
+  ROUTE_GEOMETRY_FALLBACK_LABEL,
 } from '@/lib/ui/driverPortal';
 import { tripService } from '@/services/tripService';
+import { mapsService } from '@/services/mapsService';
+import { MessageSquare } from 'lucide-react';
 
 type TripEvent = {
   id: string;
@@ -203,6 +208,10 @@ export default function TrackingDetailPage() {
   const [userRole, setUserRole] = useState<string | null>(null);
   const [statusUpdating, setStatusUpdating] = useState(false);
   const [mapLoading, setMapLoading] = useState(true);
+  const [routeGeometry, setRouteGeometry] = useState<[number, number][] | undefined>();
+  const [routeSource, setRouteSource] = useState<'road' | 'approximate'>('approximate');
+  const [routeLoading, setRouteLoading] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
@@ -233,6 +242,24 @@ export default function TrackingDetailPage() {
   }, [tripId]);
 
   useEffect(() => { fetchTracking(); }, [fetchTracking]);
+
+  useEffect(() => {
+    if (!trip) return;
+    const pLat = toCoord(trip.pickupLat);
+    const pLng = toCoord(trip.pickupLng);
+    const dLat = toCoord(trip.dropoffLat);
+    const dLng = toCoord(trip.dropoffLng);
+    if (pLat == null || pLng == null || dLat == null || dLng == null) return;
+
+    let cancelled = false;
+    setRouteLoading(true);
+    mapsService.getRouteGeometry({ pickupLat: pLat, pickupLng: pLng, dropoffLat: dLat, dropoffLng: dLng }).then((res) => {
+      if (cancelled || !res.data) return;
+      setRouteGeometry(res.data.coordinates);
+      setRouteSource(res.data.source);
+    }).finally(() => { if (!cancelled) setRouteLoading(false); });
+    return () => { cancelled = true; };
+  }, [trip]);
 
   useEffect(() => {
     if (!trip) return;
@@ -309,9 +336,16 @@ export default function TrackingDetailPage() {
         subtitle={new Date(trip.scheduledDate).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
         gpsIndicator={location && !location.stale ? 'active' : trackable && isDriver ? 'idle' : 'off'}
         action={
-          <Link href="/tracking">
-            <Button variant="ghost" size="sm">All trips</Button>
-          </Link>
+          <div className="flex gap-2">
+            {(isDriver || userRole === 'PARENT') && (
+              <Button variant="outline" size="sm" onClick={() => setChatOpen(true)}>
+                <MessageSquare className="h-3.5 w-3.5 mr-1" aria-hidden />Chat
+              </Button>
+            )}
+            <Link href="/tracking">
+              <Button variant="ghost" size="sm">All trips</Button>
+            </Link>
+          </div>
         }
       />
 
@@ -329,8 +363,17 @@ export default function TrackingDetailPage() {
       {canRenderMap ? (
         <div className="mb-4">
           <DriverMapPanel
-            loading={mapLoading}
+            loading={mapLoading || routeLoading}
             mapsUrl={routeMapsUrl}
+            legend={
+              routeSource === 'approximate' ? (
+                <span className="text-[10px] text-amber-700 bg-amber-50 px-2 py-1 rounded-full border border-amber-100">
+                  {ROUTE_GEOMETRY_FALLBACK_LABEL}
+                </span>
+              ) : (
+                <span className="text-[10px] text-emerald-700 bg-emerald-50 px-2 py-1 rounded-full border border-emerald-100">Road route</span>
+              )
+            }
             statusOverlay={
               <div className="inline-flex items-center gap-2 rounded-full bg-white/95 backdrop-blur px-3 py-1.5 text-xs font-semibold shadow-sm border border-gray-200">
                 <span className={`h-2 w-2 rounded-full ${location && !location.stale ? 'bg-emerald-500 animate-pulse' : liveGpsMode === 'live' ? 'bg-emerald-500' : 'bg-amber-400'}`} />
@@ -343,6 +386,8 @@ export default function TrackingDetailPage() {
             map={
               <TripTrackingMap
                 {...mapPoints}
+                routeGeometry={routeGeometry}
+                routeSource={routeSource}
                 height={320}
                 className="sm:!min-h-[420px] sm:!h-[420px] rounded-none border-0"
                 onReadyChange={(ready) => setMapLoading(!ready)}
@@ -372,7 +417,7 @@ export default function TrackingDetailPage() {
       {isDriver && trackable && (
         <div className="mb-4 rounded-2xl border border-emerald-200 bg-gradient-to-br from-emerald-50/80 to-white p-4">
           <p className="text-xs font-bold uppercase tracking-wider text-emerald-800 mb-3">GPS sharing</p>
-          <DriverGpsPanel tripId={trip.id} />
+          <DriverGpsPanel tripId={trip.id} withinWindow={isWithinTrackingWindow(trip.scheduledPickupTime)} />
           {driverAction && driverAction.kind === 'status' && driverAction.nextStatus && (
             <div className="mt-4">
               <DriverActionBar>
@@ -465,6 +510,8 @@ export default function TrackingDetailPage() {
         )}
       </Card>
 
+      <DriverTripActivityPanel events={trip.events ?? []} defaultOpen={false} />
+
       {isDriver && trackable && driverAction?.kind === 'status' && (
         <DriverBottomActionBar label="Trip actions" visible>
           <Button variant="primary" size="sm" loading={statusUpdating} onClick={handleStatusAdvance} className="flex-1 min-h-10" disabled={!driverAction.nextStatus}>
@@ -474,6 +521,22 @@ export default function TrackingDetailPage() {
             <Button variant="outline" size="sm" className="w-full min-h-10">Navigate</Button>
           </a>
         </DriverBottomActionBar>
+      )}
+
+      {chatOpen && (
+        <TripChatDrawer
+          open={chatOpen}
+          onClose={() => setChatOpen(false)}
+          tripId={trip.id}
+          userRole={userRole ?? 'PARENT'}
+          tripSummary={{
+            riderName: trip.rider?.name ?? 'Rider',
+            pickup: trip.pickupLocation,
+            dropoff: trip.dropoffLocation,
+            scheduledPickupTime: trip.scheduledPickupTime,
+            parentName: isDriver ? undefined : undefined,
+          }}
+        />
       )}
       </div>
     </AppShell>

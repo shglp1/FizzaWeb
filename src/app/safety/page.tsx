@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { AppShell } from '@/components/layout/AppShell';
 import {
   PageHeader,
@@ -82,6 +83,15 @@ const EMPTY_FORM = { category: '', description: '', tripId: '', attachmentUrl: '
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function SafetyPage() {
+  return (
+    <Suspense fallback={<AppShell><LoadingState message="Loading safety center…" /></AppShell>}>
+      <SafetyPageContent />
+    </Suspense>
+  );
+}
+
+function SafetyPageContent() {
+  const searchParams = useSearchParams();
   const [reports, setReports]           = useState<Report[]>([]);
   const [loading, setLoading]           = useState(true);
   const [pageError, setPageError]       = useState('');
@@ -107,6 +117,14 @@ export default function SafetyPage() {
   };
 
   useEffect(() => { loadReports(); }, []);
+
+  useEffect(() => {
+    const tripId = searchParams.get('tripId');
+    if (tripId) {
+      setForm((p) => ({ ...p, tripId }));
+      setShowForm(true);
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     fetch('/api/me')
