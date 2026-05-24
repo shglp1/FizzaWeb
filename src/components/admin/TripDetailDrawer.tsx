@@ -1,151 +1,180 @@
 'use client';
 
 import Link from 'next/link';
-import { MapPin, ExternalLink, ChevronDown } from 'lucide-react';
+import { MapPin, ExternalLink, ChevronDown, AlertTriangle } from 'lucide-react';
 import { Button, StatusBadge } from '@/components/ui';
-import { EnterpriseCard, DataCard, InfoRow, Timeline } from '@/components/ui/enterprise';
+import {
+  AdminDrawer,
+  AdminDrawerSection,
+  AdminDrawerRow,
+} from '@/components/admin/AdminUI';
 import { getDisplayLabel } from '@/lib/trips/statusCatalog';
 import type { TripStatus } from '@/lib/trips/tripLifecycle';
-import { buildGoogleMapsPlaceUrl } from '@/lib/maps/googleMapsLink';
+import {
+  buildGoogleMapsPlaceUrl,
+  tripToGoogleMapsUrl,
+} from '@/lib/maps/googleMapsLink';
+import {
+  formatDispatchNoteSummary,
+  formatLegType,
+  formatRouteSummary,
+  formatTripDateTime,
+  shouldShowTechnicalJsonPrimary,
+} from '@/lib/ui/adminTrips';
+import type { NormalizedAdminTripDetail } from '@/lib/ui/adminTripDetail';
 
-type TripDetail = {
-  id?: string;
-  status?: string;
-  statusReason?: string | null;
-  scheduledDate?: string;
-  scheduledPickupTime?: string | null;
-  scheduledDropoffTime?: string | null;
-  pickupLocation?: string;
-  dropoffLocation?: string;
-  pickupLat?: number | null;
-  pickupLng?: number | null;
-  dropoffLat?: number | null;
-  dropoffLng?: number | null;
-  rider?: { name?: string; relationship?: string } | null;
-  driver?: {
-    profile?: { fullName?: string; phone?: string } | null;
-    rating?: number | string | null;
-  } | null;
-  parent?: { profile?: { fullName?: string; phone?: string } | null } | null;
-  events?: { id: string; eventType: string; message?: string | null; createdAt: string }[];
-  chatBlocked?: boolean;
-};
-
-function fmtTime(iso: string | null | undefined) {
-  if (!iso) return '—';
+function fmtEventTime(iso: string) {
   return new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
 export function TripDetailDrawer({
+  open,
   tripId,
   detail,
   onClose,
-  onRunLateCheck,
+  onAssign,
+  onReassign,
 }: {
+  open: boolean;
   tripId: string;
-  detail: TripDetail;
+  detail: NormalizedAdminTripDetail;
   onClose: () => void;
-  onRunLateCheck?: () => void;
+  onAssign?: () => void;
+  onReassign?: () => void;
 }) {
   const status = detail.status ?? 'SCHEDULED';
   const events = detail.events ?? [];
-
-  const timelineItems = events.slice(0, 8).map((ev, i) => ({
-    id: ev.id,
-    title: ev.message ?? ev.eventType.replace(/_/g, ' '),
-    time: fmtTime(ev.createdAt),
-    status: (i === 0 ? 'current' : 'done') as 'done' | 'current',
-  }));
+  const canAssign = detail.needsDispatch || (!detail.driver && ['SCHEDULED', 'DRIVER_ASSIGNED'].includes(status));
+  const canReassign = !!detail.driver && ['SCHEDULED', 'DRIVER_ASSIGNED'].includes(status);
 
   return (
-    <EnterpriseCard accent className="animate-slide-up">
-      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-4">
-        <div>
-          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Trip operations</p>
-          <h3 className="text-lg font-bold text-gray-900 mt-0.5">{detail.rider?.name ?? 'Trip detail'}</h3>
-          <p className="text-xs text-gray-400 font-mono mt-0.5">{tripId}</p>
-        </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          <StatusBadge variant="info">{getDisplayLabel(status as TripStatus)}</StatusBadge>
-          {detail.chatBlocked && <StatusBadge variant="danger">Chat flagged</StatusBadge>}
-          <Button variant="ghost" size="sm" onClick={onClose} aria-label="Close trip detail">
-            Close
-          </Button>
-        </div>
-      </div>
-
-      <div className="grid lg:grid-cols-2 gap-4">
-        <DataCard title="People & schedule">
-          <InfoRow label="Rider" value={detail.rider?.name ?? '—'} />
-          <InfoRow label="Relationship" value={detail.rider?.relationship ?? '—'} />
-          <InfoRow label="Driver" value={detail.driver?.profile?.fullName ?? 'Unassigned'} />
-          {detail.driver?.profile?.phone && (
-            <InfoRow label="Driver phone" value={detail.driver.profile.phone} />
+    <AdminDrawer
+      open={open}
+      onClose={onClose}
+      title={detail.rider?.name ?? 'Trip detail'}
+      subtitle={formatTripDateTime(detail.scheduledDate, detail.scheduledPickupTime)}
+      width="lg"
+      footer={
+        <div className="flex flex-wrap gap-2">
+          {canAssign && onAssign && (
+            <Button variant="primary" size="sm" onClick={onAssign} className="min-h-[44px]">Assign driver</Button>
           )}
-          <InfoRow label="Parent" value={detail.parent?.profile?.fullName ?? '—'} />
-          <InfoRow label="Scheduled" value={fmtTime(detail.scheduledPickupTime ?? detail.scheduledDate)} />
-          {detail.statusReason && (
-            <InfoRow label="Reason" value={detail.statusReason} />
+          {canReassign && onReassign && (
+            <Button variant="outline" size="sm" onClick={onReassign} className="min-h-[44px]">Reassign driver</Button>
           )}
-        </DataCard>
-
-        <DataCard title="Route">
-          <InfoRow label="Pickup" value={detail.pickupLocation ?? '—'} />
-          <InfoRow label="Drop-off" value={detail.dropoffLocation ?? '—'} />
-          <div className="flex flex-wrap gap-2 pt-2">
-            {detail.pickupLat != null && detail.pickupLng != null && (
-              <a
-                href={buildGoogleMapsPlaceUrl(detail.pickupLat, detail.pickupLng, detail.pickupLocation)}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 hover:underline"
-              >
-                <MapPin className="h-3.5 w-3.5" aria-hidden />
-                Pickup map
-                <ExternalLink className="h-3 w-3" aria-hidden />
-              </a>
-            )}
-            {detail.dropoffLat != null && detail.dropoffLng != null && (
-              <a
-                href={buildGoogleMapsPlaceUrl(detail.dropoffLat, detail.dropoffLng, detail.dropoffLocation)}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 hover:underline"
-              >
-                <MapPin className="h-3.5 w-3.5" aria-hidden />
-                Drop-off map
-                <ExternalLink className="h-3 w-3" aria-hidden />
-              </a>
-            )}
-          </div>
-        </DataCard>
-      </div>
-
-      {timelineItems.length > 0 && (
-        <div className="mt-4 rounded-xl border border-gray-100 bg-gray-50/50 p-4">
-          <p className="text-sm font-semibold text-gray-800 mb-3">Timeline</p>
-          <Timeline items={timelineItems} />
+          <Link href={`/tracking/${tripId}`} target="_blank" rel="noopener noreferrer">
+            <Button variant="outline" size="sm" className="min-h-[44px]">View tracking</Button>
+          </Link>
+          <Button variant="ghost" size="sm" onClick={onClose} className="min-h-[44px]">Close</Button>
         </div>
+      }
+    >
+      <AdminDrawerSection title="Trip summary">
+        <AdminDrawerRow label="Status" value={<StatusBadge variant="info">{getDisplayLabel(status as TripStatus)}</StatusBadge>} />
+        <AdminDrawerRow label="Leg" value={formatLegType(detail.legType)} />
+        <AdminDrawerRow label="Route" value={formatRouteSummary(detail.pickupLocation, detail.dropoffLocation, 80)} />
+        <AdminDrawerRow label="Rider" value={detail.rider?.name ?? '—'} />
+        <AdminDrawerRow label="Parent" value={detail.parent?.profile?.fullName ?? '—'} />
+        <AdminDrawerRow label="Package" value={detail.subscription?.packageName ?? detail.subscription?.subscriptionType ?? '—'} />
+        {detail.statusReason && <AdminDrawerRow label="Status reason" value={detail.statusReason} />}
+      </AdminDrawerSection>
+
+      <AdminDrawerSection title="Dispatch">
+        <AdminDrawerRow
+          label="Dispatch status"
+          value={
+            detail.needsDispatch ? (
+              <span className="inline-flex items-center gap-1 text-amber-700 font-medium">
+                <AlertTriangle className="h-3.5 w-3.5" aria-hidden /> Needs dispatch
+              </span>
+            ) : detail.driver ? 'Driver confirmed' : 'Awaiting assignment'
+          }
+        />
+        {detail.dispatchNote && (
+          <AdminDrawerRow label="Dispatch note" value={formatDispatchNoteSummary(detail.dispatchNote, 200)} />
+        )}
+        <AdminDrawerRow label="Assigned driver" value={detail.driver?.profile?.fullName ?? 'Unassigned'} />
+        {detail.subscription?.defaultDriverName && (
+          <AdminDrawerRow label="Default driver" value={detail.subscription.defaultDriverName} />
+        )}
+      </AdminDrawerSection>
+
+      <AdminDrawerSection title="Location">
+        <AdminDrawerRow label="Pickup" value={detail.pickupLocation} />
+        <AdminDrawerRow label="Drop-off" value={detail.dropoffLocation} />
+        <div className="flex flex-wrap gap-2 pt-1">
+          {detail.pickupLat != null && detail.pickupLng != null && (
+            <a
+              href={buildGoogleMapsPlaceUrl(detail.pickupLat, detail.pickupLng, detail.pickupLocation)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 hover:underline min-h-[44px] px-1"
+            >
+              <MapPin className="h-3.5 w-3.5" aria-hidden /> Open pickup
+              <ExternalLink className="h-3 w-3" aria-hidden />
+            </a>
+          )}
+          {detail.dropoffLat != null && detail.dropoffLng != null && (
+            <a
+              href={buildGoogleMapsPlaceUrl(detail.dropoffLat, detail.dropoffLng, detail.dropoffLocation)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 hover:underline min-h-[44px] px-1"
+            >
+              <MapPin className="h-3.5 w-3.5" aria-hidden /> Open drop-off
+              <ExternalLink className="h-3 w-3" aria-hidden />
+            </a>
+          )}
+          <a
+            href={tripToGoogleMapsUrl(detail)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 hover:underline min-h-[44px] px-1"
+          >
+            Route directions
+            <ExternalLink className="h-3 w-3" aria-hidden />
+          </a>
+        </div>
+      </AdminDrawerSection>
+
+      {events.length > 0 && (
+        <AdminDrawerSection title="Timeline">
+          <ul className="space-y-2">
+            {events.slice().reverse().slice(0, 12).map((ev) => (
+              <li key={ev.id} className="text-sm border-b border-gray-100 last:border-0 pb-2">
+                <p className="font-medium text-gray-800">{ev.message ?? ev.eventType.replace(/_/g, ' ')}</p>
+                <p className="text-xs text-gray-400 mt-0.5">{fmtEventTime(ev.createdAt)}</p>
+              </li>
+            ))}
+          </ul>
+        </AdminDrawerSection>
       )}
 
-      <div className="flex flex-wrap gap-2 mt-4 pt-4 border-t border-gray-100">
-        <Link href={`/tracking/${tripId}`} target="_blank" rel="noopener noreferrer">
-          <Button variant="primary" size="sm">View tracking</Button>
-        </Link>
-        {onRunLateCheck && (
-          <Button variant="outline" size="sm" onClick={onRunLateCheck}>Run late check</Button>
+      <AdminDrawerSection title="Communication & safety">
+        <AdminDrawerRow label="Chat messages" value={detail.chatTotal ?? 0} />
+        <AdminDrawerRow label="Chat flags" value={detail.chatFlaggedCount ?? 0} />
+        <AdminDrawerRow label="GPS" value={detail.gpsStale ? 'Stale / unavailable' : 'OK'} />
+        <AdminDrawerRow label="Safety reports" value={detail.safetyReports?.length ?? 0} />
+        {(detail.safetyReports?.length ?? 0) > 0 && (
+          <ul className="text-xs text-gray-600 space-y-1 pt-1">
+            {detail.safetyReports!.slice(0, 3).map((r) => (
+              <li key={r.id}>{r.category} — {r.status}</li>
+            ))}
+          </ul>
         )}
-      </div>
+      </AdminDrawerSection>
 
-      <details className="mt-4 group">
-        <summary className="text-xs text-gray-400 cursor-pointer flex items-center gap-1 list-none">
-          <ChevronDown className="h-3 w-3 group-open:rotate-180 transition-transform" aria-hidden />
-          Developer raw data
-        </summary>
-        <pre className="mt-2 text-[10px] bg-gray-900 text-gray-100 rounded-lg p-3 overflow-auto max-h-40">
-          {JSON.stringify(detail, null, 2)}
-        </pre>
-      </details>
-    </EnterpriseCard>
+      {!shouldShowTechnicalJsonPrimary() && (
+        <details className="group">
+          <summary className="text-xs text-gray-400 cursor-pointer flex items-center gap-1 list-none min-h-[44px]">
+            <ChevronDown className="h-3 w-3 group-open:rotate-180 transition-transform" aria-hidden />
+            Technical details
+          </summary>
+          <pre className="mt-2 text-[10px] bg-gray-900 text-gray-100 rounded-lg p-3 overflow-auto max-h-40">
+            {JSON.stringify({ tripId, ...detail }, null, 2)}
+          </pre>
+        </details>
+      )}
+    </AdminDrawer>
   );
 }

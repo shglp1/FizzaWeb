@@ -27,6 +27,7 @@ export async function GET(
         subscription: {
           include: {
             package: { select: { name: true } },
+            assignedDriver: { select: { profile: { select: { fullName: true } } } },
           },
         },
         events: { orderBy: { createdAt: 'asc' } },

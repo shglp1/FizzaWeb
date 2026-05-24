@@ -69,13 +69,27 @@ export const tripService = {
 
   // ── Admin ─────────────────────────────────────────────────────────────────
 
-  adminList: async (filters?: { status?: string; date?: string; driverId?: string; page?: number; limit?: number }) => {
+  adminList: async (filters?: {
+    status?: string;
+    date?: string;
+    driverId?: string;
+    page?: number;
+    limit?: number;
+    needsDispatch?: boolean;
+    unassigned?: boolean;
+    active?: boolean;
+    q?: string;
+  }) => {
     const params = new URLSearchParams();
     if (filters?.status) params.set('status', filters.status);
     if (filters?.date) params.set('date', filters.date);
     if (filters?.driverId) params.set('driverId', filters.driverId);
     if (filters?.page) params.set('page', String(filters.page));
     if (filters?.limit) params.set('limit', String(filters.limit));
+    if (filters?.needsDispatch) params.set('needsDispatch', 'true');
+    if (filters?.unassigned) params.set('unassigned', 'true');
+    if (filters?.active) params.set('active', 'true');
+    if (filters?.q) params.set('q', filters.q);
     const res = await fetch(`/api/admin/trips?${params}`);
     return res.json();
   },
@@ -136,6 +150,11 @@ export const tripService = {
 
   adminGetTrip: async (tripId: string) => {
     const res = await fetch(`/api/admin/trips/${encodeURIComponent(tripId)}`);
+    return res.json();
+  },
+
+  adminTripAvailableDrivers: async (tripId: string) => {
+    const res = await fetch(`/api/admin/trips/${encodeURIComponent(tripId)}/available-drivers`);
     return res.json();
   },
 
