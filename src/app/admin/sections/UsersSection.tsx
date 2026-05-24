@@ -3,7 +3,10 @@
 import { Users, UserRound } from 'lucide-react';
 import { useEffect, useState, useCallback } from 'react';
 import { adminUserService } from '@/services/adminService';
-import { Button, Pagination, ErrorState } from '@/components/ui';
+import { Button, ErrorState } from '@/components/ui';
+import { AdminPagination } from '@/components/admin/AdminPagination';
+import { AdminRowMenu } from '@/components/admin/AdminRowMenu';
+import { DEFAULT_ADMIN_PAGE_LIMIT } from '@/lib/ui/adminPagination';
 import {
   AdminSectionHeader,
   AdminToolbar,
@@ -107,18 +110,22 @@ export function UsersSection() {
   const [accountTypeFilter, setAccountTypeFilter] = useState('');
   const [appStatusFilter, setAppStatusFilter] = useState('');
   const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(DEFAULT_ADMIN_PAGE_LIMIT);
+  const [sort, setSort] = useState<'newest' | 'oldest' | 'name_asc' | 'account_type'>('newest');
   const [selected, setSelected] = useState<UserRow | null>(null);
   const [detail, setDetail] = useState<UserDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
 
-  const load = useCallback((s: string, at: string, as_: string, p: number) => {
+  const load = useCallback((s: string, at: string, as_: string, p: number, l: number, sortBy: typeof sort) => {
     setLoading(true);
     setError('');
     adminUserService.list({
       search: s || undefined,
       accountType: at || undefined,
       applicationStatus: as_ || undefined,
+      sort: sortBy,
       page: p,
+      limit: l,
     }).then((res) => {
       if (res.data) {
         const d = res.data as { users: UserRow[]; meta: Meta; summary: Summary };
@@ -132,7 +139,7 @@ export function UsersSection() {
     });
   }, []);
 
-  useEffect(() => { load(debouncedSearch, accountTypeFilter, appStatusFilter, page); }, [debouncedSearch, accountTypeFilter, appStatusFilter, page, load]);
+  useEffect(() => { load(debouncedSearch, accountTypeFilter, appStatusFilter, page, limit, sort); }, [debouncedSearch, accountTypeFilter, appStatusFilter, page, limit, sort, load]);
 
   useEffect(() => {
     if (!selected) { setDetail(null); return; }
@@ -227,6 +234,23 @@ export function UsersSection() {
               />
             ),
           }] : []),
+          {
+            id: 'user-sort',
+            label: 'Sort',
+            element: (
+              <AdminFilterSelect
+                id="user-sort"
+                value={sort}
+                onChange={(v) => { setSort(v as typeof sort); setPage(1); }}
+                options={[
+                  { value: 'newest', label: 'Newest' },
+                  { value: 'oldest', label: 'Oldest' },
+                  { value: 'name_asc', label: 'Name A–Z' },
+                  { value: 'account_type', label: 'Account type' },
+                ]}
+              />
+            ),
+          },
         ]}
         activeChips={[
           ...(debouncedSearch ? [{ label: `"${debouncedSearch}"`, onRemove: () => { setSearchInput(''); setPage(1); } }] : []),
@@ -239,7 +263,7 @@ export function UsersSection() {
       {loading ? (
         <AdminSectionLoading message="Loading users…" />
       ) : error ? (
-        <ErrorState message={error} onRetry={() => load(debouncedSearch, accountTypeFilter, appStatusFilter, page)} />
+        <ErrorState message={error} onRetry={() => load(debouncedSearch, accountTypeFilter, appStatusFilter, page, limit, sort)} />
       ) : users.length === 0 ? (
         <AdminEmptyState
           icon={UserRound}
@@ -305,6 +329,33 @@ export function UsersSection() {
                 </span>
               ),
             },
+            {
+              key: 'actions',
+              header: '',
+              cell: (u) => (
+                <AdminRowMenu
+                  items={[
+                    { label: 'View details', onClick: () => setSelected(u) },
+                    { label: 'Copy email', onClick: () => { void navigator.clipboard.writeText(u.user.email); } },
+                    {
+                      label: 'View subscriptions',
+                      onClick: () => { window.location.href = `/admin?section=subscriptions&userId=${u.id}`; },
+                      disabled: u._count.userSubscriptions === 0,
+                    },
+                    {
+                      label: 'View riders',
+                      onClick: () => { window.location.href = `/admin?section=riders&parentId=${u.id}`; },
+                      disabled: u._count.riders === 0,
+                    },
+                    {
+                      label: 'View driver application',
+                      onClick: () => { window.location.href = '/admin?section=applications'; },
+                      disabled: u.accountType !== 'DRIVER_APPLICANT',
+                    },
+                  ]}
+                />
+              ),
+            },
           ]}
           mobileCard={(u) => (
             <AdminDataCard
@@ -325,9 +376,12 @@ export function UsersSection() {
         />
       )}
 
-      {meta && meta.totalPages > 1 && (
-        <Pagination page={meta.page} totalPages={meta.totalPages} onPageChange={(p) => { setPage(p); window.scrollTo({ top: 0, behavior: 'smooth' }); }} className="mt-5" />
-      )}
+      <AdminPagination
+        meta={meta}
+        onPageChange={(p) => { setPage(p); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+        onLimitChange={(l) => { setLimit(l); setPage(1); }}
+        className="mt-5"
+      />
 
       <AdminDrawer
         open={!!selected}
@@ -345,16 +399,50 @@ export function UsersSection() {
               <AdminStatusBadge status={selected.accountType} label={ACCOUNT_TYPE_LABEL[selected.accountType]} />
             </div>
 
+            <AdminDrawerSection title="Account">
+              <AdminDrawerRow label="Account type" value={<AdminStatusBadge status={selected.accountType} label={ACCOUNT_TYPE_LABEL[selected.accountType]} />} />
+              <AdminDrawerRow label="Display role" value={selected.displayRole} />
+              <AdminDrawerRow label="Auth role" value={detail.role} />
+            </AdminDrawerSection>
+
             <AdminDrawerSection title="Profile">
               <AdminDrawerRow label="Email" value={detail.user.email} />
               <AdminDrawerRow label="Phone" value={detail.phone ?? '—'} />
-              <AdminDrawerRow label="Auth role" value={detail.role} />
               <AdminDrawerRow label="Wallet" value={formatWallet(detail.wallet?.balanceSar)} />
               <AdminDrawerRow label="Joined" value={new Date(detail.user.createdAt).toLocaleDateString()} />
             </AdminDrawerSection>
 
+            <AdminDrawerSection title="Subscriptions summary">
+              {detail.userSubscriptions.length === 0 ? (
+                <p className="text-sm text-gray-500">No subscriptions</p>
+              ) : (
+                detail.userSubscriptions.map((s) => (
+                  <div key={s.id} className="flex justify-between items-center text-sm py-2 border-b border-gray-100 last:border-0">
+                    <span className="capitalize">{s.subscriptionType.toLowerCase()}</span>
+                    <div className="flex items-center gap-2">
+                      <AdminStatusBadge status={s.paymentStatus} />
+                      <AdminStatusBadge status={s.status} />
+                    </div>
+                  </div>
+                ))
+              )}
+            </AdminDrawerSection>
+
+            <AdminDrawerSection title="Riders summary">
+              {detail.riders.length === 0 ? (
+                <p className="text-sm text-gray-500">No riders</p>
+              ) : (
+                detail.riders.map((r) => (
+                  <div key={r.id} className="flex justify-between text-sm py-1 border-b border-gray-100 last:border-0">
+                    <span>{r.name}</span>
+                    <span className="text-gray-500 text-xs">{r.school ?? '—'}</span>
+                  </div>
+                ))
+              )}
+            </AdminDrawerSection>
+
             {selected.accountType === 'DRIVER_APPLICANT' && (
-              <AdminDrawerSection title="Driver application">
+              <AdminDrawerSection title="Driver application summary">
                 {selected.driverApplication ? (
                   <>
                     <AdminDrawerRow label="Status" value={<AdminStatusBadge status={selected.driverApplication.status} label={APP_STATUS_LABEL[selected.driverApplication.status]} />} />
@@ -367,30 +455,8 @@ export function UsersSection() {
               </AdminDrawerSection>
             )}
 
-            {detail.riders.length > 0 && (
-              <AdminDrawerSection title="Riders">
-                {detail.riders.map((r) => (
-                  <div key={r.id} className="flex justify-between text-sm py-1 border-b border-gray-100 last:border-0">
-                    <span>{r.name}</span>
-                    <span className="text-gray-500 text-xs">{r.school ?? '—'}</span>
-                  </div>
-                ))}
-              </AdminDrawerSection>
-            )}
-
-            {detail.userSubscriptions.length > 0 && (
-              <AdminDrawerSection title="Subscriptions">
-                {detail.userSubscriptions.map((s) => (
-                  <div key={s.id} className="flex justify-between items-center text-sm py-2 border-b border-gray-100 last:border-0">
-                    <span className="capitalize">{s.subscriptionType.toLowerCase()}</span>
-                    <AdminStatusBadge status={s.status} />
-                  </div>
-                ))}
-              </AdminDrawerSection>
-            )}
-
             {detail.payments.length > 0 && (
-              <AdminDrawerSection title="Recent payments">
+              <AdminDrawerSection title="Recent payments / audit">
                 {detail.payments.map((p) => (
                   <div key={p.id} className="flex justify-between text-sm py-1">
                     <span>{formatWallet(p.amountSar)}</span>

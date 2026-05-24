@@ -2,7 +2,7 @@
 
 import { type ReactNode, useState, useCallback, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Menu, X } from 'lucide-react';
+import { Menu, X, LogOut } from 'lucide-react';
 import { Logo } from './Logo';
 import {
   ADMIN_SECTIONS,
@@ -11,6 +11,7 @@ import {
   parseAdminSection,
   type AdminSection,
 } from '@/lib/adminNav';
+import { ADMIN_MAIN_OFFSET, ADMIN_SIDEBAR_CLASSES } from '@/lib/ui/adminSidebarLayout';
 
 const ICONS: Record<string, string> = {
   dashboard:    'M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z M9 22V12h6v10',
@@ -67,6 +68,28 @@ function AdminNavLink({
       <span className="truncate">{label}</span>
       {active && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-fizza-soft shrink-0" />}
     </a>
+  );
+}
+
+function SignOutButton({
+  loggingOut,
+  onLogout,
+  className = '',
+}: {
+  loggingOut: boolean;
+  onLogout: () => void;
+  className?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onLogout}
+      disabled={loggingOut}
+      className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-white/50 hover:bg-white/10 hover:text-white transition-all disabled:opacity-50 min-h-[44px] ${className}`}
+    >
+      <LogOut className="h-[18px] w-[18px] shrink-0" aria-hidden />
+      <span>{loggingOut ? 'Signing out…' : 'Sign Out'}</span>
+    </button>
   );
 }
 
@@ -134,10 +157,14 @@ function MobileNavDrawer({
   open,
   onClose,
   active,
+  loggingOut,
+  onLogout,
 }: {
   open: boolean;
   onClose: () => void;
   active: AdminSection;
+  loggingOut: boolean;
+  onLogout: () => void;
 }) {
   useEffect(() => {
     if (!open) return;
@@ -151,7 +178,7 @@ function MobileNavDrawer({
     <div className="md:hidden fixed inset-0 z-50">
       <button type="button" className="absolute inset-0 bg-black/40" onClick={onClose} aria-label="Close menu" />
       <aside className="relative flex h-full w-[min(100%,280px)] flex-col bg-fizza-primary shadow-2xl">
-        <div className="flex items-center justify-between gap-2 px-4 py-4 border-b border-white/10">
+        <div className={ADMIN_SIDEBAR_CLASSES.header}>
           <Logo theme="dark" />
           <button
             type="button"
@@ -162,7 +189,7 @@ function MobileNavDrawer({
             <X className="h-5 w-5" />
           </button>
         </div>
-        <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-0.5">
+        <nav className={ADMIN_SIDEBAR_CLASSES.nav}>
           {ADMIN_SECTIONS.map((item) => (
             <AdminNavLink
               key={item.section}
@@ -174,6 +201,9 @@ function MobileNavDrawer({
             />
           ))}
         </nav>
+        <div className={ADMIN_SIDEBAR_CLASSES.footer}>
+          <SignOutButton loggingOut={loggingOut} onLogout={onLogout} />
+        </div>
       </aside>
     </div>
   );
@@ -192,16 +222,16 @@ export function AdminShell({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <div className="flex min-h-screen bg-fizza-bg">
-      <aside className="hidden md:flex flex-col w-64 min-h-screen bg-fizza-primary shrink-0">
-        <div className="flex items-center justify-between gap-2 px-5 py-5 border-b border-white/10">
+    <div className="min-h-screen bg-fizza-bg">
+      <aside className={ADMIN_SIDEBAR_CLASSES.root}>
+        <div className={ADMIN_SIDEBAR_CLASSES.header}>
           <Logo theme="dark" />
           <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap bg-red-500/20 text-red-200">
             Admin
           </span>
         </div>
 
-        <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-0.5 scrollbar-thin">
+        <nav className={ADMIN_SIDEBAR_CLASSES.nav}>
           {ADMIN_SECTIONS.map((item) => (
             <AdminNavLink
               key={item.section}
@@ -213,25 +243,23 @@ export function AdminShell({ children }: { children: ReactNode }) {
           ))}
         </nav>
 
-        <div className="px-3 pb-4 pt-2 border-t border-white/10">
-          <button
-            type="button"
-            onClick={handleLogout}
-            disabled={loggingOut}
-            className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-white/50 hover:bg-white/10 hover:text-white transition-all disabled:opacity-50 min-h-[44px]"
-          >
-            <NavIcon icon="logout" />
-            <span>{loggingOut ? 'Signing out…' : 'Sign Out'}</span>
-          </button>
+        <div className={ADMIN_SIDEBAR_CLASSES.footer}>
+          <SignOutButton loggingOut={loggingOut} onLogout={handleLogout} />
         </div>
       </aside>
 
-      <div className="flex flex-1 flex-col min-w-0">
+      <div className={`flex min-h-screen flex-col min-w-0 ${ADMIN_MAIN_OFFSET}`}>
         <MobileTopBar title={ADMIN_SECTION_LABELS[active]} onMenuOpen={() => setMobileNavOpen(true)} />
-        <MobileNavDrawer open={mobileNavOpen} onClose={() => setMobileNavOpen(false)} active={active} />
+        <MobileNavDrawer
+          open={mobileNavOpen}
+          onClose={() => setMobileNavOpen(false)}
+          active={active}
+          loggingOut={loggingOut}
+          onLogout={handleLogout}
+        />
 
-        <main className="flex-1 p-4 md:p-6 lg:p-8 pb-24 md:pb-8 overflow-x-hidden">
-          <div className="mx-auto max-w-6xl">{children}</div>
+        <main className="flex-1 p-4 md:p-6 lg:p-8 pb-24 md:pb-8 overflow-x-hidden min-h-0">
+          <div className="mx-auto max-w-6xl w-full">{children}</div>
         </main>
 
         <MobileBottomNav active={active} />

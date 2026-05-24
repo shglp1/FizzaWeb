@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireRole } from '@/lib/session';
+import { buildPaginationMeta, parsePaginationParams } from '@/lib/pagination';
 
 export async function GET(req: Request) {
   try {
@@ -9,9 +10,7 @@ export async function GET(req: Request) {
 
     const { searchParams } = new URL(req.url);
     const status = searchParams.get('status');
-    const page = Math.max(1, parseInt(searchParams.get('page') ?? '1', 10));
-    const limit = 20;
-    const skip = (page - 1) * limit;
+    const { page, limit, skip } = parsePaginationParams(searchParams);
 
     const where = status
       ? { status: status as 'PENDING' | 'APPROVED' | 'REJECTED' | 'NEEDS_CHANGES' }
@@ -34,7 +33,10 @@ export async function GET(req: Request) {
     ]);
 
     return NextResponse.json({
-      data: { applications, total, page, limit },
+      data: {
+        applications,
+        meta: buildPaginationMeta(page, limit, total),
+      },
       error: null,
     });
   } catch {

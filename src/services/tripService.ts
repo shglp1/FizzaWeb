@@ -69,12 +69,13 @@ export const tripService = {
 
   // ── Admin ─────────────────────────────────────────────────────────────────
 
-  adminList: async (filters?: { status?: string; date?: string; driverId?: string; page?: number }) => {
+  adminList: async (filters?: { status?: string; date?: string; driverId?: string; page?: number; limit?: number }) => {
     const params = new URLSearchParams();
     if (filters?.status) params.set('status', filters.status);
     if (filters?.date) params.set('date', filters.date);
     if (filters?.driverId) params.set('driverId', filters.driverId);
     if (filters?.page) params.set('page', String(filters.page));
+    if (filters?.limit) params.set('limit', String(filters.limit));
     const res = await fetch(`/api/admin/trips?${params}`);
     return res.json();
   },

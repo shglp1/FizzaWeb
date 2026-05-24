@@ -3,6 +3,8 @@ import { prisma } from '@/lib/prisma';
 import { requireRole } from '@/lib/session';
 import type { AccountType } from '@/lib/adminUserTypes';
 import { classifyUser } from '@/lib/adminUserClassify';
+import { buildPaginationMeta, parsePaginationParams } from '@/lib/pagination';
+import type { Prisma } from '@prisma/client';
 
 export type { AccountType };
 
@@ -18,9 +20,23 @@ export async function GET(req: Request) {
     const role              = searchParams.get('role') ?? '';           // legacy compat
     const accountType       = searchParams.get('accountType') ?? '';   // preferred filter
     const applicationStatus = searchParams.get('applicationStatus') ?? '';
-    const page  = Math.max(1, parseInt(searchParams.get('page')  ?? '1',  10));
-    const limit = Math.min(50, Math.max(1, parseInt(searchParams.get('limit') ?? '20', 10)));
-    const skip  = (page - 1) * limit;
+    const sort = searchParams.get('sort') ?? 'newest';
+    const { page, limit, skip } = parsePaginationParams(searchParams);
+
+    let orderBy: Prisma.ProfileOrderByWithRelationInput | Prisma.ProfileOrderByWithRelationInput[];
+    switch (sort) {
+      case 'oldest':
+        orderBy = { createdAt: 'asc' };
+        break;
+      case 'name_asc':
+        orderBy = { fullName: 'asc' };
+        break;
+      case 'account_type':
+        orderBy = [{ role: 'asc' }, { registrationSource: 'asc' }];
+        break;
+      default:
+        orderBy = { createdAt: 'desc' };
+    }
 
     // ── Build filter conditions (ANDed together) ────────────────────────────
     const conditions: Record<string, unknown>[] = [];
@@ -113,7 +129,7 @@ export async function GET(req: Request) {
         },
         skip,
         take: limit,
-        orderBy: { createdAt: 'desc' },
+        orderBy,
       }),
       prisma.profile.count({ where }),
       // Global summary counts (always reflect the full dataset, ignoring current filters)
@@ -170,7 +186,7 @@ export async function GET(req: Request) {
     return NextResponse.json({
       data: {
         users,
-        meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
+        meta: buildPaginationMeta(page, limit, total),
         summary: {
           admins:           adminCount,
           approvedDrivers:  driverCount,

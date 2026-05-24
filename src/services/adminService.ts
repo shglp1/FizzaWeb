@@ -9,6 +9,14 @@ async function apiFetch<T>(url: string, init?: RequestInit): Promise<ApiResponse
   }
 }
 
+function appendListParams(
+  q: URLSearchParams,
+  params: { page?: number; limit?: number },
+) {
+  if (params.page) q.set('page', String(params.page));
+  if (params.limit) q.set('limit', String(params.limit));
+}
+
 // ─── Stats ────────────────────────────────────────────────────────────────────
 
 export const adminStatsService = {
@@ -32,17 +40,20 @@ export const systemConfigService = {
 export const adminUserService = {
   list: (params: {
     search?: string;
-    role?: string;                 // legacy — prefer accountType
-    accountType?: string;          // FAMILY_PARENT | DRIVER_APPLICANT | APPROVED_DRIVER | ADMIN
-    applicationStatus?: string;    // NOT_SUBMITTED | PENDING | NEEDS_CHANGES | REJECTED | APPROVED
+    role?: string;
+    accountType?: string;
+    applicationStatus?: string;
+    sort?: 'newest' | 'oldest' | 'name_asc' | 'account_type';
     page?: number;
+    limit?: number;
   } = {}) => {
     const q = new URLSearchParams();
-    if (params.search)            q.set('search', params.search);
-    if (params.role)              q.set('role', params.role);
-    if (params.accountType)       q.set('accountType', params.accountType);
+    if (params.search) q.set('search', params.search);
+    if (params.role) q.set('role', params.role);
+    if (params.accountType) q.set('accountType', params.accountType);
     if (params.applicationStatus) q.set('applicationStatus', params.applicationStatus);
-    if (params.page)              q.set('page', String(params.page));
+    if (params.sort) q.set('sort', params.sort);
+    appendListParams(q, params);
     return apiFetch<{ users: unknown[]; meta: unknown; summary: unknown }>(`/api/admin/users?${q}`);
   },
   get: (id: string) => apiFetch<unknown>(`/api/admin/users/${id}`),
@@ -57,12 +68,12 @@ export const adminUserService = {
 // ─── Riders ───────────────────────────────────────────────────────────────────
 
 export const adminRiderService = {
-  list: (params: { parentId?: string; isActive?: boolean; search?: string; page?: number } = {}) => {
+  list: (params: { parentId?: string; isActive?: boolean; search?: string; page?: number; limit?: number } = {}) => {
     const q = new URLSearchParams();
     if (params.parentId) q.set('parentId', params.parentId);
     if (params.isActive !== undefined) q.set('isActive', String(params.isActive));
     if (params.search) q.set('search', params.search);
-    if (params.page) q.set('page', String(params.page));
+    appendListParams(q, params);
     return apiFetch<{ riders: unknown[]; meta: unknown }>(`/api/admin/riders?${q}`);
   },
   update: (id: string, data: Record<string, unknown>) =>
@@ -76,11 +87,22 @@ export const adminRiderService = {
 // ─── Drivers ──────────────────────────────────────────────────────────────────
 
 export const adminDriverService = {
-  list: (params: { isSuspended?: boolean; page?: number; search?: string } = {}) => {
+  list: (params: {
+    isSuspended?: boolean;
+    available?: boolean;
+    vehicleType?: string;
+    city?: string;
+    search?: string;
+    page?: number;
+    limit?: number;
+  } = {}) => {
     const q = new URLSearchParams();
     if (params.isSuspended !== undefined) q.set('isSuspended', String(params.isSuspended));
+    if (params.available !== undefined) q.set('available', String(params.available));
+    if (params.vehicleType) q.set('vehicleType', params.vehicleType);
+    if (params.city) q.set('city', params.city);
     if (params.search) q.set('search', params.search);
-    if (params.page) q.set('page', String(params.page));
+    appendListParams(q, params);
     return apiFetch<{ drivers: unknown[]; meta: unknown }>(`/api/admin/drivers?${q}`);
   },
   update: (id: string, data: { availability?: boolean; isSuspended?: boolean; suspensionReason?: string }) =>
@@ -89,17 +111,39 @@ export const adminDriverService = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
     }),
+  chatBlock: (id: string, data: { reason: string; endsAt?: string; active?: boolean }) =>
+    apiFetch<unknown>(`/api/admin/drivers/${id}/chat-block`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    }),
+  unblockChat: (blockId: string) =>
+    apiFetch<unknown>(`/api/admin/chat/blocks/${blockId}/unblock`, { method: 'PATCH' }),
 };
 
 // ─── Subscriptions ────────────────────────────────────────────────────────────
 
 export const adminSubscriptionService = {
-  list: (params: { status?: string; paymentStatus?: string; userId?: string; page?: number } = {}) => {
+  list: (params: {
+    status?: string;
+    paymentStatus?: string;
+    userId?: string;
+    search?: string;
+    assignedDriverId?: string;
+    unassigned?: boolean;
+    assigned?: boolean;
+    page?: number;
+    limit?: number;
+  } = {}) => {
     const q = new URLSearchParams();
     if (params.status) q.set('status', params.status);
     if (params.paymentStatus) q.set('paymentStatus', params.paymentStatus);
     if (params.userId) q.set('userId', params.userId);
-    if (params.page) q.set('page', String(params.page));
+    if (params.search) q.set('search', params.search);
+    if (params.assignedDriverId) q.set('assignedDriverId', params.assignedDriverId);
+    if (params.unassigned) q.set('unassigned', 'true');
+    if (params.assigned) q.set('assigned', 'true');
+    appendListParams(q, params);
     return apiFetch<{ subscriptions: unknown[]; meta: unknown }>(`/api/admin/subscriptions?${q}`);
   },
   get: (id: string) => apiFetch<unknown>(`/api/admin/subscriptions/${id}`),
@@ -115,10 +159,8 @@ export const adminSubscriptionService = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ reason }),
     }),
-  /** List non-suspended drivers with conflict info for a specific subscription. */
   listAvailableDrivers: (subscriptionId: string) =>
     apiFetch<unknown[]>(`/api/admin/subscriptions/${subscriptionId}/available-drivers`),
-  /** Assign (or reassign) a driver to a subscription. */
   assignDriver: (subscriptionId: string, data: { driverId: string; effectiveFrom?: string; notes?: string }) =>
     apiFetch<unknown>(`/api/admin/subscriptions/${subscriptionId}/assign-driver`, {
       method: 'POST',
@@ -136,20 +178,27 @@ export const adminFinancialService = {
     if (params.dateTo) q.set('dateTo', params.dateTo);
     return apiFetch<Record<string, unknown>>(`/api/admin/financials/overview?${q}`);
   },
-  payments: (params: { status?: string; purpose?: string; page?: number; dateFrom?: string; dateTo?: string } = {}) => {
+  payments: (params: {
+    status?: string;
+    purpose?: string;
+    page?: number;
+    limit?: number;
+    dateFrom?: string;
+    dateTo?: string;
+  } = {}) => {
     const q = new URLSearchParams();
     if (params.status) q.set('status', params.status);
     if (params.purpose) q.set('purpose', params.purpose);
-    if (params.page) q.set('page', String(params.page));
     if (params.dateFrom) q.set('dateFrom', params.dateFrom);
     if (params.dateTo) q.set('dateTo', params.dateTo);
+    appendListParams(q, params);
     return apiFetch<{ payments: unknown[]; meta: unknown }>(`/api/admin/payments?${q}`);
   },
-  walletTransactions: (params: { userId?: string; txType?: string; page?: number } = {}) => {
+  walletTransactions: (params: { userId?: string; txType?: string; page?: number; limit?: number } = {}) => {
     const q = new URLSearchParams();
     if (params.userId) q.set('userId', params.userId);
     if (params.txType) q.set('txType', params.txType);
-    if (params.page) q.set('page', String(params.page));
+    appendListParams(q, params);
     return apiFetch<{ transactions: unknown[]; meta: unknown }>(`/api/admin/wallet-transactions?${q}`);
   },
   adjustWallet: (userId: string, amountSar: number, reason: string) =>
@@ -250,11 +299,78 @@ export const adminSubscriptionCreateService = {
 // ─── Audit Logs ───────────────────────────────────────────────────────────────
 
 export const adminAuditService = {
-  list: (params: { userId?: string; action?: string; page?: number } = {}) => {
+  list: (params: {
+    userId?: string;
+    action?: string;
+    actor?: string;
+    severity?: string;
+    dateFrom?: string;
+    dateTo?: string;
+    page?: number;
+    limit?: number;
+  } = {}) => {
     const q = new URLSearchParams();
     if (params.userId) q.set('userId', params.userId);
     if (params.action) q.set('action', params.action);
-    if (params.page) q.set('page', String(params.page));
+    if (params.actor) q.set('actor', params.actor);
+    if (params.severity) q.set('severity', params.severity);
+    if (params.dateFrom) q.set('dateFrom', params.dateFrom);
+    if (params.dateTo) q.set('dateTo', params.dateTo);
+    appendListParams(q, params);
     return apiFetch<{ logs: unknown[]; meta: unknown }>(`/api/admin/audit-logs?${q}`);
+  },
+};
+
+// ─── Driver Applications ──────────────────────────────────────────────────────
+
+export const adminApplicationService = {
+  list: (params: { status?: string; page?: number; limit?: number } = {}) => {
+    const q = new URLSearchParams();
+    if (params.status) q.set('status', params.status);
+    appendListParams(q, params);
+    return apiFetch<{ applications: unknown[]; meta: unknown }>(`/api/admin/driver-applications?${q}`);
+  },
+};
+
+// ─── Trips ────────────────────────────────────────────────────────────────────
+
+export const adminTripService = {
+  list: (params: {
+    status?: string;
+    date?: string;
+    driverId?: string;
+    page?: number;
+    limit?: number;
+  } = {}) => {
+    const q = new URLSearchParams();
+    if (params.status) q.set('status', params.status);
+    if (params.date) q.set('date', params.date);
+    if (params.driverId) q.set('driverId', params.driverId);
+    appendListParams(q, params);
+    return apiFetch<{ trips: unknown[]; meta: unknown }>(`/api/admin/trips?${q}`);
+  },
+  operations: () => apiFetch<Record<string, unknown>>('/api/admin/trips/operations'),
+};
+
+// ─── Safety Reports ───────────────────────────────────────────────────────────
+
+export const adminSafetyService = {
+  list: (params: {
+    status?: string;
+    category?: string;
+    severity?: string;
+    dateFrom?: string;
+    dateTo?: string;
+    page?: number;
+    limit?: number;
+  } = {}) => {
+    const q = new URLSearchParams();
+    if (params.status) q.set('status', params.status);
+    if (params.category) q.set('category', params.category);
+    if (params.severity) q.set('severity', params.severity);
+    if (params.dateFrom) q.set('dateFrom', params.dateFrom);
+    if (params.dateTo) q.set('dateTo', params.dateTo);
+    appendListParams(q, params);
+    return apiFetch<{ reports: unknown[]; meta: unknown }>(`/api/admin/safety-reports?${q}`);
   },
 };

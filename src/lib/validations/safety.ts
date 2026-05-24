@@ -39,11 +39,15 @@ export const adminSafetyReviewSchema = z
     { message: 'adminResponse is required for REJECT and RESOLVE actions', path: ['adminResponse'] },
   );
 
+export const SAFETY_SEVERITIES = ['critical', 'high', 'medium', 'low'] as const;
+export type SafetySeverityFilter = (typeof SAFETY_SEVERITIES)[number];
+
 export const safetyListQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
-  limit: z.coerce.number().int().min(1).max(50).default(20),
+  limit: z.coerce.number().int().min(1).max(50).default(10),
   status: z.enum(['PENDING', 'APPROVED', 'REJECTED', 'RESOLVED']).optional(),
   category: z.enum(SAFETY_CATEGORIES).optional(),
+  severity: z.enum(SAFETY_SEVERITIES).optional(),
   dateFrom: z.string().optional(),
   dateTo: z.string().optional(),
 });

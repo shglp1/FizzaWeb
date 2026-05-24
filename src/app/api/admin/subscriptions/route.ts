@@ -9,6 +9,7 @@ import {
   calculateChargeableDistanceKm,
   DistanceError,
 } from '@/lib/maps/distance';
+import { buildPaginationMeta, parsePaginationParams } from '@/lib/pagination';
 import { z } from 'zod';
 
 /** Normalise a location that may be a plain string or a coordinate object. */
@@ -41,15 +42,31 @@ export async function GET(req: NextRequest) {
     const userId = searchParams.get('userId') ?? '';
     const dateFrom = searchParams.get('dateFrom') ?? '';
     const dateTo = searchParams.get('dateTo') ?? '';
-    const page = Math.max(1, parseInt(searchParams.get('page') ?? '1', 10));
-    const limit = Math.min(50, Math.max(1, parseInt(searchParams.get('limit') ?? '20', 10)));
-    const skip = (page - 1) * limit;
+    const search = searchParams.get('search') ?? '';
+    const assignedDriverId = searchParams.get('assignedDriverId') ?? '';
+    const unassigned = searchParams.get('unassigned') === 'true';
+    const assigned = searchParams.get('assigned') === 'true';
+    const { page, limit, skip } = parsePaginationParams(searchParams);
 
     const where: Record<string, unknown> = {};
     if (status) where.status = status;
     if (paymentStatus) where.paymentStatus = paymentStatus;
     if (packageId) where.packageId = packageId;
     if (userId) where.userId = userId;
+    if (assignedDriverId) where.assignedDriverId = assignedDriverId;
+    if (unassigned) where.assignedDriverId = null;
+    if (assigned) where.assignedDriverId = { not: null };
+    if (search) {
+      where.OR = [
+        { user: { fullName: { contains: search } } },
+        { user: { user: { email: { contains: search } } } },
+        { rider: { name: { contains: search } } },
+        { pickupLocation: { contains: search } },
+        { dropoffLocation: { contains: search } },
+        { normalizedPickupLabel: { contains: search } },
+        { normalizedDropoffLabel: { contains: search } },
+      ];
+    }
     if (dateFrom || dateTo) {
       where.createdAt = {};
       if (dateFrom) (where.createdAt as Record<string, unknown>).gte = new Date(dateFrom);
@@ -69,6 +86,14 @@ export async function GET(req: NextRequest) {
           autoRenewal: true,
           startsOn: true,
           endsOn: true,
+          pickupLocation: true,
+          dropoffLocation: true,
+          normalizedPickupLabel: true,
+          normalizedDropoffLabel: true,
+          tripDirection: true,
+          pickupTime: true,
+          returnTime: true,
+          actualServiceDays: true,
           finalPriceSar: true,
           packagePriceSar: true,
           addOnsPriceSar: true,
@@ -84,6 +109,7 @@ export async function GET(req: NextRequest) {
           subscriptionRiders: { select: { rider: { select: { id: true, name: true } }, isPrimary: true } },
           assignedDriverId: true,
           assignedDriver: { select: { id: true, profile: { select: { fullName: true, phone: true } }, vehicle: { select: { model: true, plateNumber: true } } } },
+          schedules: { select: { weekday: true, isOffDay: true } },
           _count: { select: { trips: true } },
         },
         skip,
@@ -109,7 +135,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       data: {
         subscriptions: subsWithUsage,
-        meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
+        meta: buildPaginationMeta(page, limit, total),
       },
       error: null,
     });

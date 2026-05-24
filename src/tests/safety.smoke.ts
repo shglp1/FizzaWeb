@@ -170,7 +170,7 @@ describe('safetyListQuerySchema', () => {
     const r = safetyListQuerySchema.safeParse({});
     assert.ok(r.success);
     assert.equal(r.data?.page, 1);
-    assert.equal(r.data?.limit, 20);
+    assert.equal(r.data?.limit, 10);
   });
 
   it('coerces page/limit from strings', () => {

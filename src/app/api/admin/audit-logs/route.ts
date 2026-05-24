@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireRole } from '@/lib/session';
-
+import { buildPaginationMeta, parsePaginationParams } from '@/lib/pagination';
+import { auditActionsForSeverity, type AuditSeverity } from '@/lib/ui/adminAudit';
+import type { Prisma } from '@prisma/client';
 export async function GET(req: Request) {
   try {
     const auth = await requireRole(['ADMIN']);
@@ -12,13 +14,38 @@ export async function GET(req: Request) {
     const action = searchParams.get('action') ?? '';
     const dateFrom = searchParams.get('dateFrom') ?? '';
     const dateTo = searchParams.get('dateTo') ?? '';
-    const page = Math.max(1, parseInt(searchParams.get('page') ?? '1', 10));
-    const limit = Math.min(50, Math.max(1, parseInt(searchParams.get('limit') ?? '20', 10)));
-    const skip = (page - 1) * limit;
+    const actor = searchParams.get('actor') ?? '';
+    const severity = searchParams.get('severity') ?? '';
+    const { page, limit, skip } = parsePaginationParams(searchParams);
 
-    const where: Record<string, unknown> = {};
+    const where: Prisma.AuditLogWhereInput = {};
     if (userId) where.userId = userId;
     if (action) where.action = { contains: action };
+    if (actor) where.user = { fullName: { contains: actor } };
+    if (severity && ['info', 'success', 'warning', 'danger', 'admin'].includes(severity)) {
+      const sev = severity as AuditSeverity;
+      if (sev === 'admin') {
+        where.OR = [
+          { action: { startsWith: 'ADMIN_' } },
+          { action: { startsWith: 'SYSTEM_' } },
+          ...(auditActionsForSeverity('admin').length
+            ? [{ action: { in: auditActionsForSeverity('admin') } }]
+            : []),
+        ];
+      } else {
+        const actions = auditActionsForSeverity(sev);
+        if (actions.length > 0) where.action = { in: actions };
+        else if (sev === 'info') {
+          where.NOT = {
+            OR: [
+              { action: { startsWith: 'ADMIN_' } },
+              { action: { startsWith: 'SYSTEM_' } },
+              { action: { in: [...auditActionsForSeverity('danger'), ...auditActionsForSeverity('warning'), ...auditActionsForSeverity('success'), ...auditActionsForSeverity('admin')] } },
+            ],
+          };
+        }
+      }
+    }
     if (dateFrom || dateTo) {
       where.createdAt = {};
       if (dateFrom) (where.createdAt as Record<string, unknown>).gte = new Date(dateFrom);
@@ -46,7 +73,7 @@ export async function GET(req: Request) {
     return NextResponse.json({
       data: {
         logs,
-        meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
+        meta: buildPaginationMeta(page, limit, total),
       },
       error: null,
     });

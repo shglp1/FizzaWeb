@@ -4,6 +4,12 @@ import { Package, Puzzle } from 'lucide-react';
 import { useEffect, useState, useCallback } from 'react';
 import { adminPackageService, adminAddOnService } from '@/services/adminService';
 import { Button, Alert, Input, Textarea, ErrorState } from '@/components/ui';
+import { AdminPagination } from '@/components/admin/AdminPagination';
+import {
+  clientPaginationMeta,
+  DEFAULT_ADMIN_PAGE_LIMIT,
+  paginateClientList,
+} from '@/lib/ui/adminPagination';
 import {
   AdminSectionHeader,
   AdminTabs,
@@ -52,6 +58,13 @@ export function PackagesSection() {
   const [editId, setEditId] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [actionMsg, setActionMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(DEFAULT_ADMIN_PAGE_LIMIT);
+
+  const currentItems = tab === 'packages' ? packages : addOns;
+  const pagedPackages = paginateClientList(packages, tab === 'packages' ? page : 1, limit);
+  const pagedAddOns = paginateClientList(addOns, tab === 'addons' ? page : 1, limit);
+  const pageMeta = clientPaginationMeta(currentItems.length, page, limit);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -102,7 +115,7 @@ export function PackagesSection() {
           { label: 'Add-ons', value: 'addons', count: addOns.length },
         ]}
         active={tab}
-        onChange={(v) => { setTab(v as ActiveTab); setShowCreate(false); setEditId(null); }}
+        onChange={(v) => { setTab(v as ActiveTab); setShowCreate(false); setEditId(null); setPage(1); }}
       />
 
       <AdminToolbar
@@ -120,7 +133,7 @@ export function PackagesSection() {
 
       {tab === 'packages' ? (
         <PackagesTab
-          packages={packages}
+          packages={pagedPackages}
           loading={loading}
           error={error}
           showCreate={showCreate}
@@ -132,7 +145,7 @@ export function PackagesSection() {
         />
       ) : (
         <AddOnsTab
-          addOns={addOns}
+          addOns={pagedAddOns}
           loading={loading}
           showCreate={showCreate}
           editId={editId}
@@ -140,6 +153,15 @@ export function PackagesSection() {
           setEditId={setEditId}
           onReload={load}
           onMessage={setActionMsg}
+        />
+      )}
+
+      {currentItems.length > 0 && (
+        <AdminPagination
+          meta={pageMeta}
+          onPageChange={setPage}
+          onLimitChange={(l) => { setLimit(l); setPage(1); }}
+          className="mt-5"
         />
       )}
     </div>

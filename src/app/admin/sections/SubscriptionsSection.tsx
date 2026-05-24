@@ -3,7 +3,15 @@
 import { useEffect, useState, useCallback } from 'react';
 import { ClipboardList, CreditCard, UserX, Clock } from 'lucide-react';
 import { adminSubscriptionService } from '@/services/adminService';
-import { Button, Alert, Textarea, Pagination, ErrorState } from '@/components/ui';
+import { Button, Alert, Textarea, ErrorState } from '@/components/ui';
+import { AdminPagination } from '@/components/admin/AdminPagination';
+import { DEFAULT_ADMIN_PAGE_LIMIT } from '@/lib/ui/adminPagination';
+import {
+  formatRouteSummary,
+  formatScheduleSummary,
+  formatServiceDaysSummary,
+  formatServicePeriod,
+} from '@/lib/ui/subscriptionSummary';
 import {
   AdminSectionHeader,
   AdminToolbar,
@@ -18,6 +26,7 @@ import {
   AdminFilterSelect,
   AdminSectionLoading,
   AdminAvatar,
+  useDebouncedValue,
 } from '@/components/admin/AdminUI';
 import { formatSar } from '@/lib/ui/adminCurrency';
 
@@ -56,6 +65,15 @@ type SubRow = {
   subscriptionRiders: { rider: { id: string; name: string }; isPrimary: boolean }[];
   assignedDriverId: string | null;
   assignedDriver: AssignedDriver | null;
+  pickupLocation?: string | null;
+  dropoffLocation?: string | null;
+  normalizedPickupLabel?: string | null;
+  normalizedDropoffLabel?: string | null;
+  tripDirection?: string | null;
+  pickupTime?: string | null;
+  returnTime?: string | null;
+  actualServiceDays?: number | null;
+  schedules?: { weekday: number; isOffDay: boolean }[];
   ridesUsed: number;
   daysLeft: number | null;
   _count: { trips: number };
@@ -128,17 +146,28 @@ export function SubscriptionsSection() {
   const [statusFilter, setStatusFilter] = useState('');
   const [payStatusFilter, setPayStatusFilter] = useState('');
   const [driverFilter, setDriverFilter] = useState('');
+  const [searchInput, setSearchInput] = useState('');
+  const debouncedSearch = useDebouncedValue(searchInput, 350);
   const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(DEFAULT_ADMIN_PAGE_LIMIT);
   const [selected, setSelected] = useState<SubRow | null>(null);
   const [assigning, setAssigning] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
   const [cancelling, setCancelling] = useState(false);
   const [actionMsg, setActionMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
-  const load = useCallback((s: string, ps: string, p: number) => {
+  const load = useCallback((s: string, ps: string, df: string, search: string, p: number, l: number) => {
     setLoading(true);
     setError('');
-    adminSubscriptionService.list({ status: s || undefined, paymentStatus: ps || undefined, page: p }).then((res) => {
+    adminSubscriptionService.list({
+      status: s || undefined,
+      paymentStatus: ps || undefined,
+      search: search || undefined,
+      unassigned: df === 'unassigned' ? true : undefined,
+      assigned: df === 'assigned' ? true : undefined,
+      page: p,
+      limit: l,
+    }).then((res) => {
       if (res.data) {
         setSubs((res.data as { subscriptions: SubRow[]; meta: Meta }).subscriptions ?? []);
         setMeta((res.data as { subscriptions: SubRow[]; meta: Meta }).meta ?? null);
@@ -149,13 +178,7 @@ export function SubscriptionsSection() {
     });
   }, []);
 
-  useEffect(() => { load(statusFilter, payStatusFilter, page); }, [statusFilter, payStatusFilter, page, load]);
-
-  const filtered = driverFilter === 'unassigned'
-    ? subs.filter((s) => !s.assignedDriverId && s.status === 'ACTIVE')
-    : driverFilter === 'assigned'
-    ? subs.filter((s) => !!s.assignedDriverId)
-    : subs;
+  useEffect(() => { load(statusFilter, payStatusFilter, driverFilter, debouncedSearch, page, limit); }, [statusFilter, payStatusFilter, driverFilter, debouncedSearch, page, limit, load]);
 
   const kpis = {
     active: subs.filter((s) => s.status === 'ACTIVE').length,
@@ -173,7 +196,7 @@ export function SubscriptionsSection() {
     if (res.data) {
       setActionMsg({ text: 'Subscription cancelled.', type: 'success' });
       setSelected(null);
-      load(statusFilter, payStatusFilter, page);
+      load(statusFilter, payStatusFilter, driverFilter, debouncedSearch, page, limit);
     } else {
       setActionMsg({ text: res.error?.message ?? 'Failed.', type: 'error' });
     }
@@ -195,10 +218,13 @@ export function SubscriptionsSection() {
       />
 
       <AdminToolbar
+        search={searchInput}
+        onSearchChange={(v) => { setSearchInput(v); setPage(1); }}
+        searchPlaceholder="Search parent, rider, or route…"
         filters={[
           { id: 'sub-status', label: 'Status', element: <AdminFilterSelect id="sub-status" value={statusFilter} onChange={(v) => { setStatusFilter(v); setPage(1); }} options={[{ value: '', label: 'All' }, ...Object.entries(SUB_LABELS).map(([v, l]) => ({ value: v, label: l }))]} /> },
           { id: 'sub-pay', label: 'Payment', element: <AdminFilterSelect id="sub-pay" value={payStatusFilter} onChange={(v) => { setPayStatusFilter(v); setPage(1); }} options={[{ value: '', label: 'All' }, ...Object.entries(PAY_LABELS).map(([v, l]) => ({ value: v, label: l }))]} /> },
-          { id: 'sub-driver', label: 'Driver', element: <AdminFilterSelect id="sub-driver" value={driverFilter} onChange={setDriverFilter} options={[{ value: '', label: 'All' }, { value: 'assigned', label: 'Assigned' }, { value: 'unassigned', label: 'Unassigned' }]} /> },
+          { id: 'sub-driver', label: 'Driver', element: <AdminFilterSelect id="sub-driver" value={driverFilter} onChange={(v) => { setDriverFilter(v); setPage(1); }} options={[{ value: '', label: 'All' }, { value: 'assigned', label: 'Assigned' }, { value: 'unassigned', label: 'Unassigned' }]} /> },
         ]}
       />
 
@@ -207,12 +233,12 @@ export function SubscriptionsSection() {
       {loading ? (
         <AdminSectionLoading message="Loading subscriptions…" />
       ) : error ? (
-        <ErrorState message={error} onRetry={() => load(statusFilter, payStatusFilter, page)} />
-      ) : filtered.length === 0 ? (
+        <ErrorState message={error} onRetry={() => load(statusFilter, payStatusFilter, driverFilter, debouncedSearch, page, limit)} />
+      ) : subs.length === 0 ? (
         <AdminEmptyState icon={ClipboardList} title="No subscriptions" description="No subscriptions match your filters." />
       ) : (
         <div className="grid gap-3 lg:grid-cols-2">
-          {filtered.map((sub) => {
+          {subs.map((sub) => {
             const riders = sub.subscriptionRiders.length > 0
               ? sub.subscriptionRiders.map((sr) => sr.rider.name).join(', ')
               : sub.rider?.name ?? '—';
@@ -225,10 +251,12 @@ export function SubscriptionsSection() {
                 onClick={() => { setSelected(sub); setAssigning(false); setCancelReason(''); }}
                 metadata={
                   <>
+                    <AdminMetaItem label="Route" value={formatRouteSummary(sub)} />
+                    <AdminMetaItem label="Schedule" value={formatScheduleSummary(sub)} />
+                    <AdminMetaItem label="Service days" value={formatServiceDaysSummary(sub)} />
                     <AdminMetaItem label="Price" value={formatSar(sub.finalPriceSar)} />
                     <AdminMetaItem label="Driver" value={sub.assignedDriver?.profile?.fullName ?? 'Unassigned'} />
-                    <AdminMetaItem label="Trips" value={sub._count.trips} />
-                    {sub.daysLeft != null && <AdminMetaItem label="Days left" value={sub.daysLeft} />}
+                    <AdminMetaItem label="Payment" value={PAY_LABELS[sub.paymentStatus] ?? sub.paymentStatus} />
                   </>
                 }
                 compact
@@ -238,7 +266,12 @@ export function SubscriptionsSection() {
         </div>
       )}
 
-      {meta && meta.totalPages > 1 && <Pagination page={meta.page} totalPages={meta.totalPages} onPageChange={setPage} className="mt-5" />}
+      <AdminPagination
+        meta={meta}
+        onPageChange={setPage}
+        onLimitChange={(l) => { setLimit(l); setPage(1); }}
+        className="mt-5"
+      />
 
       <AdminDrawer
         open={!!selected}
@@ -253,6 +286,13 @@ export function SubscriptionsSection() {
               <AdminStatusBadge status={selected.status} label={SUB_LABELS[selected.status]} />
               <AdminStatusBadge status={selected.paymentStatus} label={PAY_LABELS[selected.paymentStatus]} />
             </div>
+
+            <AdminDrawerSection title="Route & schedule">
+              <AdminDrawerRow label="Route" value={formatRouteSummary(selected)} />
+              <AdminDrawerRow label="Schedule" value={formatScheduleSummary(selected)} />
+              <AdminDrawerRow label="Service days" value={formatServiceDaysSummary(selected)} />
+              <AdminDrawerRow label="Service period" value={formatServicePeriod(selected)} />
+            </AdminDrawerSection>
 
             <AdminDrawerSection title="Subscription">
               <AdminDrawerRow label="Type" value={selected.subscriptionType.replace(/_/g, ' ')} />
@@ -284,7 +324,7 @@ export function SubscriptionsSection() {
               {assigning && (
                 <AssignDriverPanel
                   subscriptionId={selected.id}
-                  onSuccess={() => { setAssigning(false); setSelected(null); load(statusFilter, payStatusFilter, page); }}
+                  onSuccess={() => { setAssigning(false); setSelected(null); load(statusFilter, payStatusFilter, driverFilter, debouncedSearch, page, limit); }}
                   onClose={() => setAssigning(false)}
                 />
               )}

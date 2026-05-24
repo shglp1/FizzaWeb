@@ -3,7 +3,9 @@
 import { Shield, AlertTriangle, CheckCircle, XCircle } from 'lucide-react';
 import { useEffect, useState, useCallback } from 'react';
 import { safetyService } from '@/services/safetyService';
-import { Button, Alert, Textarea, Pagination, ErrorState } from '@/components/ui';
+import { Button, Alert, Textarea, ErrorState } from '@/components/ui';
+import { AdminPagination } from '@/components/admin/AdminPagination';
+import { DEFAULT_ADMIN_PAGE_LIMIT } from '@/lib/ui/adminPagination';
 import { Paperclip } from 'lucide-react';
 import {
   AdminSectionHeader,
@@ -58,7 +60,7 @@ const STATUS_LABELS: Record<string, string> = {
   RESOLVED: 'Resolved',
 };
 
-const HIGH_SEVERITY_CATS = ['UNSAFE_DRIVING', 'HARASSMENT', 'ROUTE_DEVIATION'];
+import { SAFETY_SEVERITY_LABELS } from '@/lib/ui/safetySeverity';
 
 export function SafetySection() {
   const [reports, setReports] = useState<SafetyReport[]>([]);
@@ -67,24 +69,28 @@ export function SafetySection() {
   const [pageError, setPageError] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
+  const [severityFilter, setSeverityFilter] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [safetyPage, setSafetyPage] = useState(1);
+  const [limit, setLimit] = useState(DEFAULT_ADMIN_PAGE_LIMIT);
   const [selected, setSelected] = useState<SafetyReport | null>(null);
   const [reviewAction, setReviewAction] = useState<'APPROVE' | 'REJECT' | 'RESOLVE' | null>(null);
   const [reviewResponse, setReviewResponse] = useState('');
   const [reviewSubmitting, setReviewSubmitting] = useState(false);
   const [reviewMsg, setReviewMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
-  const loadReports = useCallback((status: string, category: string, from: string, to: string, p: number) => {
+  const loadReports = useCallback((status: string, category: string, severity: string, from: string, to: string, p: number, l: number) => {
     setLoading(true);
     setPageError('');
     safetyService.adminListReports({
       status: status || undefined,
       category: category || undefined,
+      severity: severity || undefined,
       dateFrom: from || undefined,
       dateTo: to || undefined,
       page: p,
+      limit: l,
     }).then((res: { data?: { reports: SafetyReport[]; meta: PaginationMeta }; error?: { message: string } }) => {
       if (res.data) {
         setReports(res.data.reports ?? []);
@@ -97,11 +103,11 @@ export function SafetySection() {
   }, []);
 
   useEffect(() => {
-    loadReports(statusFilter, categoryFilter, dateFrom, dateTo, safetyPage);
-  }, [statusFilter, categoryFilter, dateFrom, dateTo, safetyPage, loadReports]);
+    loadReports(statusFilter, categoryFilter, severityFilter, dateFrom, dateTo, safetyPage, limit);
+  }, [statusFilter, categoryFilter, severityFilter, dateFrom, dateTo, safetyPage, limit, loadReports]);
 
   const openCount = reports.filter((r) => r.status === 'PENDING').length;
-  const highSeverity = reports.filter((r) => HIGH_SEVERITY_CATS.includes(r.category)).length;
+  const highSeverity = reports.filter((r) => ['UNSAFE_DRIVING', 'HARASSMENT', 'ROUTE_DEVIATION'].includes(r.category)).length;
 
   const submitReview = async (reportId: string) => {
     if (!reviewAction) {
@@ -122,7 +128,7 @@ export function SafetySection() {
     if (res.data) {
       setReviewMsg({ text: 'Review submitted.', type: 'success' });
       setSelected(null);
-      loadReports(statusFilter, categoryFilter, dateFrom, dateTo, safetyPage);
+      loadReports(statusFilter, categoryFilter, severityFilter, dateFrom, dateTo, safetyPage, limit);
     } else {
       setReviewMsg({ text: res.error?.message ?? 'Review failed.', type: 'error' });
     }
@@ -180,6 +186,21 @@ export function SafetySection() {
             ),
           },
           {
+            id: 'safety-severity',
+            label: 'Severity',
+            element: (
+              <AdminFilterSelect
+                id="safety-severity"
+                value={severityFilter}
+                onChange={(v) => { setSeverityFilter(v); setSafetyPage(1); }}
+                options={[
+                  { value: '', label: 'All severities' },
+                  ...Object.entries(SAFETY_SEVERITY_LABELS).map(([v, l]) => ({ value: v, label: l })),
+                ]}
+              />
+            ),
+          },
+          {
             id: 'safety-from',
             label: 'From',
             element: (
@@ -203,7 +224,7 @@ export function SafetySection() {
       {loading ? (
         <AdminSectionLoading message="Loading safety reports…" />
       ) : pageError ? (
-        <ErrorState message={pageError} onRetry={() => loadReports(statusFilter, categoryFilter, dateFrom, dateTo, safetyPage)} />
+        <ErrorState message={pageError} onRetry={() => loadReports(statusFilter, categoryFilter, severityFilter, dateFrom, dateTo, safetyPage, limit)} />
       ) : reports.length === 0 ? (
         <AdminEmptyState icon={Shield} title="No safety reports found" description="No reports match the selected filters." />
       ) : (
@@ -216,7 +237,7 @@ export function SafetySection() {
               badges={
                 <>
                   <AdminStatusBadge status={report.status} label={STATUS_LABELS[report.status]} />
-                  {HIGH_SEVERITY_CATS.includes(report.category) && (
+                  {['UNSAFE_DRIVING', 'HARASSMENT', 'ROUTE_DEVIATION'].includes(report.category) && (
                     <span className="inline-flex items-center rounded-full bg-red-50 border border-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700">
                       High severity
                     </span>
@@ -236,8 +257,13 @@ export function SafetySection() {
         </div>
       )}
 
-      {safetyMeta && safetyMeta.totalPages > 1 && (
-        <Pagination page={safetyMeta.page} totalPages={safetyMeta.totalPages} onPageChange={setSafetyPage} className="mt-5" />
+      {safetyMeta && (
+        <AdminPagination
+          meta={safetyMeta}
+          onPageChange={setSafetyPage}
+          onLimitChange={(l) => { setLimit(l); setSafetyPage(1); }}
+          className="mt-5"
+        />
       )}
 
       <AdminDrawer

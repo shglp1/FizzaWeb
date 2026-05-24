@@ -40,6 +40,7 @@ export const safetyService = {
   adminListReports: async (filters?: {
     status?: string;
     category?: string;
+    severity?: string;
     dateFrom?: string;
     dateTo?: string;
     page?: number;
@@ -48,6 +49,7 @@ export const safetyService = {
     const params = new URLSearchParams();
     if (filters?.status) params.set('status', filters.status);
     if (filters?.category) params.set('category', filters.category);
+    if (filters?.severity) params.set('severity', filters.severity);
     if (filters?.dateFrom) params.set('dateFrom', filters.dateFrom);
     if (filters?.dateTo) params.set('dateTo', filters.dateTo);
     if (filters?.page) params.set('page', String(filters.page));

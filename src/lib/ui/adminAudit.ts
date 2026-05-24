@@ -79,6 +79,13 @@ export function getAuditSeverity(action: string): AuditSeverity {
   return 'info';
 }
 
+/** Actions explicitly mapped to a severity tier (for server-side audit filters). */
+export function auditActionsForSeverity(severity: AuditSeverity): string[] {
+  return Object.entries(ACTION_SEVERITY)
+    .filter(([, s]) => s === severity)
+    .map(([action]) => action);
+}
+
 export function isCriticalAuditAction(action: string): boolean {
   const sev = getAuditSeverity(action);
   return sev === 'danger' || sev === 'admin';

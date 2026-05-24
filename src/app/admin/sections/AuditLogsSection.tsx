@@ -2,7 +2,10 @@
 
 import { ClipboardList, RefreshCw, ShieldAlert } from 'lucide-react';
 import { useEffect, useState, useCallback } from 'react';
-import { Button, Pagination, ErrorState } from '@/components/ui';
+import { adminAuditService } from '@/services/adminService';
+import { Button, ErrorState } from '@/components/ui';
+import { AdminPagination } from '@/components/admin/AdminPagination';
+import { DEFAULT_ADMIN_PAGE_LIMIT } from '@/lib/ui/adminPagination';
 import {
   AdminSectionHeader,
   AdminToolbar,
@@ -36,43 +39,71 @@ type Log = {
   user: { id: string; fullName: string } | null;
 };
 
-type Meta = { page: number; totalPages: number; total: number };
+type Meta = { page: number; limit: number; total: number; totalPages: number };
+
+const SEVERITY_FILTER_OPTIONS = [
+  { value: '', label: 'All severities' },
+  { value: 'info', label: 'Info' },
+  { value: 'success', label: 'Success' },
+  { value: 'warning', label: 'Warning' },
+  { value: 'danger', label: 'Danger' },
+  { value: 'admin', label: 'Admin / System' },
+];
 
 export function AuditLogsSection() {
   const [logs, setLogs] = useState<Log[]>([]);
-  const [meta, setMeta] = useState<Meta>({ page: 1, totalPages: 1, total: 0 });
+  const [meta, setMeta] = useState<Meta | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [actionFilter, setActionFilter] = useState('');
+  const [actorFilter, setActorFilter] = useState('');
+  const [severityFilter, setSeverityFilter] = useState('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
   const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(DEFAULT_ADMIN_PAGE_LIMIT);
   const [selected, setSelected] = useState<Log | null>(null);
   const [todayCount, setTodayCount] = useState<number | null>(null);
 
-  const load = useCallback((p = 1, action = actionFilter) => {
+  const load = useCallback(() => {
     setLoading(true);
     setError('');
-    const params = new URLSearchParams({ page: String(p), limit: '20' });
-    if (action) params.set('action', action);
-    fetch(`/api/admin/audit-logs?${params}`)
-      .then((r) => r.json())
-      .then(({ data, error: e }) => {
-        if (e) { setError(e.message); setLoading(false); return; }
-        setLogs(data.logs ?? []);
-        setMeta(data.meta ?? { page: 1, totalPages: 1, total: 0 });
-        setLoading(false);
-      })
-      .catch(() => { setError('Failed to load audit logs.'); setLoading(false); });
-  }, [actionFilter]);
+    adminAuditService.list({
+      action: actionFilter || undefined,
+      actor: actorFilter || undefined,
+      severity: severityFilter || undefined,
+      dateFrom: dateFrom || undefined,
+      dateTo: dateTo || undefined,
+      page,
+      limit,
+    }).then((res) => {
+      if (res.data) {
+        setLogs((res.data as { logs: Log[] }).logs ?? []);
+        setMeta((res.data as { meta: Meta }).meta ?? null);
+      } else {
+        setError(res.error?.message ?? 'Failed to load audit logs.');
+      }
+      setLoading(false);
+    });
+  }, [actionFilter, actorFilter, severityFilter, dateFrom, dateTo, page, limit]);
 
-  useEffect(() => { load(page); }, [page, load]);
+  useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
     const today = new Date().toISOString().slice(0, 10);
-    fetch(`/api/admin/audit-logs?dateFrom=${today}&limit=1`)
-      .then((r) => r.json())
-      .then(({ data }) => { if (data?.meta) setTodayCount(data.meta.total); })
-      .catch(() => {});
+    adminAuditService.list({ dateFrom: today, limit: 1, page: 1 }).then((res) => {
+      if (res.data) setTodayCount((res.data as { meta: Meta }).meta.total);
+    });
   }, []);
+
+  const resetFilters = () => {
+    setActionFilter('');
+    setActorFilter('');
+    setSeverityFilter('');
+    setDateFrom('');
+    setDateTo('');
+    setPage(1);
+  };
 
   const criticalCount = logs.filter((l) => isCriticalAuditAction(l.action)).length;
 
@@ -81,10 +112,10 @@ export function AuditLogsSection() {
       <AdminSectionHeader
         title="Audit Logs"
         subtitle="Platform activity trail for compliance and operations review"
-        count={meta.total}
+        count={meta?.total}
         countLabel="events"
         primaryAction={
-          <Button variant="outline" size="sm" onClick={() => load(page)} className="min-h-[44px]">
+          <Button variant="outline" size="sm" onClick={() => load()} className="min-h-[44px]">
             <RefreshCw className="h-4 w-4 mr-1.5" aria-hidden />
             Refresh
           </Button>
@@ -94,7 +125,7 @@ export function AuditLogsSection() {
       <AdminMetricGrid
         columns={3}
         items={[
-          { label: 'Total Events', value: meta.total, icon: ClipboardList },
+          { label: 'Total Events', value: meta?.total ?? '—', icon: ClipboardList },
           { label: 'Today', value: todayCount ?? '—', helper: 'Events since midnight' },
           { label: 'Critical / Admin', value: criticalCount, icon: ShieldAlert, color: '#7C3AED', helper: 'On current page' },
         ]}
@@ -109,7 +140,7 @@ export function AuditLogsSection() {
               <AdminFilterSelect
                 id="audit-action-filter"
                 value={actionFilter}
-                onChange={(v) => { setActionFilter(v); setPage(1); load(1, v); }}
+                onChange={(v) => { setActionFilter(v); setPage(1); }}
                 options={[
                   { value: '', label: 'All actions' },
                   { value: 'LOGIN', label: 'Sign in' },
@@ -122,20 +153,78 @@ export function AuditLogsSection() {
               />
             ),
           },
+          {
+            id: 'audit-severity-filter',
+            label: 'Severity',
+            element: (
+              <AdminFilterSelect
+                id="audit-severity-filter"
+                value={severityFilter}
+                onChange={(v) => { setSeverityFilter(v); setPage(1); }}
+                options={SEVERITY_FILTER_OPTIONS}
+              />
+            ),
+          },
+          {
+            id: 'audit-actor-filter',
+            label: 'Actor',
+            element: (
+              <input
+                id="audit-actor-filter"
+                type="search"
+                className="input text-sm h-11 w-full min-h-[44px]"
+                placeholder="Search by name…"
+                value={actorFilter}
+                onChange={(e) => { setActorFilter(e.target.value); setPage(1); }}
+              />
+            ),
+          },
+          {
+            id: 'audit-from',
+            label: 'From',
+            element: (
+              <input
+                id="audit-from"
+                type="date"
+                className="input text-sm h-11 w-full min-h-[44px]"
+                value={dateFrom}
+                onChange={(e) => { setDateFrom(e.target.value); setPage(1); }}
+              />
+            ),
+          },
+          {
+            id: 'audit-to',
+            label: 'To',
+            element: (
+              <input
+                id="audit-to"
+                type="date"
+                className="input text-sm h-11 w-full min-h-[44px]"
+                value={dateTo}
+                onChange={(e) => { setDateTo(e.target.value); setPage(1); }}
+              />
+            ),
+          },
         ]}
-        activeChips={actionFilter ? [{ label: actionFilter, onRemove: () => { setActionFilter(''); setPage(1); load(1, ''); } }] : []}
-        onReset={() => { setActionFilter(''); setPage(1); load(1, ''); }}
+        activeChips={[
+          ...(actionFilter ? [{ label: actionFilter, onRemove: () => { setActionFilter(''); setPage(1); } }] : []),
+          ...(severityFilter ? [{ label: `Severity: ${severityFilter}`, onRemove: () => { setSeverityFilter(''); setPage(1); } }] : []),
+          ...(actorFilter ? [{ label: `Actor: ${actorFilter}`, onRemove: () => { setActorFilter(''); setPage(1); } }] : []),
+          ...(dateFrom ? [{ label: `From ${dateFrom}`, onRemove: () => { setDateFrom(''); setPage(1); } }] : []),
+          ...(dateTo ? [{ label: `To ${dateTo}`, onRemove: () => { setDateTo(''); setPage(1); } }] : []),
+        ]}
+        onReset={resetFilters}
       />
 
       {loading ? (
         <AdminSectionLoading message="Loading audit logs…" />
       ) : error ? (
-        <ErrorState message={error} onRetry={() => load(page)} />
+        <ErrorState message={error} onRetry={() => load()} />
       ) : logs.length === 0 ? (
         <AdminEmptyState
           icon={ClipboardList}
           title="No audit events found"
-          description="Try adjusting your action filter or check back later."
+          description="Try adjusting your filters or check back later."
         />
       ) : (
         <>
@@ -162,11 +251,11 @@ export function AuditLogsSection() {
             })}
           </div>
 
-          {meta.totalPages > 1 && (
-            <Pagination
-              page={page}
-              totalPages={meta.totalPages}
-              onPageChange={(p) => { setPage(p); load(p); }}
+          {meta && (
+            <AdminPagination
+              meta={meta}
+              onPageChange={setPage}
+              onLimitChange={(l) => { setLimit(l); setPage(1); }}
               className="mt-5"
             />
           )}

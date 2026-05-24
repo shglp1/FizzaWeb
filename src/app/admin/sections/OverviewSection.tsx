@@ -1,32 +1,77 @@
 'use client';
+
 import { useEffect, useState, useCallback } from 'react';
 import { adminStatsService } from '@/services/adminService';
-import { StatCard, Card, Button, LoadingState, ErrorState } from '@/components/ui';
-import type { LucideIcon } from 'lucide-react';
+import { Button, ErrorState } from '@/components/ui';
 import {
-  Car,
-  ClipboardList,
-  FileText,
-  Settings,
-  Shield,
-  Wallet,
-} from 'lucide-react';
+  AdminSectionHeader,
+  AdminMetricGrid,
+  AdminDataCard,
+  AdminMetaItem,
+  AdminSectionLoading,
+} from '@/components/admin/AdminUI';
+import { formatSar } from '@/lib/ui/adminCurrency';
+import { OVERVIEW_KPI_CONFIG, OVERVIEW_QUICK_ACTIONS } from '@/lib/ui/adminOverview';
+import {
+  formatAuditAction,
+  formatAuditTimestamp,
+  summarizeAuditDetails,
+} from '@/lib/ui/adminAudit';
+import { RefreshCw, AlertCircle, ArrowRight } from 'lucide-react';
+
+type NeedsAttention = {
+  unassignedTrips: number;
+  delayedTrips: number;
+  pendingApplications: number;
+  pendingPayments: number;
+  failedPayments: number;
+  openSafetyReports: number;
+};
+
+type TodayOperations = {
+  total: number;
+  active: number;
+  completed: number;
+  unassigned: number;
+  delayed: number;
+};
+
+type ActivityItem = {
+  id: string;
+  action: string;
+  details: string | null;
+  createdAt: string;
+  user: { fullName: string } | null;
+};
 
 type Stats = {
   totalUsers: number;
-  totalRiders: number;
-  totalDrivers: number;
-  pendingApplications: number;
   activeSubscriptions: number;
-  pendingSubscriptions: number;
   todayTrips: number;
-  activeTrips: number;
-  completedTodayTrips: number;
-  pendingPayments: number;
   totalRevenueSar: number;
+  pendingPayments: number;
   pendingSafetyReports: number;
+  pendingApplications: number;
+  chatFlags: number;
+  needsAttention: NeedsAttention;
+  todayOperations: TodayOperations;
+  recentActivity: ActivityItem[];
   lastUpdated: string;
 };
+
+function kpiValue(stats: Stats, key: string): number | string {
+  switch (key) {
+    case 'users': return stats.totalUsers;
+    case 'activeSubscriptions': return stats.activeSubscriptions;
+    case 'tripsToday': return stats.todayTrips;
+    case 'revenue': return formatSar(stats.totalRevenueSar);
+    case 'pendingPayments': return stats.pendingPayments;
+    case 'openSafetyReports': return stats.pendingSafetyReports;
+    case 'pendingApplications': return stats.pendingApplications;
+    case 'chatFlags': return stats.chatFlags;
+    default: return '—';
+  }
+}
 
 export function OverviewSection({ onNavigate }: { onNavigate: (section: string) => void }) {
   const [stats, setStats] = useState<Stats | null>(null);
@@ -51,94 +96,134 @@ export function OverviewSection({ onNavigate }: { onNavigate: (section: string) 
     return () => clearInterval(id);
   }, [load]);
 
-  const errorWithHint =
-    error === 'Unauthorized' || error === 'Forbidden'
-      ? `${error}. If your role was recently changed to Admin, sign out and sign in again.`
-      : error;
+  if (loading) return <AdminSectionLoading message="Loading admin overview…" />;
+  if (error) return <ErrorState message={error} onRetry={() => load()} />;
+  if (!stats) return null;
 
-  if (loading) return <LoadingState message="Loading overview…" />;
-  if (error)   return <ErrorState message={errorWithHint} onRetry={() => load()} />;
-  if (!stats)  return null;
+  const attentionItems = [
+    { label: 'Unassigned trips today', value: stats.needsAttention.unassignedTrips, section: 'trips' },
+    { label: 'Delayed trips', value: stats.needsAttention.delayedTrips, section: 'trips' },
+    { label: 'Pending applications', value: stats.needsAttention.pendingApplications, section: 'applications' },
+    { label: 'Pending payments', value: stats.needsAttention.pendingPayments, section: 'financials' },
+    { label: 'Failed payments', value: stats.needsAttention.failedPayments, section: 'financials' },
+    { label: 'Open safety reports', value: stats.needsAttention.openSafetyReports, section: 'safety' },
+  ].filter((i) => i.value > 0);
 
   return (
-    <>
-      <div className="flex items-center justify-between mb-5">
-        <div>
-          <h2 className="text-base font-semibold text-gray-900">Platform Overview</h2>
-          {stats.lastUpdated && (
-            <p className="text-xs text-gray-400 mt-0.5">
-              Updated {new Date(stats.lastUpdated).toLocaleTimeString()}
-              {refreshing && ' · Refreshing…'}
-            </p>
+    <div className="space-y-6">
+      <AdminSectionHeader
+        title="Admin Overview"
+        subtitle="Command center for daily operations and platform health"
+        primaryAction={
+          <Button variant="outline" size="sm" onClick={() => load(true)} loading={refreshing} className="min-h-[44px]">
+            <RefreshCw className="h-4 w-4 mr-1.5" aria-hidden />
+            Refresh
+          </Button>
+        }
+      />
+
+      {stats.lastUpdated && (
+        <p className="text-xs text-gray-400 -mt-4">
+          Updated {new Date(stats.lastUpdated).toLocaleTimeString()}
+          {refreshing && ' · Refreshing…'}
+        </p>
+      )}
+
+      <AdminMetricGrid
+        columns={4}
+        items={OVERVIEW_KPI_CONFIG.map((kpi) => ({
+          label: kpi.label,
+          value: kpiValue(stats, kpi.key),
+          icon: kpi.icon,
+          color: kpi.color,
+          onClick: kpi.section ? () => onNavigate(kpi.section!) : undefined,
+        }))}
+      />
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <section className="rounded-2xl border border-gray-100 bg-white p-4 md:p-5">
+          <h3 className="text-sm font-semibold text-gray-900 mb-3">Today&apos;s operations</h3>
+          <div className="grid grid-cols-2 gap-3">
+            <AdminMetaItem label="Total trips" value={stats.todayOperations.total} />
+            <AdminMetaItem label="Active now" value={stats.todayOperations.active} />
+            <AdminMetaItem label="Completed" value={stats.todayOperations.completed} />
+            <AdminMetaItem label="Unassigned" value={stats.todayOperations.unassigned} />
+            <AdminMetaItem label="Delayed" value={stats.todayOperations.delayed} />
+          </div>
+          <Button variant="ghost" size="sm" className="mt-3 min-h-[44px]" onClick={() => onNavigate('trips')}>
+            Open trips board
+            <ArrowRight className="h-4 w-4 ml-1" aria-hidden />
+          </Button>
+        </section>
+
+        <section className="rounded-2xl border border-gray-100 bg-white p-4 md:p-5">
+          <div className="flex items-center gap-2 mb-3">
+            <AlertCircle className="h-4 w-4 text-amber-600" aria-hidden />
+            <h3 className="text-sm font-semibold text-gray-900">Needs attention</h3>
+          </div>
+          {attentionItems.length === 0 ? (
+            <p className="text-sm text-gray-500">No urgent items right now.</p>
+          ) : (
+            <ul className="space-y-2">
+              {attentionItems.map((item) => (
+                <li key={item.label}>
+                  <button
+                    type="button"
+                    onClick={() => onNavigate(item.section)}
+                    className="flex w-full items-center justify-between rounded-xl border border-gray-100 px-3 py-2.5 text-left hover:bg-gray-50 min-h-[44px]"
+                  >
+                    <span className="text-sm text-gray-700">{item.label}</span>
+                    <span className="text-sm font-bold text-red-600 tabular-nums">{item.value}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
           )}
-        </div>
-        <Button variant="ghost" size="sm" onClick={() => load(true)} loading={refreshing}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M23 4v6h-6"/><path d="M1 20v-6h6"/>
-            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
-          </svg>
-          Refresh
+        </section>
+      </div>
+
+      <section>
+        <h3 className="text-sm font-semibold text-gray-900 mb-3">Recent activity</h3>
+        {stats.recentActivity.length === 0 ? (
+          <p className="text-sm text-gray-500">No recent audit events.</p>
+        ) : (
+          <div className="space-y-2">
+            {stats.recentActivity.map((item) => (
+              <AdminDataCard
+                key={item.id}
+                title={formatAuditAction(item.action)}
+                subtitle={item.user?.fullName ?? 'System'}
+                compact
+              >
+                <p className="text-sm text-gray-600 line-clamp-2">
+                  {summarizeAuditDetails(item.action, item.details)}
+                </p>
+                <p className="text-xs text-gray-400 mt-1">{formatAuditTimestamp(item.createdAt)}</p>
+              </AdminDataCard>
+            ))}
+          </div>
+        )}
+        <Button variant="ghost" size="sm" className="mt-3 min-h-[44px]" onClick={() => onNavigate('audit')}>
+          View all audit logs
         </Button>
-      </div>
+      </section>
 
-      {/* KPI grid */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 mb-6">
-        <StatCard label="Total Users"          value={stats.totalUsers}          color="#3B82F6"
-          icon={<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>} />
-        <StatCard label="Total Riders"         value={stats.totalRiders}         color="#8B5CF6"
-          icon={<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>} />
-        <StatCard label="Active Drivers"       value={stats.totalDrivers}        color="#6366F1"
-          icon={<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>} />
-        <StatCard label="Pending Applications" value={stats.pendingApplications} color="#F59E0B"
-          icon={<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>} />
-        <StatCard label="Active Subscriptions" value={stats.activeSubscriptions} color="#10B981"
-          icon={<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>} />
-        <StatCard label="Pending Subscriptions" value={stats.pendingSubscriptions} color="#F97316"
-          icon={<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>} />
-        <StatCard label="Today's Trips"        value={stats.todayTrips}          color="#0EA5E9"
-          icon={<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>} />
-        <StatCard label="Active Trips Now"     value={stats.activeTrips}         color="#14B8A6"
-          icon={<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg>} />
-        <StatCard label="Completed Today"      value={stats.completedTodayTrips} color="#22C55E"
-          icon={<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>} />
-        <StatCard label="Pending Payments"     value={stats.pendingPayments}     color="#EF4444"
-          icon={<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>} />
-        <StatCard label="Total Revenue"        value={`SAR ${stats.totalRevenueSar.toLocaleString('en-SA', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`} color="#10B981"
-          icon={<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>} />
-        <StatCard label="Open Safety Reports"  value={stats.pendingSafetyReports} color="#F43F5E"
-          icon={<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>} />
-      </div>
-
-      {/* Quick Actions */}
-      <Card>
-        <h3 className="text-sm font-semibold text-gray-700 mb-4">Quick Actions</h3>
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-          {([
-            { label: 'Pending Applications', section: 'applications', badge: stats.pendingApplications, Icon: FileText },
-            { label: 'Open Safety Reports', section: 'safety', badge: stats.pendingSafetyReports, Icon: Shield },
-            { label: 'Manage Subscriptions', section: 'subscriptions', badge: null, Icon: ClipboardList },
-            { label: 'Financial Overview', section: 'financials', badge: null, Icon: Wallet },
-            { label: 'System Configuration', section: 'sysconfig', badge: null, Icon: Settings },
-            { label: 'Manage Drivers', section: 'drivers', badge: null, Icon: Car },
-          ] as { label: string; section: string; badge: number | null; Icon: LucideIcon }[]).map((item) => (
+      <section className="rounded-2xl border border-gray-100 bg-white p-4 md:p-5">
+        <h3 className="text-sm font-semibold text-gray-900 mb-3">Quick actions</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {OVERVIEW_QUICK_ACTIONS.map((action) => (
             <button
-              key={item.section}
-              onClick={() => onNavigate(item.section)}
-              className="flex items-center justify-between px-3.5 py-3 rounded-xl border border-gray-200 hover:border-fizza-secondary hover:bg-emerald-50/50 transition-all text-left group"
+              key={action.section + action.label}
+              type="button"
+              onClick={() => onNavigate(action.section)}
+              className="rounded-xl border border-gray-200 px-3.5 py-3 text-left hover:border-fizza-secondary hover:bg-emerald-50/40 transition-colors min-h-[44px]"
             >
-              <div className="flex items-center gap-2.5">
-                <item.Icon className="h-5 w-5 text-fizza-secondary" strokeWidth={1.75} aria-hidden />
-                <span className="text-sm font-medium text-gray-700 group-hover:text-fizza-primary">{item.label}</span>
-              </div>
-              {item.badge ? (
-                <span className="text-xs bg-red-100 text-red-700 rounded-full px-2 py-0.5 font-bold shrink-0">
-                  {item.badge}
-                </span>
-              ) : null}
+              <p className="text-sm font-medium text-gray-900">{action.label}</p>
+              <p className="text-xs text-gray-500 mt-0.5">{action.description}</p>
             </button>
           ))}
         </div>
-      </Card>
-    </>
+      </section>
+    </div>
   );
 }

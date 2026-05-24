@@ -3,7 +3,10 @@
 import { DollarSign, CreditCard, Wallet, TrendingUp } from 'lucide-react';
 import { useEffect, useState, useCallback } from 'react';
 import { adminFinancialService } from '@/services/adminService';
-import { Pagination, ErrorState } from '@/components/ui';
+import { ErrorState, Button } from '@/components/ui';
+import { AdminPagination } from '@/components/admin/AdminPagination';
+import { DEFAULT_ADMIN_PAGE_LIMIT } from '@/lib/ui/adminPagination';
+import { paymentsToCsv, downloadCsv } from '@/lib/ui/adminExport';
 import {
   AdminSectionHeader,
   AdminToolbar,
@@ -44,7 +47,7 @@ type Payment = {
   subscription: { id: string; subscriptionType: string } | null;
 };
 
-type PayMeta = { page: number; totalPages: number; total: number };
+type PayMeta = { page: number; limit: number; totalPages: number; total: number };
 
 const PAY_LABELS: Record<string, string> = {
   PAID: 'Paid',
@@ -70,6 +73,7 @@ export function FinancialsSection() {
   const [payLoading, setPayLoading] = useState(true);
   const [payStatus, setPayStatus] = useState('');
   const [payPage, setPayPage] = useState(1);
+  const [payLimit, setPayLimit] = useState(DEFAULT_ADMIN_PAGE_LIMIT);
   const [payError, setPayError] = useState('');
 
   const loadOverview = useCallback((df: string, dt: string) => {
@@ -80,10 +84,10 @@ export function FinancialsSection() {
     });
   }, []);
 
-  const loadPayments = useCallback((s: string, p: number) => {
+  const loadPayments = useCallback((s: string, p: number, l: number) => {
     setPayLoading(true);
     setPayError('');
-    adminFinancialService.payments({ status: s || undefined, page: p }).then((res) => {
+    adminFinancialService.payments({ status: s || undefined, page: p, limit: l }).then((res) => {
       if (res.data) {
         setPayments((res.data as { payments: Payment[]; meta: PayMeta }).payments ?? []);
         setPayMeta((res.data as { payments: Payment[]; meta: PayMeta }).meta ?? null);
@@ -95,7 +99,19 @@ export function FinancialsSection() {
   }, []);
 
   useEffect(() => { loadOverview(dateFrom, dateTo); }, [dateFrom, dateTo, loadOverview]);
-  useEffect(() => { loadPayments(payStatus, payPage); }, [payStatus, payPage, loadPayments]);
+  useEffect(() => { loadPayments(payStatus, payPage, payLimit); }, [payStatus, payPage, payLimit, loadPayments]);
+
+  const exportPaymentsCsv = () => {
+    const rows = payments.map((p) => ({
+      user: p.user,
+      email: p.user.user.email,
+      purpose: PURPOSE_LABELS[p.purpose] ?? p.purpose,
+      amountSar: p.amountSar,
+      status: p.status,
+      createdAt: p.createdAt,
+    }));
+    downloadCsv(`fizza-payments-page-${payPage}.csv`, paymentsToCsv(rows));
+  };
 
   return (
     <div>
@@ -183,12 +199,28 @@ export function FinancialsSection() {
             ),
           },
         ]}
+        actions={
+          <Button
+            variant="outline"
+            size="sm"
+            className="min-h-[44px]"
+            disabled={payments.length === 0}
+            onClick={exportPaymentsCsv}
+            title="Exports the currently loaded page of filtered payments"
+          >
+            Export CSV
+          </Button>
+        }
       />
+
+      <p className="text-xs text-gray-400 mb-3">
+        CSV export includes the current filtered page only ({payments.length} row{payments.length === 1 ? '' : 's'}).
+      </p>
 
       {payLoading ? (
         <AdminSectionLoading message="Loading payments…" />
       ) : payError ? (
-        <ErrorState message={payError} onRetry={() => loadPayments(payStatus, payPage)} />
+        <ErrorState message={payError} onRetry={() => loadPayments(payStatus, payPage, payLimit)} />
       ) : payments.length === 0 ? (
         <AdminEmptyState icon={CreditCard} title="No payments found" description="No payments match your filter." />
       ) : (
@@ -251,8 +283,13 @@ export function FinancialsSection() {
               />
             )}
           />
-          {payMeta && payMeta.totalPages > 1 && (
-            <Pagination page={payMeta.page} totalPages={payMeta.totalPages} onPageChange={setPayPage} className="mt-4" />
+          {payMeta && (
+            <AdminPagination
+              meta={payMeta}
+              onPageChange={setPayPage}
+              onLimitChange={(l) => { setPayLimit(l); setPayPage(1); }}
+              className="mt-4"
+            />
           )}
         </>
       )}
