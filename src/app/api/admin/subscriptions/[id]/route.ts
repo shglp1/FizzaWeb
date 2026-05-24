@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireRole } from '@/lib/session';
 import { adminSubscriptionUpdateSchema } from '@/lib/validations/subscription';
+import { computeSubscriptionDaysLeft } from '@/lib/admin/subscriptionTimeline';
 
 type RouteParams = {
   params: Promise<{ id: string }>;
@@ -23,6 +24,13 @@ export async function GET(
         user: { select: { id: true, fullName: true, phone: true, user: { select: { email: true } } } },
         rider: { select: { id: true, name: true, school: true, grade: true } },
         package: { select: { id: true, name: true, billingCycle: true, priceSar: true } },
+        assignedDriver: {
+          select: {
+            id: true,
+            profile: { select: { fullName: true, phone: true } },
+            vehicle: { select: { model: true, plateNumber: true, color: true } },
+          },
+        },
         schedules: { select: { weekday: true, isOffDay: true } },
         addOns: { select: { addOn: { select: { id: true, name: true, priceSar: true } } } },
         subscriptionRiders: {
@@ -32,12 +40,13 @@ export async function GET(
             rider: { select: { id: true, name: true, school: true } },
           },
         },
-        payments: { select: { id: true, amountSar: true, status: true, createdAt: true }, orderBy: { createdAt: 'desc' } },
+        payments: { select: { id: true, amountSar: true, status: true, purpose: true, createdAt: true }, orderBy: { createdAt: 'desc' }, take: 5 },
         trips: {
-          select: { id: true, status: true, scheduledDate: true },
+          select: { id: true, status: true, scheduledDate: true, scheduledPickupTime: true },
           orderBy: { scheduledDate: 'desc' },
           take: 10,
         },
+        _count: { select: { trips: true } },
       },
     });
 
@@ -48,13 +57,21 @@ export async function GET(
       );
     }
 
-    const completedTrips = await prisma.trip.count({ where: { subscriptionId: id, status: 'COMPLETED' } });
-    const today = new Date();
-    const daysLeft = sub.endsOn
-      ? Math.max(0, Math.ceil((sub.endsOn.getTime() - today.getTime()) / 86_400_000))
-      : null;
+    const [completedTrips, totalTrips] = await Promise.all([
+      prisma.trip.count({ where: { subscriptionId: id, status: 'COMPLETED' } }),
+      prisma.trip.count({ where: { subscriptionId: id } }),
+    ]);
+    const daysLeft = computeSubscriptionDaysLeft(sub);
 
-    return NextResponse.json({ data: { ...sub, ridesUsed: completedTrips, daysLeft }, error: null });
+    return NextResponse.json({
+      data: {
+        ...sub,
+        ridesUsed: completedTrips,
+        daysLeft,
+        _count: { trips: totalTrips },
+      },
+      error: null,
+    });
   } catch {
     return NextResponse.json(
       { data: null, error: { message: 'Internal Server Error' } },

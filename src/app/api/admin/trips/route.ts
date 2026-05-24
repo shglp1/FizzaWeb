@@ -25,6 +25,7 @@ export async function GET(req: Request) {
       where.scheduledDate = { gte: d, lt: next };
     }
     if (driverId) where.driverId = driverId;
+    if (searchParams.get('needsDispatch') === 'true') where.needsDispatch = true;
 
     const [trips, total] = await Promise.all([
       prisma.trip.findMany({
@@ -32,6 +33,8 @@ export async function GET(req: Request) {
         select: {
           id: true,
           status: true,
+          needsDispatch: true,
+          dispatchNote: true,
           scheduledDate: true,
           scheduledPickupTime: true,
           scheduledDropoffTime: true,

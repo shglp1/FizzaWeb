@@ -11,7 +11,8 @@ import { trackingService } from '@/services/trackingService';
 import { TRIP_STATUS_LABEL, isTrackableStatus } from '@/lib/trips/tripLifecycle';
 import type { TripStatus } from '@/lib/trips/tripLifecycle';
 import { TripEventIcon } from '@/components/trips/TripEventIcon';
-import { MapPin, Radio, XCircle } from 'lucide-react';
+import { MapPin, XCircle, ExternalLink, Info, CheckCircle2, CircleOff } from 'lucide-react';
+import { tripToGoogleMapsUrl } from '@/lib/maps/googleMapsLink';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -41,7 +42,7 @@ type TrackingTrip = {
   rider: { id: string; name: string; relationship: string } | null;
   driver: {
     id: string;
-    rating: number | null;
+    rating: number | string | null;
     profile: { fullName: string; phone: string; avatarUrl: string | null } | null;
   } | null;
   vehicle: { model: string; plateNumber: string; color: string } | null;
@@ -86,28 +87,59 @@ function minutesUntil(dt: string | null): number | null {
   return Math.round((new Date(dt).getTime() - Date.now()) / 60_000);
 }
 
+function toCoord(value: unknown): number | null {
+  if (value == null) return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function normalizeLocation(raw: unknown): Location | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const loc = raw as Record<string, unknown>;
+  const lat = toCoord(loc.lat);
+  const lng = toCoord(loc.lng);
+  if (lat == null || lng == null) return null;
+  return {
+    lat,
+    lng,
+    recordedAt: String(loc.recordedAt ?? new Date().toISOString()),
+    stale: Boolean(loc.stale),
+  };
+}
+
+function hasRouteCoords(trip: TrackingTrip): boolean {
+  return (
+    (toCoord(trip.pickupLat) != null && toCoord(trip.pickupLng) != null) ||
+    (toCoord(trip.dropoffLat) != null && toCoord(trip.dropoffLng) != null)
+  );
+}
+
 // ─── Leaflet Map (SSR-safe) ───────────────────────────────────────────────────
 
 type MapProps = {
-  driverLat: number;
-  driverLng: number;
-  pickupLat: number | null;
-  pickupLng: number | null;
-  dropoffLat: number | null;
-  dropoffLng: number | null;
-  stale: boolean;
+  driverLat?: number | null;
+  driverLng?: number | null;
+  pickupLat?: number | null;
+  pickupLng?: number | null;
+  dropoffLat?: number | null;
+  dropoffLng?: number | null;
+  stale?: boolean;
 };
 
-function LiveMap({ driverLat, driverLng, pickupLat, pickupLng, dropoffLat, dropoffLng, stale }: MapProps) {
+function TripTrackingMap({
+  driverLat,
+  driverLng,
+  pickupLat,
+  pickupLng,
+  dropoffLat,
+  dropoffLng,
+  stale = false,
+}: MapProps) {
   const mapRef = useRef<HTMLDivElement>(null);
-  const leafletRef = useRef<unknown>(null);
-  const markerRef = useRef<unknown>(null);
+  const mapInstanceRef = useRef<import('leaflet').Map | null>(null);
+  const markersRef = useRef<{ driver?: import('leaflet').Marker; pickup?: import('leaflet').Marker; dropoff?: import('leaflet').Marker }>({});
 
   useEffect(() => {
-    if (!mapRef.current) return;
-    let isMounted = true;
-
-    // Inject Leaflet CSS
     if (!document.querySelector('#leaflet-css')) {
       const link = document.createElement('link');
       link.id = 'leaflet-css';
@@ -115,11 +147,15 @@ function LiveMap({ driverLat, driverLng, pickupLat, pickupLng, dropoffLat, dropo
       link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
       document.head.appendChild(link);
     }
+  }, []);
+
+  useEffect(() => {
+    if (!mapRef.current) return;
+    let cancelled = false;
 
     import('leaflet').then((L) => {
-      if (!isMounted || !mapRef.current) return;
+      if (cancelled || !mapRef.current) return;
 
-      // Fix default icon paths
       const iconProto = L.Icon.Default.prototype as unknown as Record<string, unknown>;
       delete iconProto._getIconUrl;
       L.Icon.Default.mergeOptions({
@@ -128,85 +164,109 @@ function LiveMap({ driverLat, driverLng, pickupLat, pickupLng, dropoffLat, dropo
         shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
       });
 
-      if (leafletRef.current) {
-        // Map already initialised — just update driver marker
-        const map = leafletRef.current as ReturnType<typeof L.map>;
-        if (markerRef.current) {
-          const marker = markerRef.current as ReturnType<typeof L.marker>;
-          marker.setLatLng([driverLat, driverLng]);
+      if (!mapInstanceRef.current) {
+        const points: [number, number][] = [];
+        if (driverLat != null && driverLng != null) points.push([driverLat, driverLng]);
+        if (pickupLat != null && pickupLng != null) points.push([pickupLat, pickupLng]);
+        if (dropoffLat != null && dropoffLng != null) points.push([dropoffLat, dropoffLng]);
+        const center = points[0] ?? [24.4672, 39.6112];
+
+        const map = L.map(mapRef.current).setView(center, 14);
+        mapInstanceRef.current = map;
+
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          attribution: '© OpenStreetMap contributors',
+        }).addTo(map);
+      }
+
+      const map = mapInstanceRef.current;
+      if (!map) return;
+
+      const upsertMarker = (
+        key: 'driver' | 'pickup' | 'dropoff',
+        lat: number,
+        lng: number,
+        html: string,
+        label: string,
+        size: number,
+      ) => {
+        const icon = L.divIcon({
+          html,
+          className: '',
+          iconSize: [size, size],
+          iconAnchor: [size / 2, size / 2],
+        });
+        const existing = markersRef.current[key];
+        if (existing) {
+          existing.setLatLng([lat, lng]);
+          existing.setIcon(icon);
+        } else {
+          markersRef.current[key] = L.marker([lat, lng], { icon }).addTo(map).bindPopup(label);
         }
-        map.setView([driverLat, driverLng], map.getZoom());
-        return;
+      };
+
+      if (driverLat != null && driverLng != null) {
+        upsertMarker(
+          'driver',
+          driverLat,
+          driverLng,
+          `<div style="background:${stale ? '#9CA3AF' : '#2563EB'};width:16px;height:16px;border-radius:50%;border:3px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.4)"></div>`,
+          'Driver',
+          16,
+        );
+      } else if (markersRef.current.driver) {
+        map.removeLayer(markersRef.current.driver);
+        delete markersRef.current.driver;
       }
 
-      const map = L.map(mapRef.current).setView([driverLat, driverLng], 14);
-      leafletRef.current = map;
-
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '© OpenStreetMap contributors',
-      }).addTo(map);
-
-      // Driver marker (blue)
-      const driverIcon = L.divIcon({
-        html: `<div style="background:${stale ? '#9CA3AF' : '#2563EB'};width:16px;height:16px;border-radius:50%;border:3px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.4)"></div>`,
-        className: '',
-        iconSize: [16, 16],
-        iconAnchor: [8, 8],
-      });
-      const driverMarker = L.marker([driverLat, driverLng], { icon: driverIcon })
-        .addTo(map)
-        .bindPopup('Driver');
-      markerRef.current = driverMarker;
-
-      // Pickup marker (green)
       if (pickupLat != null && pickupLng != null) {
-        const pickupIcon = L.divIcon({
-          html: `<div style="background:#10B981;width:14px;height:14px;border-radius:50%;border:3px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.3)"></div>`,
-          className: '',
-          iconSize: [14, 14],
-          iconAnchor: [7, 7],
-        });
-        L.marker([pickupLat, pickupLng], { icon: pickupIcon }).addTo(map).bindPopup('Pickup');
+        upsertMarker(
+          'pickup',
+          pickupLat,
+          pickupLng,
+          `<div style="background:#10B981;width:14px;height:14px;border-radius:50%;border:3px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.3)"></div>`,
+          'Pickup',
+          14,
+        );
       }
 
-      // Drop-off marker (red)
       if (dropoffLat != null && dropoffLng != null) {
-        const dropoffIcon = L.divIcon({
-          html: `<div style="background:#EF4444;width:14px;height:14px;border-radius:50%;border:3px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.3)"></div>`,
-          className: '',
-          iconSize: [14, 14],
-          iconAnchor: [7, 7],
-        });
-        L.marker([dropoffLat, dropoffLng], { icon: dropoffIcon }).addTo(map).bindPopup('Drop-off');
+        upsertMarker(
+          'dropoff',
+          dropoffLat,
+          dropoffLng,
+          `<div style="background:#EF4444;width:14px;height:14px;border-radius:50%;border:3px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.3)"></div>`,
+          'Drop-off',
+          14,
+        );
       }
 
-      // Fit all markers in view
-      const points: [number, number][] = [[driverLat, driverLng]];
-      if (pickupLat != null && pickupLng != null) points.push([pickupLat, pickupLng]);
-      if (dropoffLat != null && dropoffLng != null) points.push([dropoffLat, dropoffLng]);
-      if (points.length > 1) map.fitBounds(points, { padding: [32, 32] });
+      const boundsPoints: [number, number][] = [];
+      if (driverLat != null && driverLng != null) boundsPoints.push([driverLat, driverLng]);
+      if (pickupLat != null && pickupLng != null) boundsPoints.push([pickupLat, pickupLng]);
+      if (dropoffLat != null && dropoffLng != null) boundsPoints.push([dropoffLat, dropoffLng]);
+      if (boundsPoints.length === 1) {
+        map.setView(boundsPoints[0], 14);
+      } else if (boundsPoints.length > 1) {
+        map.fitBounds(boundsPoints, { padding: [32, 32] });
+      }
     }).catch(() => { /* leaflet failed to load */ });
 
-    return () => { isMounted = false; };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    return () => { cancelled = true; };
+  }, [driverLat, driverLng, pickupLat, pickupLng, dropoffLat, dropoffLng, stale]);
 
-  // Update driver marker position when coords change (after initial mount)
-  useEffect(() => {
-    if (!leafletRef.current || !markerRef.current) return;
-    import('leaflet').then((L) => {
-      if (!markerRef.current) return;
-      const marker = markerRef.current as ReturnType<typeof L.marker>;
-      marker.setLatLng([driverLat, driverLng]);
-    }).catch(() => { /* ignore */ });
-  }, [driverLat, driverLng]);
+  useEffect(() => () => {
+    mapInstanceRef.current?.remove();
+    mapInstanceRef.current = null;
+    markersRef.current = {};
+  }, []);
 
   return (
     <div
       ref={mapRef}
       className="w-full rounded-2xl overflow-hidden border border-gray-200"
-      style={{ height: 280 }}
-      aria-label="Live driver location map"
+      style={{ height: 360 }}
+      aria-label="Trip tracking map"
     />
   );
 }
@@ -302,6 +362,114 @@ function EventLog({ events }: { events: TripEvent[] }) {
   );
 }
 
+// ─── Live GPS guide ───────────────────────────────────────────────────────────
+
+type LiveGpsMode = 'live' | 'waiting_driver' | 'waiting_window' | 'ended' | 'no_driver';
+
+function resolveLiveGpsMode(input: {
+  status: string;
+  trackable: boolean;
+  hasLocation: boolean;
+  hasDriver: boolean;
+  minutesToPickup: number | null;
+}): LiveGpsMode {
+  const { status, trackable, hasLocation, hasDriver, minutesToPickup } = input;
+  if (['COMPLETED', 'CANCELLED', 'NO_SHOW'].includes(status)) return 'ended';
+  if (!hasDriver) return 'no_driver';
+  if (hasLocation && trackable) return 'live';
+  if (trackable) return 'waiting_driver';
+  if (minutesToPickup != null && minutesToPickup > 10) return 'waiting_window';
+  return 'waiting_driver';
+}
+
+function LiveGpsAvailabilityGuide({
+  mode,
+  minutesToPickup,
+  statusLabel,
+}: {
+  mode: LiveGpsMode;
+  minutesToPickup: number | null;
+  statusLabel: string;
+}) {
+  const modeCopy: Record<LiveGpsMode, { title: string; summary: string; tone: string }> = {
+    live: {
+      title: 'Live GPS is active',
+      summary: 'The driver is sharing location. The map refreshes about every 15 seconds.',
+      tone: 'border-emerald-200 bg-emerald-50',
+    },
+    waiting_driver: {
+      title: 'Live GPS not available yet',
+      summary: hasDriverWaitingCopy(minutesToPickup),
+      tone: 'border-amber-200 bg-amber-50',
+    },
+    waiting_window: {
+      title: 'Live GPS opens soon',
+      summary: minutesToPickup != null
+        ? `Tracking opens about 10 minutes before pickup (in ~${minutesToPickup} min). Until then, only the route map is shown.`
+        : 'Tracking opens about 10 minutes before scheduled pickup.',
+      tone: 'border-blue-200 bg-blue-50',
+    },
+    ended: {
+      title: 'Live GPS has ended',
+      summary: `This trip is ${statusLabel.toLowerCase()}. You can still view the route map, but the driver is no longer tracked live.`,
+      tone: 'border-gray-200 bg-gray-50',
+    },
+    no_driver: {
+      title: 'Live GPS unavailable',
+      summary: 'No driver is assigned yet. Live tracking starts after a driver is assigned and begins sharing location.',
+      tone: 'border-gray-200 bg-gray-50',
+    },
+  };
+
+  const copy = modeCopy[mode];
+
+  return (
+    <Card className={`mb-4 border ${copy.tone}`}>
+      <div className="flex items-start gap-3">
+        {mode === 'live' ? (
+          <CheckCircle2 className="h-5 w-5 text-emerald-600 shrink-0 mt-0.5" aria-hidden />
+        ) : mode === 'ended' || mode === 'no_driver' ? (
+          <CircleOff className="h-5 w-5 text-gray-500 shrink-0 mt-0.5" aria-hidden />
+        ) : (
+          <Info className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" aria-hidden />
+        )}
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold text-gray-900">{copy.title}</p>
+          <p className="text-sm text-gray-600 mt-1">{copy.summary}</p>
+
+          <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            <div>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">When live GPS is available</p>
+              <ul className="text-xs text-gray-600 space-y-1.5 list-disc pl-4">
+                <li>Trip is active (driver heading out, en route, or rider on board)</li>
+                <li>About 10 minutes before scheduled pickup</li>
+                <li>Driver taps <span className="font-medium">Start Sharing Location</span> on their trips page</li>
+                <li>Admins can view location whenever the driver is sharing</li>
+              </ul>
+            </div>
+            <div>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">When live GPS is not available</p>
+              <ul className="text-xs text-gray-600 space-y-1.5 list-disc pl-4">
+                <li>Trip is cancelled, completed, or marked no-show</li>
+                <li>More than 10 minutes before pickup (parents)</li>
+                <li>Driver has not started location sharing yet</li>
+                <li>Driver GPS is off or signal is unavailable</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+function hasDriverWaitingCopy(minutesToPickup: number | null): string {
+  if (minutesToPickup != null && minutesToPickup <= 10) {
+    return 'The tracking window is open, but the driver has not shared live GPS yet. Ask the driver to start sharing from their trips page.';
+  }
+  return 'The route map is shown now. Live driver location appears once the driver starts sharing GPS.';
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function TrackingDetailPage() {
@@ -319,7 +487,7 @@ export default function TrackingDetailPage() {
     const res = await trackingService.get(tripId);
     if (res.data) {
       setTrip(res.data.trip as TrackingTrip);
-      setLocation(res.data.location as Location | null);
+      setLocation(normalizeLocation(res.data.location));
       setLastUpdated(new Date());
     } else {
       setPageError(res.error?.message ?? 'Failed to load tracking data.');
@@ -329,8 +497,9 @@ export default function TrackingDetailPage() {
 
   const pollLocation = useCallback(async () => {
     const res = await trackingService.getLocation(tripId);
-    if (res.data) {
-      setLocation(res.data as Location);
+    const next = normalizeLocation(res.data?.location);
+    if (next) {
+      setLocation(next);
       setLastUpdated(new Date());
     }
   }, [tripId]);
@@ -339,11 +508,13 @@ export default function TrackingDetailPage() {
     fetchTracking();
   }, [fetchTracking]);
 
-  // Poll location every 15 seconds when trip is trackable
+  // Poll driver location every 15 seconds while the trip is still open
   useEffect(() => {
     if (!trip) return;
-    if (!isTrackableStatus(trip.status as TripStatus)) return;
+    const terminal = ['COMPLETED', 'CANCELLED', 'NO_SHOW'].includes(trip.status);
+    if (terminal) return;
 
+    pollLocation();
     pollRef.current = setInterval(pollLocation, 15_000);
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
@@ -366,6 +537,27 @@ export default function TrackingDetailPage() {
   const minutesToPickup = minutesUntil(trip.scheduledPickupTime);
   const isCompleted = trip.status === 'COMPLETED';
   const isCancelled = trip.status === 'CANCELLED' || trip.status === 'NO_SHOW';
+  const pickupLat = toCoord(trip.pickupLat);
+  const pickupLng = toCoord(trip.pickupLng);
+  const dropoffLat = toCoord(trip.dropoffLat);
+  const dropoffLng = toCoord(trip.dropoffLng);
+  const showMap = !!(location || hasRouteCoords(trip));
+  const routeMapsUrl = tripToGoogleMapsUrl({
+    pickupLocation: trip.pickupLocation,
+    dropoffLocation: trip.dropoffLocation,
+    pickupLat,
+    pickupLng,
+    dropoffLat,
+    dropoffLng,
+  });
+  const liveGpsMode = resolveLiveGpsMode({
+    status: trip.status,
+    trackable,
+    hasLocation: !!location,
+    hasDriver: !!trip.driver,
+    minutesToPickup,
+  });
+  const statusLabel = TRIP_STATUS_LABEL[trip.status as TripStatus] ?? trip.status;
 
   return (
     <AppShell>
@@ -396,56 +588,89 @@ export default function TrackingDetailPage() {
         </Alert>
       )}
 
-      {/* Not yet trackable */}
-      {!trackable && !isCompleted && !isCancelled && (
-        <Alert variant="info" className="mb-4">
-          {minutesToPickup != null && minutesToPickup > 10
-            ? `Live tracking opens about 10 minutes before pickup (in ~${minutesToPickup} min).`
-            : 'Driver location will appear once the driver begins heading out.'}
-        </Alert>
-      )}
-
-      {/* Live Map */}
-      {location && (
+      {/* Live / route map */}
+      {showMap ? (
         <Card className="mb-4 !p-0 overflow-hidden">
-          <div className="px-4 pt-3 pb-2 flex items-center justify-between">
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Live Location</p>
-            <div className="flex items-center gap-1.5">
-              <span className={`inline-block w-2 h-2 rounded-full ${location.stale ? 'bg-gray-400' : 'bg-emerald-500 animate-pulse'}`} />
-              <span className="text-xs text-gray-400">
-                {lastUpdated
-                  ? `Updated ${lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
-                  : 'Live'}
-              </span>
+          <div className="px-4 pt-3 pb-2 flex items-center justify-between gap-3">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+              {location ? 'Live Location' : 'Route Map'}
+            </p>
+            <div className="flex items-center gap-3">
+              {location && (
+                <div className="flex items-center gap-1.5">
+                  <span className={`inline-block w-2 h-2 rounded-full ${location.stale ? 'bg-gray-400' : 'bg-emerald-500 animate-pulse'}`} />
+                  <span className="text-xs text-gray-400">
+                    {lastUpdated
+                      ? `Updated ${lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+                      : 'Live'}
+                  </span>
+                </div>
+              )}
+              <a
+                href={routeMapsUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 hover:underline"
+              >
+                Open in Google Maps
+                <ExternalLink className="h-3 w-3" aria-hidden />
+              </a>
             </div>
           </div>
-          <LiveMap
-            driverLat={location.lat}
-            driverLng={location.lng}
-            pickupLat={trip.pickupLat}
-            pickupLng={trip.pickupLng}
-            dropoffLat={trip.dropoffLat}
-            dropoffLng={trip.dropoffLng}
-            stale={location.stale}
+          {isCancelled && (
+            <div className="px-4 pb-2">
+              <p className="text-xs text-amber-700">Trip cancelled — live driver tracking has ended. Route points are shown below.</p>
+            </div>
+          )}
+          <TripTrackingMap
+            driverLat={location?.lat}
+            driverLng={location?.lng}
+            pickupLat={pickupLat}
+            pickupLng={pickupLng}
+            dropoffLat={dropoffLat}
+            dropoffLng={dropoffLng}
+            stale={location?.stale}
           />
-          <div className="px-4 py-2 flex gap-4 text-xs text-gray-500">
-            <span className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded-full bg-blue-500 border-2 border-white shadow" /> Driver</span>
-            <span className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded-full bg-emerald-500 border-2 border-white shadow" /> Pickup</span>
-            <span className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded-full bg-red-500 border-2 border-white shadow" /> Drop-off</span>
+          <div className="px-4 py-2 flex flex-wrap gap-4 text-xs text-gray-500">
+            {location && (
+              <span className="flex items-center gap-1">
+                <span className="inline-block w-3 h-3 rounded-full bg-blue-500 border-2 border-white shadow" />
+                Driver
+              </span>
+            )}
+            <span className="flex items-center gap-1">
+              <span className="inline-block w-3 h-3 rounded-full bg-emerald-500 border-2 border-white shadow" />
+              Pickup
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="inline-block w-3 h-3 rounded-full bg-red-500 border-2 border-white shadow" />
+              Drop-off
+            </span>
+          </div>
+        </Card>
+      ) : (
+        <Card className="mb-4">
+          <div className="flex flex-col items-center py-6 gap-3 text-gray-500">
+            <MapPin className="h-10 w-10 text-fizza-secondary" strokeWidth={1.5} aria-hidden />
+            <p className="text-sm font-medium text-center">Map coordinates are not saved for this trip.</p>
+            <a
+              href={routeMapsUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-sm font-medium text-emerald-700 hover:underline"
+            >
+              Open route in Google Maps
+              <ExternalLink className="h-3.5 w-3.5" aria-hidden />
+            </a>
           </div>
         </Card>
       )}
 
-      {/* GPS unavailable — no location yet but trip is trackable */}
-      {!location && trackable && (
-        <Card className="mb-4">
-          <div className="flex flex-col items-center py-6 gap-2 text-gray-500">
-            <Radio className="h-10 w-10 text-fizza-secondary" strokeWidth={1.5} aria-hidden />
-            <p className="text-sm font-medium">Your driver has not started sharing location yet.</p>
-            <p className="text-xs text-gray-400">Tracking opens about 10 minutes before pickup.</p>
-          </div>
-        </Card>
-      )}
+      <LiveGpsAvailabilityGuide
+        mode={liveGpsMode}
+        minutesToPickup={minutesToPickup}
+        statusLabel={statusLabel}
+      />
 
       {/* Trip Info + Driver Card */}
       <div className="grid grid-cols-1 gap-4 mb-4 sm:grid-cols-2">
@@ -492,8 +717,8 @@ export default function TrackingDetailPage() {
               </div>
               <div>
                 <p className="font-semibold text-gray-900">{trip.driver.profile.fullName}</p>
-                {trip.driver.rating != null && (
-                  <p className="text-xs text-amber-500">Rating {trip.driver.rating.toFixed(1)}</p>
+                {trip.driver.rating != null && !Number.isNaN(Number(trip.driver.rating)) && (
+                  <p className="text-xs text-amber-500">Rating {Number(trip.driver.rating).toFixed(1)}</p>
                 )}
               </div>
             </div>

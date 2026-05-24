@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { ClipboardList, CreditCard, UserX, Clock } from 'lucide-react';
+import { ClipboardList, CreditCard, UserX, Clock, MapPin, ExternalLink } from 'lucide-react';
 import { adminSubscriptionService } from '@/services/adminService';
 import { Button, Alert, Textarea, ErrorState } from '@/components/ui';
 import { AdminPagination } from '@/components/admin/AdminPagination';
@@ -11,7 +11,13 @@ import {
   formatScheduleSummary,
   formatServiceDaysSummary,
   formatServicePeriod,
+  formatDaysLeft,
+  formatDateLabel,
+  formatEffectiveDateLabel,
+  pickupLabel,
+  dropoffLabel,
 } from '@/lib/ui/subscriptionSummary';
+import { buildGoogleMapsPlaceUrl, tripToGoogleMapsUrl } from '@/lib/maps/googleMapsLink';
 import {
   AdminSectionHeader,
   AdminToolbar,
@@ -59,12 +65,16 @@ type SubRow = {
   finalPriceSar: string;
   cancellationReason: string | null;
   createdAt: string;
-  user: { id: string; fullName: string; user: { email: string } };
+  user: { id: string; fullName: string; phone?: string | null; user: { email: string } };
   rider: { id: string; name: string; school: string | null } | null;
   package: { id: string; name: string; billingCycle: string } | null;
-  subscriptionRiders: { rider: { id: string; name: string }; isPrimary: boolean }[];
+  subscriptionRiders: { rider: { id: string; name: string; school?: string | null }; isPrimary: boolean }[];
   assignedDriverId: string | null;
   assignedDriver: AssignedDriver | null;
+  packagePriceSar?: string;
+  addOnsPriceSar?: string;
+  distancePriceSar?: string;
+  extraRidersPriceSar?: string;
   pickupLocation?: string | null;
   dropoffLocation?: string | null;
   normalizedPickupLabel?: string | null;
@@ -79,7 +89,39 @@ type SubRow = {
   _count: { trips: number };
 };
 
+type SubDetail = SubRow & {
+  femaleDriverPreference?: boolean;
+  oneWayDistanceKm?: string | number | null;
+  chargeableDistanceKm?: string | number | null;
+  dailyChargeableDistanceKm?: string | number | null;
+  totalChargeableDistanceKm?: string | number | null;
+  pricePerKmSarSnapshot?: string | number | null;
+  pickupLat?: number | null;
+  pickupLng?: number | null;
+  dropoffLat?: number | null;
+  dropoffLng?: number | null;
+  addOns?: { addOn: { id: string; name: string; priceSar: string | number } }[];
+  payments?: { id: string; amountSar: string; status: string; purpose: string; createdAt: string }[];
+  trips?: { id: string; status: string; scheduledDate: string; scheduledPickupTime: string | null }[];
+  ridesUsed?: number;
+};
+
 type Meta = { page: number; limit: number; total: number; totalPages: number };
+
+function MapLink({ href, label }: { href: string; label: string }) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 hover:underline min-h-[44px]"
+    >
+      <MapPin className="h-3.5 w-3.5" aria-hidden />
+      {label}
+      <ExternalLink className="h-3 w-3" aria-hidden />
+    </a>
+  );
+}
 
 const SUB_LABELS: Record<string, string> = {
   PENDING: 'Pending', ACTIVE: 'Active', PAUSED: 'Paused', EXPIRED: 'Expired', CANCELLED: 'Cancelled',
@@ -151,6 +193,9 @@ export function SubscriptionsSection() {
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(DEFAULT_ADMIN_PAGE_LIMIT);
   const [selected, setSelected] = useState<SubRow | null>(null);
+  const [detail, setDetail] = useState<SubDetail | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState('');
   const [assigning, setAssigning] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
   const [cancelling, setCancelling] = useState(false);
@@ -179,6 +224,29 @@ export function SubscriptionsSection() {
   }, []);
 
   useEffect(() => { load(statusFilter, payStatusFilter, driverFilter, debouncedSearch, page, limit); }, [statusFilter, payStatusFilter, driverFilter, debouncedSearch, page, limit, load]);
+
+  useEffect(() => {
+    if (!selected) {
+      setDetail(null);
+      setDetailError('');
+      return;
+    }
+    setDetailLoading(true);
+    setDetailError('');
+    adminSubscriptionService.get(selected.id).then((res) => {
+      if (res.data) {
+        setDetail(res.data as SubDetail);
+      } else {
+        setDetail(selected as SubDetail);
+        setDetailError(res.error?.message ?? 'Could not load full subscription details.');
+      }
+      setDetailLoading(false);
+    }).catch(() => {
+      setDetail(selected as SubDetail);
+      setDetailError('Could not load full subscription details.');
+      setDetailLoading(false);
+    });
+  }, [selected]);
 
   const kpis = {
     active: subs.filter((s) => s.status === 'ACTIVE').length,
@@ -282,62 +350,195 @@ export function SubscriptionsSection() {
       >
         {selected && (
           <>
-            <div className="flex flex-wrap gap-2 mb-4">
-              <AdminStatusBadge status={selected.status} label={SUB_LABELS[selected.status]} />
-              <AdminStatusBadge status={selected.paymentStatus} label={PAY_LABELS[selected.paymentStatus]} />
-            </div>
+            {detailLoading && (
+              <p className="text-sm text-gray-500 animate-pulse mb-4">Loading full subscription details…</p>
+            )}
+            {detailError && (
+              <Alert variant="warning" className="mb-4">{detailError}</Alert>
+            )}
 
-            <AdminDrawerSection title="Route & schedule">
-              <AdminDrawerRow label="Route" value={formatRouteSummary(selected)} />
-              <AdminDrawerRow label="Schedule" value={formatScheduleSummary(selected)} />
-              <AdminDrawerRow label="Service days" value={formatServiceDaysSummary(selected)} />
-              <AdminDrawerRow label="Service period" value={formatServicePeriod(selected)} />
-            </AdminDrawerSection>
+            {(detail ?? selected) && (() => {
+              const d = (detail ?? selected) as SubDetail;
+              const routeMapsUrl = tripToGoogleMapsUrl({
+                pickupLocation: d.pickupLocation ?? pickupLabel(d),
+                dropoffLocation: d.dropoffLocation ?? dropoffLabel(d),
+                pickupLat: d.pickupLat,
+                pickupLng: d.pickupLng,
+                dropoffLat: d.dropoffLat,
+                dropoffLng: d.dropoffLng,
+              });
+              const riders = d.subscriptionRiders?.length
+                ? d.subscriptionRiders.map((sr) => `${sr.rider.name}${sr.isPrimary ? ' (primary)' : ''}`).join(', ')
+                : d.rider?.name ?? '—';
+              const completedTrips = d.ridesUsed ?? selected?.ridesUsed ?? 0;
+              const totalTrips = d._count?.trips ?? selected?._count?.trips ?? 0;
+              const remainingTrips = Math.max(0, totalTrips - completedTrips);
 
-            <AdminDrawerSection title="Subscription">
-              <AdminDrawerRow label="Type" value={selected.subscriptionType.replace(/_/g, ' ')} />
-              <AdminDrawerRow label="Final price" value={formatSar(selected.finalPriceSar)} />
-              <AdminDrawerRow label="Riders" value={selected.subscriptionRiders.map((sr) => sr.rider.name).join(', ') || selected.rider?.name || '—'} />
-              <AdminDrawerRow label="Trips generated" value={selected._count.trips} />
-              <AdminDrawerRow label="Auto renewal" value={selected.autoRenewal ? 'Yes' : 'No'} />
-            </AdminDrawerSection>
-
-            <AdminDrawerSection title="Assigned driver">
-              {selected.assignedDriver ? (
+              return (
                 <>
-                  <div className="flex items-center gap-2 mb-2">
-                    <AdminAvatar name={selected.assignedDriver.profile?.fullName ?? 'D'} />
-                    <span className="font-medium">{selected.assignedDriver.profile?.fullName}</span>
+                  <div className="flex flex-wrap gap-2 mb-4">
+                    <AdminStatusBadge status={d.status} label={SUB_LABELS[d.status]} />
+                    <AdminStatusBadge status={d.paymentStatus} label={PAY_LABELS[d.paymentStatus]} />
+                    {d.daysLeft != null && d.status === 'ACTIVE' && (
+                      <span className="inline-flex items-center rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-semibold text-amber-800">
+                        {formatDaysLeft(d.daysLeft, d.endsOn, d)}
+                      </span>
+                    )}
                   </div>
-                  {selected.assignedDriver.vehicle && (
-                    <AdminDrawerRow label="Vehicle" value={`${selected.assignedDriver.vehicle.model} · ${selected.assignedDriver.vehicle.plateNumber}`} />
+
+                  <AdminDrawerSection title="Parent & contact">
+                    <AdminDrawerRow label="Name" value={d.user.fullName} />
+                    <AdminDrawerRow label="Email" value={d.user.user.email} />
+                    <AdminDrawerRow label="Phone" value={d.user.phone ?? '—'} />
+                    <AdminDrawerRow label="Subscribed on" value={formatDateLabel(d.createdAt)} />
+                  </AdminDrawerSection>
+
+                  <AdminDrawerSection title="Service timeline">
+                    <AdminDrawerRow label="Service start" value={formatEffectiveDateLabel(d, 'startsOn')} />
+                    <AdminDrawerRow label="Service end" value={formatEffectiveDateLabel(d, 'endsOn')} />
+                    <AdminDrawerRow label="Days remaining" value={formatDaysLeft(d.daysLeft, d.endsOn, d)} />
+                    <AdminDrawerRow label="Service period" value={formatServicePeriod(d)} />
+                    <AdminDrawerRow label="Auto renewal" value={d.autoRenewal ? 'Yes' : 'No'} />
+                    {d.cancellationReason && (
+                      <AdminDrawerRow label="Cancellation reason" value={d.cancellationReason} />
+                    )}
+                  </AdminDrawerSection>
+
+                  <AdminDrawerSection title="Route & schedule">
+                    <AdminDrawerRow label="Pickup" value={pickupLabel(d)} />
+                    <AdminDrawerRow label="Drop-off" value={dropoffLabel(d)} />
+                    <AdminDrawerRow label="Route" value={formatRouteSummary(d)} />
+                    <AdminDrawerRow label="Schedule" value={formatScheduleSummary(d)} />
+                    <AdminDrawerRow label="Service days" value={formatServiceDaysSummary(d)} />
+                    {d.oneWayDistanceKm != null && (
+                      <AdminDrawerRow label="Distance (one-way)" value={`${Number(d.oneWayDistanceKm).toFixed(1)} km`} />
+                    )}
+                    {d.chargeableDistanceKm != null && (
+                      <AdminDrawerRow label="Chargeable distance" value={`${Number(d.chargeableDistanceKm).toFixed(1)} km`} />
+                    )}
+                    <div className="flex flex-wrap gap-3 pt-2">
+                      <MapLink href={routeMapsUrl} label="Open route in Google Maps" />
+                      {d.pickupLat != null && d.pickupLng != null && (
+                        <MapLink href={buildGoogleMapsPlaceUrl(d.pickupLat, d.pickupLng, pickupLabel(d))} label="Pickup on map" />
+                      )}
+                      {d.dropoffLat != null && d.dropoffLng != null && (
+                        <MapLink href={buildGoogleMapsPlaceUrl(d.dropoffLat, d.dropoffLng, dropoffLabel(d))} label="Drop-off on map" />
+                      )}
+                    </div>
+                  </AdminDrawerSection>
+
+                  <AdminDrawerSection title="Subscription & pricing">
+                    <AdminDrawerRow label="Type" value={d.subscriptionType.replace(/_/g, ' ')} />
+                    <AdminDrawerRow label="Package" value={d.package?.name ?? '—'} />
+                    <AdminDrawerRow label="Billing cycle" value={d.package?.billingCycle ?? '—'} />
+                    <AdminDrawerRow label="Final price" value={formatSar(d.finalPriceSar)} />
+                    <AdminDrawerRow label="Package price" value={formatSar(d.packagePriceSar ?? 0)} />
+                    <AdminDrawerRow label="Distance price" value={formatSar(d.distancePriceSar ?? 0)} />
+                    <AdminDrawerRow label="Add-ons price" value={formatSar(d.addOnsPriceSar ?? 0)} />
+                    {d.extraRidersPriceSar != null && Number(d.extraRidersPriceSar) > 0 && (
+                      <AdminDrawerRow label="Extra riders" value={formatSar(d.extraRidersPriceSar)} />
+                    )}
+                    <AdminDrawerRow label="Female driver preference" value={d.femaleDriverPreference ? 'Yes' : 'No'} />
+                  </AdminDrawerSection>
+
+                  <AdminDrawerSection title="Riders">
+                    <AdminDrawerRow label="Riders" value={riders} />
+                    {d.subscriptionRiders?.map((sr) => (
+                      <AdminDrawerRow
+                        key={sr.rider.id}
+                        label={sr.isPrimary ? 'Primary rider' : 'Additional rider'}
+                        value={`${sr.rider.name}${sr.rider.school ? ` · ${sr.rider.school}` : ''}`}
+                      />
+                    ))}
+                  </AdminDrawerSection>
+
+                  {d.addOns && d.addOns.length > 0 && (
+                    <AdminDrawerSection title="Add-ons">
+                      {d.addOns.map((a) => (
+                        <AdminDrawerRow key={a.addOn.id} label={a.addOn.name} value={formatSar(a.addOn.priceSar)} />
+                      ))}
+                    </AdminDrawerSection>
+                  )}
+
+                  <AdminDrawerSection title="Trip usage">
+                    <AdminDrawerRow label="Trips generated" value={totalTrips} />
+                    <AdminDrawerRow label="Trips completed" value={completedTrips} />
+                    <AdminDrawerRow label="Remaining (est.)" value={remainingTrips} />
+                  </AdminDrawerSection>
+
+                  <AdminDrawerSection title="Assigned driver">
+                    {d.assignedDriver ? (
+                      <>
+                        <div className="flex items-center gap-2 mb-2">
+                          <AdminAvatar name={d.assignedDriver.profile?.fullName ?? 'D'} />
+                          <div>
+                            <p className="font-medium text-sm">{d.assignedDriver.profile?.fullName}</p>
+                            {d.assignedDriver.profile?.phone && (
+                              <p className="text-xs text-gray-500">{d.assignedDriver.profile.phone}</p>
+                            )}
+                          </div>
+                        </div>
+                        {d.assignedDriver.vehicle && (
+                          <AdminDrawerRow label="Vehicle" value={`${d.assignedDriver.vehicle.model} · ${d.assignedDriver.vehicle.plateNumber}`} />
+                        )}
+                      </>
+                    ) : (
+                      <p className="text-sm text-amber-700">No driver assigned — future trips will be unassigned.</p>
+                    )}
+                    {d.status !== 'CANCELLED' && (
+                      <Button variant="outline" size="sm" onClick={() => setAssigning(!assigning)} className="mt-2 min-h-[44px]">
+                        {assigning ? 'Close assignment' : d.assignedDriver ? 'Reassign driver' : 'Assign driver'}
+                      </Button>
+                    )}
+                    {assigning && (
+                      <AssignDriverPanel
+                        subscriptionId={d.id}
+                        onSuccess={() => {
+                          setAssigning(false);
+                          setSelected(null);
+                          load(statusFilter, payStatusFilter, driverFilter, debouncedSearch, page, limit);
+                        }}
+                        onClose={() => setAssigning(false)}
+                      />
+                    )}
+                  </AdminDrawerSection>
+
+                  {d.payments && d.payments.length > 0 && (
+                    <AdminDrawerSection title="Recent payments">
+                      {d.payments.map((p) => (
+                        <div key={p.id} className="flex justify-between items-center text-sm py-1.5 border-b border-gray-100 last:border-0">
+                          <span className="text-gray-600">{p.purpose.replace(/_/g, ' ')}</span>
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium tabular-nums">{formatSar(p.amountSar)}</span>
+                            <AdminStatusBadge status={p.status} />
+                          </div>
+                        </div>
+                      ))}
+                    </AdminDrawerSection>
+                  )}
+
+                  {d.trips && d.trips.length > 0 && (
+                    <AdminDrawerSection title="Recent trips">
+                      {d.trips.slice(0, 5).map((t) => (
+                        <div key={t.id} className="flex justify-between items-center text-sm py-1.5 border-b border-gray-100 last:border-0">
+                          <span className="text-gray-600">{formatDateLabel(t.scheduledDate)}</span>
+                          <AdminStatusBadge status={t.status} />
+                        </div>
+                      ))}
+                    </AdminDrawerSection>
+                  )}
+
+                  {d.status !== 'CANCELLED' && (
+                    <AdminDrawerSection title="Cancel subscription">
+                      <Textarea rows={2} placeholder="Cancellation reason (required)…" value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} />
+                      <Button variant="danger" size="sm" loading={cancelling} onClick={() => submitCancel(d.id)} className="mt-2 min-h-[44px]">
+                        Confirm cancellation
+                      </Button>
+                    </AdminDrawerSection>
                   )}
                 </>
-              ) : (
-                <p className="text-sm text-amber-700">No driver assigned — future trips will be unassigned.</p>
-              )}
-              {selected.status !== 'CANCELLED' && (
-                <Button variant="outline" size="sm" onClick={() => setAssigning(!assigning)} className="mt-2 min-h-[44px]">
-                  {assigning ? 'Close assignment' : selected.assignedDriver ? 'Reassign driver' : 'Assign driver'}
-                </Button>
-              )}
-              {assigning && (
-                <AssignDriverPanel
-                  subscriptionId={selected.id}
-                  onSuccess={() => { setAssigning(false); setSelected(null); load(statusFilter, payStatusFilter, driverFilter, debouncedSearch, page, limit); }}
-                  onClose={() => setAssigning(false)}
-                />
-              )}
-            </AdminDrawerSection>
-
-            {selected.status !== 'CANCELLED' && (
-              <AdminDrawerSection title="Cancel subscription">
-                <Textarea rows={2} placeholder="Cancellation reason (required)…" value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} />
-                <Button variant="danger" size="sm" loading={cancelling} onClick={() => submitCancel(selected.id)} className="mt-2 min-h-[44px]">
-                  Confirm cancellation
-                </Button>
-              </AdminDrawerSection>
-            )}
+              );
+            })()}
           </>
         )}
       </AdminDrawer>

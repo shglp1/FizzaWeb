@@ -12,7 +12,9 @@ const ACTIVE = new Set([
 export function classifyTripForBoard(t: {
   status: string;
   driver?: unknown | null;
+  needsDispatch?: boolean;
 }): OpsColumnKey {
+  if (t.needsDispatch) return 'attention';
   if (t.status === 'COMPLETED') return 'completed';
   if (ACTIVE.has(t.status)) return 'active';
   if (['SCHEDULED', 'DRIVER_ASSIGNED'].includes(t.status) && !t.driver) return 'attention';

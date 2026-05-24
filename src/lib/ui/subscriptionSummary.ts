@@ -1,5 +1,7 @@
 /** Format subscription route/schedule summaries for admin list UI. */
 
+import { resolveEffectiveServiceDates } from '../admin/subscriptionTimeline.ts';
+
 const WEEKDAY_LABELS: Record<number, string> = {
   0: 'Sun',
   1: 'Mon',
@@ -22,8 +24,10 @@ type SubscriptionSummaryInput = {
   returnTime?: string | null;
   startsOn?: string | Date | null;
   endsOn?: string | Date | null;
+  createdAt?: string | Date | null;
   actualServiceDays?: number | null;
   schedules?: ScheduleRow[];
+  package?: { billingCycle?: string | null } | null;
 };
 
 export function formatRouteSummary(sub: SubscriptionSummaryInput): string {
@@ -53,9 +57,47 @@ export function formatServiceDaysSummary(sub: SubscriptionSummaryInput): string 
 }
 
 export function formatServicePeriod(sub: SubscriptionSummaryInput): string {
-  const start = sub.startsOn ? new Date(sub.startsOn).toLocaleDateString('en-SA') : null;
-  const end = sub.endsOn ? new Date(sub.endsOn).toLocaleDateString('en-SA') : null;
+  const { startsOn, endsOn } = resolveEffectiveServiceDates(sub);
+  const start = startsOn ? startsOn.toLocaleDateString('en-SA') : null;
+  const end = endsOn ? endsOn.toLocaleDateString('en-SA') : null;
   if (start && end) return `${start} – ${end}`;
   if (start) return `From ${start}`;
+  if (end) return `Until ${end}`;
   return '—';
+}
+
+export function formatDaysLeft(daysLeft: number | null | undefined, endsOn?: string | Date | null, sub?: SubscriptionSummaryInput): string {
+  if (daysLeft != null) {
+    if (daysLeft === 0) return 'Ends today';
+    if (daysLeft === 1) return '1 day left';
+    return `${daysLeft} days left`;
+  }
+  const effectiveEnd = endsOn ?? (sub ? resolveEffectiveServiceDates(sub).endsOn : null);
+  if (effectiveEnd) {
+    const end = new Date(effectiveEnd);
+    const diff = Math.ceil((end.getTime() - Date.now()) / 86_400_000);
+    if (diff <= 0) return 'Ended';
+    if (diff === 1) return '1 day left';
+    return `${diff} days left`;
+  }
+  return '—';
+}
+
+export function formatEffectiveDateLabel(sub: SubscriptionSummaryInput, field: 'startsOn' | 'endsOn'): string {
+  const dates = resolveEffectiveServiceDates(sub);
+  const value = dates[field];
+  return value ? formatDateLabel(value) : '—';
+}
+
+export function formatDateLabel(value?: string | Date | null): string {
+  if (!value) return '—';
+  return new Date(value).toLocaleDateString('en-SA', { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+export function pickupLabel(sub: SubscriptionSummaryInput): string {
+  return sub.normalizedPickupLabel ?? sub.pickupLocation ?? '—';
+}
+
+export function dropoffLabel(sub: SubscriptionSummaryInput): string {
+  return sub.normalizedDropoffLabel ?? sub.dropoffLocation ?? '—';
 }

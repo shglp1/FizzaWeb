@@ -46,7 +46,28 @@ export const CONFIG_FIELD_META: Record<string, ConfigFieldMeta> = {
     type: 'number',
     hint: 'Maximum days ahead that trips are auto-generated from active subscriptions.',
     defaultValue: 7,
-    recommended: '7',
+    recommended: '14',
+  },
+  dispatchBufferMinutes: {
+    label: 'Dispatch Buffer (minutes)',
+    type: 'number',
+    hint: 'Safety buffer between consecutive trips when checking driver timeline feasibility.',
+    defaultValue: 15,
+    recommended: '15',
+  },
+  defaultLegDurationMinutes: {
+    label: 'Default Leg Duration (minutes)',
+    type: 'number',
+    hint: 'Estimated trip leg duration when drop-off time is unknown.',
+    defaultValue: 45,
+    recommended: '45',
+  },
+  defaultTravelMinutesNoCoords: {
+    label: 'Default Travel Time (minutes)',
+    type: 'number',
+    hint: 'Conservative travel time between trips when coordinates are missing.',
+    defaultValue: 20,
+    recommended: '20',
   },
   supportPhone: {
     label: 'Support Phone',
@@ -94,7 +115,7 @@ export const CONFIG_GROUPS: ConfigGroup[] = [
     id: 'trips',
     label: 'Trip Generation',
     description: 'Automated trip scheduling horizon.',
-    keys: ['maxTripGenerationDays'],
+    keys: ['maxTripGenerationDays', 'dispatchBufferMinutes', 'defaultLegDurationMinutes', 'defaultTravelMinutesNoCoords'],
   },
   {
     id: 'tracking',

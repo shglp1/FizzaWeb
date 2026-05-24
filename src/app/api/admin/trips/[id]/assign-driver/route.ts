@@ -3,6 +3,9 @@ import { prisma } from '@/lib/prisma';
 import { requireRole } from '@/lib/session';
 import { driverAssignSchema } from '@/lib/validations/trip';
 import { notifyDriverAssigned } from '@/lib/trips/tripNotifications';
+import { getDispatchConfig } from '@/lib/dispatch/config';
+import { decideTripDispatch } from '@/lib/dispatch/generateTrips';
+import type { TimelineTrip } from '@/lib/dispatch/types';
 
 function getIp(req: Request): string | null {
   return (
@@ -75,6 +78,31 @@ export async function PATCH(
       );
     }
 
+    const config = await getDispatchConfig();
+    const candidate: TimelineTrip = {
+      id: trip.id,
+      scheduledPickupTime: trip.scheduledPickupTime,
+      scheduledDropoffTime: trip.scheduledDropoffTime,
+      pickupLat: trip.pickupLat,
+      pickupLng: trip.pickupLng,
+      dropoffLat: trip.dropoffLat,
+      dropoffLng: trip.dropoffLng,
+    };
+    const decision = await decideTripDispatch({
+      candidate,
+      driverId,
+      scheduledDate: trip.scheduledDate,
+      driverDayCache: new Map(),
+      config,
+    });
+
+    if (!decision.assignDriver) {
+      return NextResponse.json(
+        { data: null, error: { message: decision.dispatchNote ?? 'Driver timeline conflict — choose another driver or adjust schedule' } },
+        { status: 409 },
+      );
+    }
+
     const updated = await prisma.$transaction(async (tx) => {
       const t = await tx.trip.update({
         where: { id },
@@ -82,6 +110,8 @@ export async function PATCH(
           driverId,
           vehicleId: driver.vehicleId,
           status: trip.status === 'SCHEDULED' ? 'DRIVER_ASSIGNED' : trip.status,
+          needsDispatch: false,
+          dispatchNote: null,
         },
         include: {
           rider: { select: { name: true } },

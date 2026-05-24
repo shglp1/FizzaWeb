@@ -26,6 +26,7 @@ import { prisma } from '@/lib/prisma';
 import { requireAuth } from '@/lib/session';
 import { getPaymentStatus } from '@/lib/payments/myfatoorah';
 import { applyPaymentOutcome } from '@/lib/payments/processPaymentStatus';
+import { triggerTripGenerationAfterPayment } from '@/lib/dispatch/triggerAfterPayment';
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rateLimit';
 
 export async function GET(request: NextRequest) {
@@ -135,6 +136,10 @@ export async function GET(request: NextRequest) {
       result.status,
       myfatoorahKeyType === 'PaymentId' ? myfatoorahKey : undefined,
     );
+
+    if (processResult.subscriptionActivated && processResult.subscriptionId) {
+      await triggerTripGenerationAfterPayment(processResult.subscriptionId);
+    }
 
     // Audit log — separate from the webhook audit log
     await prisma.auditLog.create({

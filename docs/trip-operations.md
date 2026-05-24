@@ -64,18 +64,44 @@ Config keys (SystemConfiguration table):
 - **Reassign**: `PATCH /api/admin/trips/[id]/reassign` (reason required)
 - **Late detection cron**: `POST /api/admin/trips/check-late` every 1–5 minutes
 
+### Automatic trip generation (dispatch)
+
+- **Nightly cron**: `GET /api/cron/trips/generate` — requires `Authorization: Bearer <CRON_SECRET>` (no admin session fallback)
+- **Manual**: Admin → Trips → Generate trips
+- **On payment**: trips generated automatically when subscription becomes ACTIVE + PAID (only on first activation; webhook/callback replay is idempotent)
+- **Feasibility engine**: auto-confirms default driver only if day timeline is feasible across all subscriptions (travel time + `dispatchBufferMinutes`)
+- **Needs dispatch**: trips that fail feasibility stay `SCHEDULED` with `needsDispatch=true` and `dispatchNote`
+- **Queue**: `GET /api/admin/trips/needs-dispatch`
+- **Idempotency**: query-level duplicate check + DB unique constraint on `(subscriptionId, riderId, scheduledDate, legType)`
+
+Config keys (SystemConfiguration): `maxTripGenerationDays`, `dispatchBufferMinutes`, `defaultLegDurationMinutes`, `defaultTravelMinutesNoCoords`
+
+#### Local cron setup
+
+```bash
+# .env
+CRON_SECRET=$(openssl rand -base64 32)
+
+# Manual trigger (local)
+curl -H "Authorization: Bearer $CRON_SECRET" http://localhost:3000/api/cron/trips/generate
+```
+
+#### Production (Vercel)
+
+Set `CRON_SECRET` in project environment variables. Vercel Cron sends the bearer token automatically when configured in `vercel.json`.
+
 ### Vercel Cron example
 
 ```json
 {
   "crons": [{
-    "path": "/api/admin/trips/check-late",
-    "schedule": "*/5 * * * *"
+    "path": "/api/cron/trips/generate",
+    "schedule": "0 2 * * *"
   }]
 }
 ```
 
-Requires admin session or extend with `CRON_SECRET` header (future hardening).
+Requires `CRON_SECRET` env var. Vercel sends `Authorization: Bearer <CRON_SECRET>`.
 
 ## Driver route sheet
 

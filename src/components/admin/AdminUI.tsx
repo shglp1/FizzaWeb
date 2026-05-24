@@ -1,6 +1,7 @@
 'use client';
 
 import { ChevronDown, ChevronRight, Search, X, type LucideIcon } from 'lucide-react';
+import { resolveAdminMetricIcon } from '@/lib/ui/adminMetricIcons';
 import {
   type ReactNode,
   useEffect,
@@ -172,7 +173,7 @@ export function AdminMetricGrid({ items, columns = 4 }: { items: AdminMetric[]; 
   return (
     <div className={`grid ${colClass} gap-3 mb-5`}>
       {items.map((item) => {
-        const Icon = item.icon;
+        const Icon = resolveAdminMetricIcon(item.label, item.icon);
         const Wrapper = item.onClick ? 'button' : 'div';
         return (
           <Wrapper

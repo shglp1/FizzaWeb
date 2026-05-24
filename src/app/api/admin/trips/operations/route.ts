@@ -17,7 +17,7 @@ export async function GET(_req: Request) {
     todayEnd.setDate(todayEnd.getDate() + 1);
 
     const [
-      totalToday, activeTrips, unassignedTrips, completedToday,
+      totalToday, activeTrips, unassignedTrips, needsDispatchTrips, completedToday,
       cancelledToday, flaggedMessages, driverCount,
     ] = await Promise.all([
       prisma.trip.count({ where: { scheduledDate: { gte: todayStart, lt: todayEnd } } }),
@@ -32,6 +32,13 @@ export async function GET(_req: Request) {
           scheduledDate: { gte: todayStart, lt: todayEnd },
           status: 'SCHEDULED',
           driverId: null,
+        },
+      }),
+      prisma.trip.count({
+        where: {
+          scheduledDate: { gte: todayStart, lt: todayEnd },
+          needsDispatch: true,
+          status: 'SCHEDULED',
         },
       }),
       prisma.trip.count({ where: { scheduledDate: { gte: todayStart, lt: todayEnd }, status: 'COMPLETED' } }),
@@ -99,6 +106,7 @@ export async function GET(_req: Request) {
           total: totalToday,
           active: activeTrips,
           unassigned: unassignedTrips,
+          needsDispatch: needsDispatchTrips,
           completed: completedToday,
           cancelled: cancelledToday,
           noShow: noShowCount,

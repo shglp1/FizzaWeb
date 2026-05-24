@@ -103,6 +103,15 @@ export const tripService = {
     return res.json();
   },
 
+  adminNeedsDispatch: async (opts?: { urgent?: boolean; page?: number; limit?: number }) => {
+    const params = new URLSearchParams();
+    if (opts?.urgent) params.set('urgent', 'true');
+    if (opts?.page) params.set('page', String(opts.page));
+    if (opts?.limit) params.set('limit', String(opts.limit ?? 10));
+    const res = await fetch(`/api/admin/trips/needs-dispatch?${params}`);
+    return res.json();
+  },
+
   adminListDrivers: async () => {
     const res = await fetch('/api/admin/drivers');
     return res.json();

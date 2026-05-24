@@ -377,6 +377,10 @@ model Trip {
   dropoffLng           Float?              @map("dropoff_lng")
   status               TripStatus          @default(SCHEDULED)
   legType              TripLegType         @default(OUTBOUND) @map("leg_type")
+  /// True when trip is waiting for admin dispatch (timeline infeasible for default driver).
+  needsDispatch        Boolean             @default(false) @map("needs_dispatch")
+  /// Why dispatch is needed (conflict detail for admin queue).
+  dispatchNote         String?             @map("dispatch_note") @db.Text
   /// Optional human-readable reason for the current status (e.g. cancellation reason, delay reason, no-show reason).
   statusReason         String?             @map("status_reason") @db.Text
   cancelledBy          String?             @map("cancelled_by")
@@ -403,6 +407,8 @@ model Trip {
   @@index([status])
   @@index([scheduledDate])
   @@index([legType])
+  @@index([needsDispatch])
+  @@unique([subscriptionId, riderId, scheduledDate, legType], map: "trips_sub_rider_date_leg_unique")
   @@index([createdAt])
   @@map("trips")
 }

@@ -11,12 +11,13 @@ import {
 import { tripService } from '@/services/tripService';
 import { getDisplayLabel } from '@/lib/trips/statusCatalog';
 import { classifyTripForBoard } from '@/lib/ui/adminOperations';
+import { normalizeAdminTripDetail, type NormalizedAdminTripDetail } from '@/lib/ui/adminTripDetail';
 import type { TripStatus } from '@/lib/trips/tripLifecycle';
 
 type OpsData = {
   today: {
-    total: number; active: number; unassigned: number; completed: number;
-    cancelled: number; noShow: number; gpsStale: number; chatFlagged: number;
+    total: number; active: number; unassigned: number; needsDispatch: number;
+    completed: number; cancelled: number; noShow: number; gpsStale: number; chatFlagged: number;
   };
   driverWorkload: {
     driverId: string; fullName: string; tripsToday: number;
@@ -29,6 +30,8 @@ type OpsData = {
 type BoardTrip = {
   id: string;
   status: string;
+  needsDispatch?: boolean;
+  dispatchNote?: string | null;
   scheduledDate: string;
   scheduledPickupTime: string | null;
   pickupLocation: string;
@@ -55,7 +58,9 @@ export function TripOperationsBoard({
   const [trips, setTrips] = useState<BoardTrip[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [detail, setDetail] = useState<Record<string, unknown> | null>(null);
+  const [detail, setDetail] = useState<NormalizedAdminTripDetail | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState('');
   const [error, setError] = useState('');
   const [mobileColumn, setMobileColumn] = useState('scheduled');
 
@@ -76,9 +81,25 @@ export function TripOperationsBoard({
   useEffect(() => { setLoading(true); load(); const id = setInterval(load, 30_000); return () => clearInterval(id); }, [load]);
 
   useEffect(() => {
-    if (!selectedId) { setDetail(null); return; }
+    if (!selectedId) {
+      setDetail(null);
+      setDetailError('');
+      return;
+    }
+    setDetailLoading(true);
+    setDetailError('');
     tripService.adminGetTrip(selectedId).then((res) => {
-      if (res.data) setDetail(res.data as Record<string, unknown>);
+      if (res.data?.trip) {
+        setDetail(normalizeAdminTripDetail(res.data));
+      } else {
+        setDetail(null);
+        setDetailError(res.error?.message ?? 'Failed to load trip details.');
+      }
+      setDetailLoading(false);
+    }).catch(() => {
+      setDetail(null);
+      setDetailError('Failed to load trip details.');
+      setDetailLoading(false);
     });
   }, [selectedId]);
 
@@ -94,8 +115,6 @@ export function TripOperationsBoard({
     if (!iso) return '—';
     return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   }
-
-  const delayed = ops?.today.noShow ?? 0;
 
   return (
     <div className="space-y-5">
@@ -113,14 +132,11 @@ export function TripOperationsBoard({
 
       {ops && (
         <AdminMetricGrid
-          columns={7}
+          columns={4}
           items={[
             { label: 'Trips Today', value: ops.today.total, icon: Clock },
             { label: 'Active', value: ops.today.active, color: '#059669' },
-            { label: 'Unassigned', value: ops.today.unassigned, color: '#D97706' },
-            { label: 'Delayed', value: delayed, color: '#DC2626' },
-            { label: 'GPS Stale', value: ops.today.gpsStale, color: '#DC2626' },
-            { label: 'Chat Flags', value: ops.today.chatFlagged, color: '#DC2626' },
+            { label: 'Needs Dispatch', value: ops.today.needsDispatch ?? 0, color: '#DC2626', icon: AlertTriangle },
             { label: 'Completed', value: ops.today.completed, color: '#15803D' },
           ]}
         />
@@ -165,13 +181,21 @@ export function TripOperationsBoard({
         ))}
       </div>
 
-      {selectedId && detail && (
-        <TripDetailDrawer
-          tripId={selectedId}
-          detail={detail as Parameters<typeof TripDetailDrawer>[0]['detail']}
-          onClose={() => setSelectedId(null)}
-          onRunLateCheck={() => void tripService.adminCheckLate()}
-        />
+      {selectedId && (
+        detailLoading ? (
+          <div className="rounded-2xl border border-gray-100 bg-white p-6 shadow-card animate-pulse">
+            <p className="text-sm text-gray-500">Loading trip details…</p>
+          </div>
+        ) : detailError ? (
+          <Alert variant="error">{detailError}</Alert>
+        ) : detail ? (
+          <TripDetailDrawer
+            tripId={selectedId}
+            detail={detail}
+            onClose={() => setSelectedId(null)}
+            onRunLateCheck={() => void tripService.adminCheckLate()}
+          />
+        ) : null
       )}
     </div>
   );
@@ -220,6 +244,9 @@ function KanbanColumn({
               <span className="text-xs text-gray-500 shrink-0">{fmtTime(t.scheduledPickupTime)}</span>
             </div>
             <p className="text-xs text-gray-500 truncate">{t.pickupLocation}</p>
+            {t.needsDispatch && (
+              <p className="text-xs text-amber-700 mt-1 font-medium">Needs dispatch</p>
+            )}
             <div className="flex flex-wrap items-center gap-1.5 mt-2">
               <StatusBadge variant="info" className="text-[10px]">{getDisplayLabel(t.status as TripStatus)}</StatusBadge>
               {t.driver?.profile?.fullName ? (
