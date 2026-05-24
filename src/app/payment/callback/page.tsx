@@ -1,5 +1,7 @@
 'use client';
 
+import { Clock, TriangleAlert } from 'lucide-react';
+
 /**
  * /payment/callback
  *
@@ -137,7 +139,7 @@ function PaymentCallbackContent() {
         {/* ── Error from API ───────────────────────────────────────────────── */}
         {!verifying && error && (
           <div className="bg-white rounded-2xl shadow-lg p-8 text-center space-y-4">
-            <div className="text-4xl">⚠️</div>
+            <TriangleAlert className="h-12 w-12 text-amber-500 mx-auto" strokeWidth={1.75} aria-hidden />
             <h1 className="text-lg font-semibold text-gray-800">Something went wrong</h1>
             <p className="text-sm text-gray-500">{error}</p>
             <div className="flex flex-col gap-2 pt-2">
@@ -216,7 +218,7 @@ function PaymentCallbackContent() {
         {/* ── Pending ──────────────────────────────────────────────────────── */}
         {!verifying && !error && result?.outcome === 'PENDING' && (
           <div className="bg-white rounded-2xl shadow-lg p-8 text-center space-y-4">
-            <div className="text-4xl">⏳</div>
+            <Clock className="h-12 w-12 text-blue-500 mx-auto" strokeWidth={1.75} aria-hidden />
             <h1 className="text-lg font-semibold text-gray-800">Payment is being processed</h1>
             <p className="text-sm text-gray-500">
               Your payment is still being confirmed by the bank. This usually takes a few seconds.

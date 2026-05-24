@@ -1,4 +1,6 @@
 'use client';
+
+import { UserRound } from 'lucide-react';
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { adminUserService } from '@/services/adminService';
 import { Card, Badge, Pagination } from '@/components/ui';
@@ -719,7 +721,7 @@ export function UsersSection() {
         /* Empty state */
         <div className="rounded-2xl border border-gray-100 bg-white p-14 text-center">
           <div className="w-16 h-16 rounded-2xl bg-gray-100 flex items-center justify-center text-3xl mx-auto mb-4" aria-hidden="true">
-            👤
+            <UserRound className="h-8 w-8 text-gray-400" strokeWidth={1.75} aria-hidden />
           </div>
           <p className="font-semibold text-gray-700 mb-1.5">
             {hasFilters ? 'No users match your filters' : 'No users yet'}

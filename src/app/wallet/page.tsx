@@ -218,7 +218,7 @@ export default function WalletPage() {
 
             {!wallet?.transactions.length ? (
               <EmptyState
-                icon="💳"
+                icon="card"
                 title="No transactions yet"
                 description="Your history will appear here after your first top-up or payment."
               />

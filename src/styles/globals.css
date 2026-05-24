@@ -200,7 +200,15 @@
     @apply flex flex-col items-center justify-center py-16 text-center gap-3;
   }
   .empty-icon {
-    @apply w-14 h-14 rounded-2xl bg-gray-100 flex items-center justify-center text-2xl;
+    @apply w-14 h-14 rounded-2xl bg-emerald-50 flex items-center justify-center;
+  }
+
+  .content-max {
+    @apply mx-auto w-full max-w-6xl px-4 md:px-8;
+  }
+
+  .section-stack {
+    @apply flex flex-col gap-6;
   }
 
   /* Loading skeleton */

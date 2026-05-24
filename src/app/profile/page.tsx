@@ -13,6 +13,7 @@ import {
   LoadingState,
   ErrorState,
 } from '@/components/ui';
+import { CheckCircle, ClipboardList } from 'lucide-react';
 import { profileService } from '@/services/profileService';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 
@@ -159,7 +160,7 @@ export default function ProfilePage() {
           {driverState === 'DRIVER_APPLICANT' && (
             <Card className="bg-amber-50/60 border-amber-200">
               <div className="flex items-start gap-3">
-                <div className="text-2xl shrink-0">📋</div>
+                <ClipboardList className="h-8 w-8 text-amber-700 shrink-0" strokeWidth={1.75} aria-hidden />
                 <div>
                   <h3 className="font-semibold text-amber-900">Driver Application</h3>
                   <p className="text-sm text-amber-700 mt-0.5">
@@ -177,7 +178,7 @@ export default function ProfilePage() {
           {driverState === 'APPROVED_DRIVER' && (
             <Card className="bg-emerald-50 border-emerald-200">
               <div className="flex items-center gap-3">
-                <div className="text-2xl">✅</div>
+                <CheckCircle className="h-8 w-8 text-emerald-600" strokeWidth={1.75} aria-hidden />
                 <div>
                   <h3 className="font-semibold text-emerald-900">Approved Driver</h3>
                   <p className="text-sm text-emerald-700">Your driver account is active.</p>

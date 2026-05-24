@@ -17,6 +17,7 @@
 
 import { useState, useRef, useCallback, useEffect, useId } from 'react';
 import { buildGoogleMapsPlaceUrl } from '@/lib/maps/googleMapsLink';
+import { mapGeoErrorMessage } from '@/lib/ui/mapLocation';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -253,6 +254,8 @@ export function MapLocationPicker({
 
   // Staging area: user selected a suggestion but hasn't confirmed pin yet
   const [staging, setStaging] = useState<GeocodeResult | null>(null);
+  const [locating, setLocating] = useState(false);
+  const [geoMessage, setGeoMessage] = useState('');
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -319,7 +322,37 @@ export function MapLocationPicker({
   const handleClear = () => {
     onChange(null); setStaging(null);
     setQuery(''); setSuggestions([]); setShowDropdown(false); setSearchError('');
+    setGeoMessage('');
     setTimeout(() => inputRef.current?.focus(), 50);
+  };
+
+  const handleUseCurrentLocation = () => {
+    if (disabled || typeof navigator === 'undefined' || !navigator.geolocation) {
+      setGeoMessage('Location is not supported on this device. Please search manually.');
+      return;
+    }
+    setLocating(true);
+    setGeoMessage('');
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const { latitude, longitude } = pos.coords;
+        setStaging({
+          label: 'My current location',
+          latitude,
+          longitude,
+          provider: 'device',
+        });
+        setLocating(false);
+        setQuery('');
+        setSuggestions([]);
+        setShowDropdown(false);
+      },
+      (err) => {
+        setLocating(false);
+        setGeoMessage(mapGeoErrorMessage(err.code));
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 },
+    );
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -343,6 +376,7 @@ export function MapLocationPicker({
             <span className="mt-0.5 shrink-0 text-emerald-600"><PinIcon /></span>
             <div className="min-w-0 flex-1">
               <p className="text-sm font-medium leading-snug text-gray-800 break-words">{value.label}</p>
+              <p className="mt-1 text-xs font-medium text-emerald-700">Exact pin selected</p>
               <p className="mt-0.5 text-xs text-gray-400 font-mono">
                 {value.latitude.toFixed(6)}, {value.longitude.toFixed(6)}
               </p>
@@ -382,6 +416,19 @@ export function MapLocationPicker({
       {/* Search input — hidden when staging (map visible) */}
       {!staging && (
         <>
+          <button
+            type="button"
+            onClick={handleUseCurrentLocation}
+            disabled={disabled || locating}
+            className="mb-2 flex w-full items-center justify-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-sm font-medium text-emerald-800 transition-colors hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {locating ? <Spinner /> : <PinIcon />}
+            {locating ? 'Getting your location…' : 'Use my current location'}
+          </button>
+          {geoMessage && (
+            <p className="mb-2 text-xs text-amber-700" role="status">{geoMessage}</p>
+          )}
+
           <div className="relative">
             <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-gray-400">
               {searching ? <Spinner /> : <SearchIcon />}

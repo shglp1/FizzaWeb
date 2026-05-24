@@ -108,7 +108,7 @@ export function DriversSection() {
       ) : error ? (
         <ErrorState message={error} onRetry={() => load(suspendedFilter, page)} />
       ) : drivers.length === 0 ? (
-        <EmptyState icon="🚗" title="No drivers found" description="No drivers match your current filter." />
+        <EmptyState icon="car" title="No drivers found" description="No drivers match your current filter." />
       ) : (
         <div className="space-y-4">
           {drivers.map((d) => {
@@ -132,7 +132,7 @@ export function DriversSection() {
                       </div>
                       <p className="text-xs text-gray-500">{d.profile?.user.email}</p>
                       {d.profile?.phone && <p className="text-xs text-gray-400">{d.profile.phone}</p>}
-                      {d.rating && <p className="text-xs text-amber-600 font-medium mt-0.5">★ {Number(d.rating).toFixed(1)}</p>}
+                      {d.rating && <p className="text-xs text-amber-600 font-medium mt-0.5">Rating {Number(d.rating).toFixed(1)}</p>}
                     </div>
                   </div>
                   {d.vehicle && (

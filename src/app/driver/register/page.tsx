@@ -1,5 +1,7 @@
 'use client';
 
+import { CarFront } from 'lucide-react';
+
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { Logo } from '@/components/layout/Logo';
@@ -62,7 +64,7 @@ export default function DriverRegisterPage() {
           {/* Driver badge */}
           <div className="flex justify-center mb-6">
             <span className="inline-flex items-center gap-2 rounded-full bg-fizza-primary/10 border border-fizza-primary/20 px-4 py-1.5 text-xs font-semibold text-fizza-primary">
-              <span className="text-base">🚗</span>
+              <CarFront className="h-4 w-4" strokeWidth={1.75} aria-hidden />
               Driver Portal — Step 1 of 2
             </span>
           </div>

@@ -93,7 +93,7 @@ export function RidersSection() {
       ) : error ? (
         <ErrorState message={error} onRetry={() => load(search, activeFilter, page)} />
       ) : riders.length === 0 ? (
-        <EmptyState icon="👦" title="No riders found" description="No riders match your current filter." />
+        <EmptyState icon="rider" title="No riders found" description="No riders match your current filter." />
       ) : (
         <div className="space-y-3">
           {riders.map((r) => (

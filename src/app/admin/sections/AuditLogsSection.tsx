@@ -1,5 +1,7 @@
 'use client';
 
+import { ClipboardList } from 'lucide-react';
+
 import { useEffect, useState } from 'react';
 import { Card, Button, Input, LoadingState, ErrorState, Pagination } from '@/components/ui';
 
@@ -91,7 +93,7 @@ export function AuditLogsSection() {
       ) : logs.length === 0 ? (
         <Card>
           <div className="text-center py-10 text-gray-400">
-            <div className="text-3xl mb-2">📋</div>
+            <ClipboardList className="h-10 w-10 text-gray-400 mx-auto mb-2" strokeWidth={1.75} aria-hidden />
             <p className="text-sm">No audit logs found</p>
           </div>
         </Card>

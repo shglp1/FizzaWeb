@@ -71,7 +71,7 @@ function DriverAvailabilityBadge({ driver }: { driver: AvailableDriver }) {
   if (driver.hasScheduleConflict) {
     return (
       <span className="text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5">
-        ⚠ Schedule conflict
+        Schedule conflict
       </span>
     );
   }
@@ -152,7 +152,7 @@ function AssignDriverPanel({ subscriptionId, onSuccess, onClose }: AssignDriverP
 
         {/* Note about conflict detection limitation */}
         <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 mb-3">
-          ⚠ Conflict detection is based on shared <strong>weekdays</strong> only. Travel-time buffering between
+          Note: Conflict detection is based on shared <strong>weekdays</strong> only. Travel-time buffering between
           back-to-back subscriptions is not yet implemented — verify departure times manually.
         </p>
 
@@ -163,7 +163,7 @@ function AssignDriverPanel({ subscriptionId, onSuccess, onClose }: AssignDriverP
 
           {[
             { label: null, list: available },
-            { label: '⚠ Schedule conflict', list: conflicted },
+            { label: 'Schedule conflict', list: conflicted },
             { label: '✕ Unavailable', list: unavailable },
           ].map(({ label, list }) =>
             list.length > 0 ? (
@@ -200,7 +200,7 @@ function AssignDriverPanel({ subscriptionId, onSuccess, onClose }: AssignDriverP
                         </div>
                         <div className="text-xs text-gray-500 mt-0.5 flex flex-wrap gap-x-3">
                           {d.vehicle && <span>{d.vehicle.model} · <span className="font-mono">{d.vehicle.plateNumber}</span></span>}
-                          {d.rating !== null && <span>★ {d.rating.toFixed(1)}</span>}
+                          {d.rating !== null && <span>Rating {d.rating.toFixed(1)}</span>}
                           {d.activeSubscriptionCount > 0 && (
                             <span>{d.activeSubscriptionCount} active sub{d.activeSubscriptionCount !== 1 ? 's' : ''}</span>
                           )}
@@ -343,7 +343,7 @@ export function SubscriptionsSection() {
       ) : error ? (
         <ErrorState message={error} onRetry={() => load(statusFilter, payStatusFilter, page)} />
       ) : subs.length === 0 ? (
-        <EmptyState icon="📋" title="No subscriptions found" description="No subscriptions match your filters." />
+        <EmptyState icon="clipboard" title="No subscriptions found" description="No subscriptions match your filters." />
       ) : (
         <div className="space-y-4">
           {subs.map((sub) => {

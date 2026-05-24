@@ -1,9 +1,11 @@
+import { Ban } from 'lucide-react';
+
 export default function ForbiddenPage() {
   return (
     <div className="min-h-screen bg-fizza-bg flex items-center justify-center p-6">
       <div className="max-w-md w-full text-center">
-        <div className="inline-flex h-20 w-20 items-center justify-center rounded-3xl bg-red-50 text-5xl mb-6">
-          🚫
+        <div className="inline-flex h-20 w-20 items-center justify-center rounded-3xl bg-red-50 mb-6">
+          <Ban className="h-10 w-10 text-red-500" strokeWidth={1.75} aria-hidden />
         </div>
         <h1 className="text-2xl font-bold text-gray-900 mb-2">Access Denied</h1>
         <p className="text-gray-500 mb-8">

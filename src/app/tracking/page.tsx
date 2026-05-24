@@ -68,7 +68,7 @@ export default function TrackingIndexPage() {
         <ErrorState message={pageError} onRetry={() => window.location.reload()} />
       ) : trips.length === 0 ? (
         <EmptyState
-          icon="🗺️"
+          icon="map"
           title="No active trips to track"
           description="Tracking opens when a driver is assigned and heading to pickup. Check back closer to your scheduled pickup time."
         />
