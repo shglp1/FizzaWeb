@@ -33,6 +33,7 @@ import {
   minutesUntilPickup,
   type DriverTripTab,
 } from '@/lib/ui/driverPortal';
+import { formatDriverRiderMeta } from '@/lib/riders/riderExposure';
 import { groupTripsByDate as groupByDate } from '@/lib/ui/driverRouteSheet';
 import { Calendar, CheckCircle2, Clock, MapPin, MessageSquare, Shield } from 'lucide-react';
 import { tripToGoogleMapsUrl } from '@/lib/maps/googleMapsLink';
@@ -51,7 +52,7 @@ type Trip = {
   dropoffLat: number | null;
   dropoffLng: number | null;
   statusReason: string | null;
-  rider: { name: string; school: string | null } | null;
+  rider: { name: string; school: string | null; grade?: string | null; specialNeeds?: boolean; pickupNotes?: string | null; dropoffNotes?: string | null } | null;
 };
 
 const ACTIVE = new Set(['PRE_TRIP', 'ON_THE_WAY', 'ARRIVED_PICKUP', 'PICKED_UP', 'EN_ROUTE_DROPOFF', 'ARRIVED_DROPOFF']);
@@ -399,7 +400,7 @@ export function DriverRouteSheet() {
         time={fmtDriverTime(trip.scheduledPickupTime)}
         dateLabel={fmtDriverDate(trip.scheduledDate)}
         riderName={trip.rider?.name ?? 'Rider'}
-        riderMeta={trip.rider?.school ?? undefined}
+        riderMeta={trip.rider ? formatDriverRiderMeta(trip.rider) : undefined}
         pickup={trip.pickupLocation}
         dropoff={trip.dropoffLocation}
         legType={trip.legType ?? 'OUTBOUND'}

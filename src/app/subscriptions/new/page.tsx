@@ -313,6 +313,8 @@ export default function NewSubscriptionPage() {
   const [pickupLocation, setPickupLocation] = useState<SelectedLocation | null>(null);
   /** Drop-off location — null until user selects from LocationPicker autocomplete. */
   const [dropoffLocation, setDropoffLocation] = useState<SelectedLocation | null>(null);
+  const [pickupPhotoUrl, setPickupPhotoUrl] = useState<string | null>(null);
+  const [dropoffPhotoUrl, setDropoffPhotoUrl] = useState<string | null>(null);
   const [pickupTime, setPickupTime] = useState('07:00');
   const [returnTime, setReturnTime] = useState('15:00');
   const [femaleDriver, setFemaleDriver] = useState(false);
@@ -527,6 +529,8 @@ export default function NewSubscriptionPage() {
       femaleDriverPreference: femaleDriver,
       autoRenewal,
       startsOn: startsOn || undefined,
+      pickupPhotoUrl: pickupPhotoUrl ?? undefined,
+      dropoffPhotoUrl: dropoffPhotoUrl ?? undefined,
     };
 
     const res = await subscriptionService.create(payload);
@@ -818,6 +822,9 @@ export default function NewSubscriptionPage() {
             onChange={setPickupLocation}
             placeholder="Search home, district, or landmark…"
             required
+            photoUrl={pickupPhotoUrl}
+            onPhotoChange={setPickupPhotoUrl}
+            photoKind="pickup"
           />
           {!pickupLocation && (
             <p className="text-xs text-amber-700 -mt-3">Please confirm the exact pickup pin on the map.</p>
@@ -829,6 +836,9 @@ export default function NewSubscriptionPage() {
             onChange={setDropoffLocation}
             placeholder="Search school, university, or landmark…"
             required
+            photoUrl={dropoffPhotoUrl}
+            onPhotoChange={setDropoffPhotoUrl}
+            photoKind="dropoff"
           />
           {!dropoffLocation && (
             <p className="text-xs text-amber-700 -mt-3">Please confirm the exact drop-off pin on the map.</p>
@@ -1034,11 +1044,6 @@ export default function NewSubscriptionPage() {
       <div className="grid lg:grid-cols-3 gap-6 lg:gap-8 items-start">
         <EnterpriseCard className="lg:col-span-2" padding="lg">
           <Stepper step={step} />
-
-          <div className="mb-6">
-            <h2 className="text-lg font-semibold text-gray-900">{SUBSCRIPTION_STEP_COPY[step]?.title}</h2>
-            <p className="text-sm text-gray-500 mt-1">{SUBSCRIPTION_STEP_COPY[step]?.description}</p>
-          </div>
 
           {steps[step]?.()}
 

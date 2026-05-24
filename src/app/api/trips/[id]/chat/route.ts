@@ -3,16 +3,11 @@ import { prisma } from '@/lib/prisma';
 import { requireAuth } from '@/lib/session';
 import { z } from 'zod';
 import { isChatWindowOpen } from '@/lib/trips/tripLifecycle';
+import { loadChatConfig, chatUnavailableLabel } from '@/lib/chat/chatConfig';
 import { moderateMessage } from '@/lib/trips/chatModeration';
 import { isUserChatBlocked } from '@/lib/trips/tripProximity';
 import { notifyChatOpened, notifyMessageFlagged } from '@/lib/trips/tripNotifications';
 import type { TripStatus } from '@/lib/trips/tripLifecycle';
-
-const chatMessageSchema = z.object({
-  body: z.string().min(1).max(2000),
-  messageType: z.enum(['TEXT', 'QUICK_REPLY', 'IMAGE']).default('TEXT'),
-  attachmentUrl: z.string().url().optional(),
-});
 
 function tripEndedAt(trip: {
   status: string;
@@ -25,30 +20,37 @@ function tripEndedAt(trip: {
 }
 
 async function checkChatAccess(tripId: string, auth: { userId: string; role: string }) {
-  const trip = await prisma.trip.findUnique({
-    where: { id: tripId },
-    select: {
-      id: true, status: true, scheduledPickupTime: true,
-      chatOpenedAt: true, chatClosedAt: true,
-      actualDropoffTime: true, updatedAt: true,
-      driver: { select: { profileId: true } },
-      subscription: { select: { userId: true } },
-      rider: { select: { parentId: true } },
-    },
-  });
-  if (!trip) return { trip: null, allowed: false, windowOpen: false };
+  const [trip, chatConfig] = await Promise.all([
+    prisma.trip.findUnique({
+      where: { id: tripId },
+      select: {
+        id: true, status: true, scheduledPickupTime: true,
+        chatOpenedAt: true, chatClosedAt: true,
+        actualDropoffTime: true, updatedAt: true,
+        driver: { select: { profileId: true } },
+        subscription: { select: { userId: true } },
+        rider: { select: { parentId: true } },
+      },
+    }),
+    loadChatConfig(),
+  ]);
+  if (!trip) return { trip: null, allowed: false, windowOpen: false, chatConfig };
   const parentUserId = trip.subscription?.userId ?? trip.rider?.parentId ?? null;
   const endedAt = tripEndedAt(trip);
+  const timing = {
+    openMinutesBeforePickup: chatConfig.chatOpenMinutesBeforePickup,
+    closeMinutesAfterDropoff: chatConfig.chatCloseMinutesAfterDropoff,
+  };
   const windowOpen = isChatWindowOpen(
     trip.scheduledPickupTime, trip.status as TripStatus,
-    trip.chatOpenedAt, trip.chatClosedAt, Date.now(), endedAt,
+    trip.chatOpenedAt, trip.chatClosedAt, Date.now(), endedAt, timing,
   );
-  if (auth.role === 'ADMIN') return { trip, allowed: true, windowOpen: true };
+  if (auth.role === 'ADMIN') return { trip, allowed: true, windowOpen: true, chatConfig };
   if (auth.role === 'DRIVER') {
-    return { trip, allowed: trip.driver?.profileId === auth.userId, windowOpen };
+    return { trip, allowed: trip.driver?.profileId === auth.userId, windowOpen, chatConfig };
   }
   const allowed = parentUserId === auth.userId;
-  return { trip, allowed, windowOpen };
+  return { trip, allowed, windowOpen, chatConfig };
 }
 
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -59,6 +61,12 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     const { trip, allowed } = await checkChatAccess(id, auth);
     if (!trip) return NextResponse.json({ data: null, error: { message: 'Trip not found' } }, { status: 404 });
     if (!allowed) return NextResponse.json({ data: null, error: { message: 'Forbidden' } }, { status: 403 });
+
+    const chatConfig = await loadChatConfig();
+    const timing = {
+      openMinutesBeforePickup: chatConfig.chatOpenMinutesBeforePickup,
+      closeMinutesAfterDropoff: chatConfig.chatCloseMinutesAfterDropoff,
+    };
 
     const messages = await prisma.tripChatMessage.findMany({
       where: { tripId: id, deletedAt: null },
@@ -74,8 +82,13 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
         chatClosedAt: trip.chatClosedAt,
         windowOpen: isChatWindowOpen(
           trip.scheduledPickupTime, trip.status as TripStatus,
-          trip.chatOpenedAt, trip.chatClosedAt, Date.now(), tripEndedAt(trip),
+          trip.chatOpenedAt, trip.chatClosedAt, Date.now(), tripEndedAt(trip), timing,
         ),
+        chatConfig: {
+          pollingIntervalSeconds: chatConfig.chatPollingIntervalSeconds,
+          maxMessageLength: chatConfig.chatMaxMessageLength,
+          allowImageAttachments: chatConfig.chatAllowImageAttachments,
+        },
       },
       error: null,
     });
@@ -89,7 +102,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const auth = await requireAuth();
     if (auth instanceof NextResponse) return auth;
     const { id } = await params;
-    const { trip, allowed, windowOpen } = await checkChatAccess(id, auth);
+    const { trip, allowed, windowOpen, chatConfig } = await checkChatAccess(id, auth);
     if (!trip) return NextResponse.json({ data: null, error: { message: 'Trip not found' } }, { status: 404 });
     if (!allowed) return NextResponse.json({ data: null, error: { message: 'Forbidden' } }, { status: 403 });
     if (auth.role !== 'ADMIN' && await isUserChatBlocked(auth.userId)) {
@@ -99,12 +112,21 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       }, { status: 403 });
     }
     if (!windowOpen && auth.role !== 'ADMIN') {
-      return NextResponse.json({ data: null, error: { message: 'Chat is not open yet. It opens 20 minutes before pickup.' } }, { status: 422 });
+      return NextResponse.json({
+        data: null,
+        error: { message: `Chat is not open yet. ${chatUnavailableLabel(chatConfig.chatOpenMinutesBeforePickup)}` },
+      }, { status: 422 });
     }
 
     let body: unknown;
     try { body = await req.json(); } catch { return NextResponse.json({ data: null, error: { message: 'Invalid JSON' } }, { status: 400 }); }
-    const parsed = chatMessageSchema.safeParse(body);
+    const maxLen = chatConfig.chatMaxMessageLength;
+    const chatMessageSchemaDynamic = z.object({
+      body: z.string().min(1).max(maxLen),
+      messageType: z.enum(['TEXT', 'QUICK_REPLY', 'IMAGE']).default('TEXT'),
+      attachmentUrl: z.string().url().optional(),
+    });
+    const parsed = chatMessageSchemaDynamic.safeParse(body);
     if (!parsed.success) return NextResponse.json({ data: null, error: { message: parsed.error.issues[0]?.message ?? 'Invalid input' } }, { status: 400 });
 
     const { body: msgBody, messageType, attachmentUrl } = parsed.data;

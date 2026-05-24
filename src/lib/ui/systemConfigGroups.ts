@@ -1,12 +1,12 @@
 /** System configuration grouping metadata for admin UI tabs. */
 
-export type ConfigFieldType = 'number' | 'text';
+export type ConfigFieldType = 'number' | 'text' | 'boolean';
 
 export type ConfigFieldMeta = {
   label: string;
   type: ConfigFieldType;
   hint: string;
-  defaultValue?: string | number;
+  defaultValue?: string | number | boolean;
   recommended?: string;
 };
 
@@ -117,6 +117,48 @@ export const CONFIG_FIELD_META: Record<string, ConfigFieldMeta> = {
     defaultValue: 15,
     recommended: '15',
   },
+  chatOpenMinutesBeforePickup: {
+    label: 'Chat opens (minutes before pickup)',
+    type: 'number',
+    hint: 'Parent and driver chat becomes available this many minutes before scheduled pickup.',
+    defaultValue: 20,
+    recommended: '20',
+  },
+  chatCloseMinutesAfterDropoff: {
+    label: 'Chat closes (minutes after drop-off)',
+    type: 'number',
+    hint: 'Chat remains open for this long after trip completion, cancellation, or no-show.',
+    defaultValue: 60,
+    recommended: '60',
+  },
+  chatAllowImageAttachments: {
+    label: 'Allow chat image attachments',
+    type: 'boolean',
+    hint: 'When enabled, users can attach photos in trip chat.',
+    defaultValue: true,
+    recommended: 'true',
+  },
+  chatMaxMessageLength: {
+    label: 'Max chat message length',
+    type: 'number',
+    hint: 'Maximum characters per chat message.',
+    defaultValue: 500,
+    recommended: '500',
+  },
+  chatPollingIntervalSeconds: {
+    label: 'Chat polling interval (seconds)',
+    type: 'number',
+    hint: 'How often clients poll for new chat messages.',
+    defaultValue: 5,
+    recommended: '5',
+  },
+  chatProfanityModerationEnabled: {
+    label: 'Profanity moderation enabled',
+    type: 'boolean',
+    hint: 'When enabled, flagged profanity is blocked or moderated in chat.',
+    defaultValue: true,
+    recommended: 'true',
+  },
 };
 
 export const CONFIG_GROUPS: ConfigGroup[] = [
@@ -147,8 +189,15 @@ export const CONFIG_GROUPS: ConfigGroup[] = [
   {
     id: 'chat',
     label: 'Chat & Moderation',
-    description: 'In-trip chat moderation settings (managed via chat flags panel).',
-    keys: [],
+    description: 'In-trip chat timing, attachments, and moderation defaults.',
+    keys: [
+      'chatOpenMinutesBeforePickup',
+      'chatCloseMinutesAfterDropoff',
+      'chatAllowImageAttachments',
+      'chatMaxMessageLength',
+      'chatPollingIntervalSeconds',
+      'chatProfanityModerationEnabled',
+    ],
   },
   {
     id: 'payment',

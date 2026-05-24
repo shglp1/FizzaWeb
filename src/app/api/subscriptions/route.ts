@@ -71,7 +71,7 @@ const SUBSCRIPTION_SELECT = {
   finalPriceSar: true,
   createdAt: true,
   updatedAt: true,
-  rider: { select: { id: true, name: true, relationship: true, school: true } },
+  rider: { select: { id: true, name: true, relationship: true, school: true, grade: true, specialNeeds: true } },
   package: { select: { id: true, name: true, billingCycle: true, priceSar: true } },
   schedules: { select: { id: true, weekday: true, isOffDay: true } },
   addOns: {
@@ -87,7 +87,15 @@ const SUBSCRIPTION_SELECT = {
       riderId: true,
       isPrimary: true,
       priceMultiplier: true,
-      rider: { select: { id: true, name: true, relationship: true } },
+      rider: { select: { id: true, name: true, relationship: true, school: true, grade: true, specialNeeds: true } },
+    },
+  },
+  assignedDriver: {
+    select: {
+      id: true,
+      rating: true,
+      profile: { select: { fullName: true, avatarUrl: true, phone: true } },
+      vehicle: { select: { model: true, color: true, plateNumber: true, capacity: true } },
     },
   },
 } as const;
@@ -146,6 +154,8 @@ export async function POST(req: Request) {
       femaleDriverPreference,
       autoRenewal,
       startsOn,
+      pickupPhotoUrl,
+      dropoffPhotoUrl,
     } = parsed.data;
 
     // Normalise location inputs — accept both coord-objects and plain strings
@@ -311,6 +321,8 @@ export async function POST(req: Request) {
           dropoffLng,
           normalizedPickupLabel,
           normalizedDropoffLabel,
+          pickupPhotoUrl: pickupPhotoUrl ?? null,
+          dropoffPhotoUrl: dropoffPhotoUrl ?? null,
           pricePerKmSarSnapshot: config.pricePerKmSar,
           // Multi-day breakdown fields
           actualServiceDays: serviceDays.actualServiceDays,

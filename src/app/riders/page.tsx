@@ -1,38 +1,27 @@
 'use client';
 
-import { Accessibility, Phone, School } from 'lucide-react';
-
-import { useEffect, useState } from 'react';
+import { ClipboardList, Heart, UserCheck, Users } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { AppShell } from '@/components/layout/AppShell';
 import {
-  PageHeader,
-  Card,
-  Input,
-  Textarea,
-  Button,
-  Alert,
-  Badge,
-  LoadingState,
-  ErrorState,
-  ConfirmDialog,
-  EmptyState,
-} from '@/components/ui';
+  ParentPageHeader,
+  ParentKpiGrid,
+  ParentKpiCard,
+  ParentRiderCard,
+  ParentDrawer,
+  ParentEmptyState,
+  ParentLoadingState,
+  ParentErrorState,
+} from '@/components/parent/ParentUI';
+import { Button, Input, Textarea, Alert, ConfirmDialog } from '@/components/ui';
 import { riderService } from '@/services/riderService';
+import { emergencyContactComplete, hasSpecialNeedsIndicator } from '@/lib/riders/riderExposure';
+import type { RiderRecord } from '@/lib/riders/riderExposure';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type Rider = {
-  id: string;
-  name: string;
-  relationship: string;
-  school: string | null;
-  grade: string | null;
-  phone: string | null;
-  specialNeeds: boolean;
-  notes: string | null;
-  isActive: boolean;
-};
+type Rider = RiderRecord & { isActive: boolean };
 
 type FormValues = {
   name: string;
@@ -40,9 +29,94 @@ type FormValues = {
   school: string;
   grade: string;
   phone: string;
+  dateOfBirth: string;
+  gender: string;
   specialNeeds: boolean;
+  specialNeedsNotes: string;
+  medicalNotes: string;
+  allergies: string;
+  pickupNotes: string;
+  dropoffNotes: string;
+  emergencyContactName: string;
+  emergencyContactPhone: string;
+  authorizedPickupPersons: string;
+  preferredLanguage: '' | 'ar' | 'en';
+  avatarUrl: string;
   notes: string;
 };
+
+const EMPTY_FORM: FormValues = {
+  name: '',
+  relationship: '',
+  school: '',
+  grade: '',
+  phone: '',
+  dateOfBirth: '',
+  gender: '',
+  specialNeeds: false,
+  specialNeedsNotes: '',
+  medicalNotes: '',
+  allergies: '',
+  pickupNotes: '',
+  dropoffNotes: '',
+  emergencyContactName: '',
+  emergencyContactPhone: '',
+  authorizedPickupPersons: '',
+  preferredLanguage: '',
+  avatarUrl: '',
+  notes: '',
+};
+
+function riderToForm(rider: Rider): FormValues {
+  const dob = rider.dateOfBirth
+    ? new Date(rider.dateOfBirth).toISOString().slice(0, 10)
+    : '';
+  return {
+    name: rider.name,
+    relationship: rider.relationship ?? '',
+    school: rider.school ?? '',
+    grade: rider.grade ?? '',
+    phone: rider.phone ?? '',
+    dateOfBirth: dob,
+    gender: rider.gender ?? '',
+    specialNeeds: Boolean(rider.specialNeeds),
+    specialNeedsNotes: rider.specialNeedsNotes ?? '',
+    medicalNotes: rider.medicalNotes ?? '',
+    allergies: rider.allergies ?? '',
+    pickupNotes: rider.pickupNotes ?? '',
+    dropoffNotes: rider.dropoffNotes ?? '',
+    emergencyContactName: rider.emergencyContactName ?? '',
+    emergencyContactPhone: rider.emergencyContactPhone ?? '',
+    authorizedPickupPersons: rider.authorizedPickupPersons ?? '',
+    preferredLanguage: (rider.preferredLanguage as '' | 'ar' | 'en') ?? '',
+    avatarUrl: rider.avatarUrl ?? '',
+    notes: rider.notes ?? '',
+  };
+}
+
+function formToPayload(values: FormValues): Record<string, unknown> {
+  return {
+    name: values.name,
+    relationship: values.relationship,
+    school: values.school || undefined,
+    grade: values.grade || undefined,
+    phone: values.phone || undefined,
+    dateOfBirth: values.dateOfBirth || null,
+    gender: values.gender || undefined,
+    specialNeeds: values.specialNeeds,
+    specialNeedsNotes: values.specialNeedsNotes || undefined,
+    medicalNotes: values.medicalNotes || undefined,
+    allergies: values.allergies || undefined,
+    pickupNotes: values.pickupNotes || undefined,
+    dropoffNotes: values.dropoffNotes || undefined,
+    emergencyContactName: values.emergencyContactName || undefined,
+    emergencyContactPhone: values.emergencyContactPhone || undefined,
+    authorizedPickupPersons: values.authorizedPickupPersons || undefined,
+    preferredLanguage: values.preferredLanguage || null,
+    avatarUrl: values.avatarUrl || null,
+    notes: values.notes || undefined,
+  };
+}
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
@@ -50,14 +124,15 @@ export default function RidersPage() {
   const [riders, setRiders] = useState<Rider[]>([]);
   const [loading, setLoading] = useState(true);
   const [pageError, setPageError] = useState('');
-  const [showForm, setShowForm] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const [editingRider, setEditingRider] = useState<Rider | null>(null);
   const [actionError, setActionError] = useState('');
   const [actionSuccess, setActionSuccess] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [confirmToggle, setConfirmToggle] = useState<Rider | null>(null);
 
-  const { register, handleSubmit, reset, formState: { errors } } = useForm<FormValues>();
+  const { register, handleSubmit, reset, watch, formState: { errors } } = useForm<FormValues>();
+  const specialNeedsChecked = watch('specialNeeds');
 
   const loadRiders = () => {
     setLoading(true);
@@ -70,28 +145,30 @@ export default function RidersPage() {
 
   useEffect(() => { loadRiders(); }, []);
 
+  const kpis = useMemo(() => {
+    const active = riders.filter((r) => r.isActive).length;
+    const specialNeeds = riders.filter((r) => hasSpecialNeedsIndicator(r)).length;
+    return { total: riders.length, active, specialNeeds, withSubscription: 0 };
+  }, [riders]);
+
   const openAdd = () => {
     setEditingRider(null);
-    reset({ name: '', relationship: '', school: '', grade: '', phone: '', specialNeeds: false, notes: '' });
+    reset(EMPTY_FORM);
     setActionError('');
-    setActionSuccess('');
-    setShowForm(true);
+    setDrawerOpen(true);
   };
 
   const openEdit = (rider: Rider) => {
     setEditingRider(rider);
-    reset({
-      name: rider.name,
-      relationship: rider.relationship,
-      school: rider.school ?? '',
-      grade: rider.grade ?? '',
-      phone: rider.phone ?? '',
-      specialNeeds: rider.specialNeeds,
-      notes: rider.notes ?? '',
-    });
+    reset(riderToForm(rider));
     setActionError('');
-    setActionSuccess('');
-    setShowForm(true);
+    setDrawerOpen(true);
+  };
+
+  const closeDrawer = () => {
+    setDrawerOpen(false);
+    setEditingRider(null);
+    setActionError('');
   };
 
   const onSubmit = async (values: FormValues) => {
@@ -99,21 +176,13 @@ export default function RidersPage() {
     setActionError('');
     setActionSuccess('');
     try {
-      const payload = {
-        name: values.name,
-        relationship: values.relationship,
-        school: values.school || undefined,
-        grade: values.grade || undefined,
-        phone: values.phone || undefined,
-        specialNeeds: values.specialNeeds,
-        notes: values.notes || undefined,
-      };
+      const payload = formToPayload(values);
       const res = editingRider
         ? await riderService.update(editingRider.id, payload)
         : await riderService.create(payload);
       if (res.data) {
         setActionSuccess(editingRider ? 'Rider updated.' : 'Rider added.');
-        setShowForm(false);
+        closeDrawer();
         loadRiders();
       } else {
         setActionError(res.error?.message ?? 'Failed to save rider.');
@@ -146,52 +215,103 @@ export default function RidersPage() {
 
   return (
     <AppShell>
-      <PageHeader
+      <ParentPageHeader
         title="Family Riders"
-        subtitle={`${riders.length} rider${riders.length !== 1 ? 's' : ''} registered`}
+        subtitle="Manage profiles, emergency contacts, and transport notes"
         action={
           <Button variant="primary" size="sm" onClick={openAdd}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <line x1="12" y1="5" x2="12" y2="19" />
-              <line x1="5" y1="12" x2="19" y2="12" />
-            </svg>
             Add Rider
           </Button>
         }
       />
 
-      {/* Action feedback */}
       {actionSuccess && (
         <Alert variant="success" className="mb-4" onClose={() => setActionSuccess('')}>
           {actionSuccess}
         </Alert>
       )}
-      {actionError && (
+      {actionError && !drawerOpen && (
         <Alert variant="error" className="mb-4" onClose={() => setActionError('')}>
           {actionError}
         </Alert>
       )}
 
-      {/* Add / Edit form panel */}
-      {showForm && (
-        <Card className="mb-5 border-fizza-secondary/30 bg-emerald-50/30">
-          <div className="flex items-center justify-between mb-5">
-            <h2 className="text-base font-semibold text-gray-900">
-              {editingRider ? 'Edit Rider' : 'Add New Rider'}
-            </h2>
-            <button
-              className="text-gray-400 hover:text-gray-600 transition-colors p-1 rounded-lg hover:bg-gray-100"
-              onClick={() => setShowForm(false)}
-              aria-label="Close form"
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <line x1="18" y1="6" x2="6" y2="18" />
-                <line x1="6" y1="6" x2="18" y2="18" />
-              </svg>
-            </button>
-          </div>
+      {!loading && !pageError && riders.length > 0 && (
+        <div className="mb-6">
+          <ParentKpiGrid columns={4}>
+            <ParentKpiCard label="Total riders" value={kpis.total} icon={Users} />
+            <ParentKpiCard label="Active" value={kpis.active} icon={UserCheck} color="#059669" />
+            <ParentKpiCard label="Special needs" value={kpis.specialNeeds} icon={Heart} color="#7C3AED" />
+            <ParentKpiCard label="With subscription" value={kpis.withSubscription} icon={ClipboardList} color="#6366F1" helper="Active plans" />
+          </ParentKpiGrid>
+        </div>
+      )}
 
-          <form onSubmit={handleSubmit(onSubmit)} className="grid sm:grid-cols-2 gap-4">
+      {loading ? (
+        <ParentLoadingState message="Loading riders…" />
+      ) : pageError ? (
+        <ParentErrorState message={pageError} onRetry={loadRiders} />
+      ) : riders.length === 0 ? (
+        <ParentEmptyState
+          icon={Users}
+          title="No riders yet"
+          description="Add your family members to start scheduling trips."
+          action={<Button variant="primary" size="sm" onClick={openAdd}>Add First Rider</Button>}
+        />
+      ) : (
+        <div className="space-y-3">
+          {riders.map((rider) => (
+            <ParentRiderCard
+              key={rider.id}
+              name={rider.name}
+              relationship={rider.relationship}
+              school={rider.school}
+              grade={rider.grade}
+              phone={rider.phone}
+              avatarUrl={rider.avatarUrl}
+              specialNeeds={hasSpecialNeedsIndicator(rider)}
+              emergencyComplete={emergencyContactComplete(rider)}
+              activeSubscriptions={0}
+              upcomingTrips={0}
+              actions={
+                <>
+                  <Button variant="outline" size="sm" onClick={() => openEdit(rider)}>Edit</Button>
+                  <Button
+                    variant={rider.isActive ? 'danger-outline' : 'ghost'}
+                    size="sm"
+                    onClick={() => setConfirmToggle(rider)}
+                  >
+                    {rider.isActive ? 'Deactivate' : 'Reactivate'}
+                  </Button>
+                </>
+              }
+            />
+          ))}
+        </div>
+      )}
+
+      <ParentDrawer
+        open={drawerOpen}
+        onClose={closeDrawer}
+        title={editingRider ? 'Edit Rider' : 'Add Rider'}
+        footer={
+          <div className="flex gap-2">
+            <Button type="submit" form="rider-form" variant="primary" loading={submitting} className="flex-1">
+              {editingRider ? 'Update Rider' : 'Add Rider'}
+            </Button>
+            <Button type="button" variant="ghost" onClick={closeDrawer}>Cancel</Button>
+          </div>
+        }
+      >
+        {actionError && (
+          <Alert variant="error" className="mb-4" onClose={() => setActionError('')}>
+            {actionError}
+          </Alert>
+        )}
+
+        <form id="rider-form" onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+          <fieldset className="space-y-3">
+            <legend className="text-sm font-semibold text-gray-900 mb-2">Basic information</legend>
             <Input
               label="Full name"
               placeholder="e.g. Ahmad Al-Rashidi"
@@ -206,127 +326,68 @@ export default function RidersPage() {
               error={errors.relationship?.message}
               {...register('relationship', { required: 'Relationship is required' })}
             />
-            <Input label="School" placeholder="School name" {...register('school')} />
-            <Input label="Grade" placeholder="e.g. Grade 5" {...register('grade')} />
+            <div className="grid grid-cols-2 gap-3">
+              <Input label="Date of birth" type="date" {...register('dateOfBirth')} />
+              <Input label="Gender" placeholder="Male, Female, etc." {...register('gender')} />
+            </div>
             <Input label="Phone" type="tel" placeholder="+966 5X XXX XXXX" {...register('phone')} />
-            <div className="flex items-center gap-3 px-3 py-3 rounded-xl border border-gray-200 bg-white cursor-pointer"
-              onClick={() => {
-                const el = document.getElementById('specialNeeds') as HTMLInputElement;
-                if (el) el.click();
-              }}
-            >
-              <input
-                id="specialNeeds"
-                type="checkbox"
-                className="w-4 h-4 accent-fizza-secondary"
-                {...register('specialNeeds')}
-              />
+            <Input label="Avatar URL" type="url" placeholder="https://…" {...register('avatarUrl')} />
+          </fieldset>
+
+          <fieldset className="space-y-3">
+            <legend className="text-sm font-semibold text-gray-900 mb-2">School</legend>
+            <Input label="School" placeholder="School name" {...register('school')} />
+            <Input label="Grade" placeholder="e.g. 5" {...register('grade')} />
+          </fieldset>
+
+          <fieldset className="space-y-3">
+            <legend className="text-sm font-semibold text-gray-900 mb-2">Special needs and health</legend>
+            <label className="flex items-start gap-3 px-3 py-3 rounded-xl border border-gray-200 bg-gray-50 cursor-pointer">
+              <input type="checkbox" className="w-4 h-4 mt-0.5 accent-fizza-secondary" {...register('specialNeeds')} />
               <div>
-                <label htmlFor="specialNeeds" className="text-sm font-medium text-gray-700 cursor-pointer">
-                  Has special needs
-                </label>
-                <p className="text-xs text-gray-400">Requires additional support</p>
+                <span className="text-sm font-medium text-gray-700">Has special needs</span>
+                <p className="text-xs text-gray-400">Requires additional support during transport</p>
               </div>
+            </label>
+            {specialNeedsChecked && (
+              <Textarea label="Special needs notes" rows={2} placeholder="Describe support requirements…" {...register('specialNeedsNotes')} />
+            )}
+            <Textarea label="Medical notes" rows={2} placeholder="Conditions the driver should know about…" {...register('medicalNotes')} />
+            <Textarea label="Allergies" rows={2} placeholder="Food, medication, or environmental allergies…" {...register('allergies')} />
+          </fieldset>
+
+          <fieldset className="space-y-3">
+            <legend className="text-sm font-semibold text-gray-900 mb-2">Transport notes</legend>
+            <Textarea label="Pickup notes" rows={2} placeholder="Gate, building, waiting spot…" {...register('pickupNotes')} />
+            <Textarea label="Drop-off notes" rows={2} placeholder="Entrance, classroom, handoff instructions…" {...register('dropoffNotes')} />
+          </fieldset>
+
+          <fieldset className="space-y-3">
+            <legend className="text-sm font-semibold text-gray-900 mb-2">Emergency contact</legend>
+            <Input label="Contact name" placeholder="Parent or guardian name" {...register('emergencyContactName')} />
+            <Input label="Contact phone" type="tel" placeholder="+966 5X XXX XXXX" {...register('emergencyContactPhone')} />
+            <Textarea label="Authorized pickup persons" rows={2} placeholder="Names of people allowed to receive the rider…" {...register('authorizedPickupPersons')} />
+          </fieldset>
+
+          <fieldset className="space-y-3">
+            <legend className="text-sm font-semibold text-gray-900 mb-2">Other</legend>
+            <div>
+              <label htmlFor="preferredLanguage" className="block text-sm font-medium text-gray-700 mb-1">Preferred language</label>
+              <select
+                id="preferredLanguage"
+                className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm text-gray-900 bg-white"
+                {...register('preferredLanguage')}
+              >
+                <option value="">No preference</option>
+                <option value="ar">Arabic</option>
+                <option value="en">English</option>
+              </select>
             </div>
-            <div className="sm:col-span-2">
-              <Textarea
-                label="Notes"
-                placeholder="Any additional information for the driver…"
-                rows={3}
-                {...register('notes')}
-              />
-            </div>
-            <div className="sm:col-span-2 flex items-center gap-3">
-              <Button type="submit" variant="primary" loading={submitting} className="flex-1 sm:flex-none">
-                {editingRider ? 'Update Rider' : 'Add Rider'}
-              </Button>
-              <Button type="button" variant="ghost" onClick={() => setShowForm(false)}>
-                Cancel
-              </Button>
-            </div>
-          </form>
-        </Card>
-      )}
+            <Textarea label="General notes" rows={3} placeholder="Any additional information for the driver…" {...register('notes')} />
+          </fieldset>
+        </form>
+      </ParentDrawer>
 
-      {/* Riders list */}
-      {loading ? (
-        <LoadingState message="Loading riders…" />
-      ) : pageError ? (
-        <ErrorState message={pageError} onRetry={loadRiders} />
-      ) : riders.length === 0 ? (
-        <EmptyState
-          icon="rider"
-          title="No riders yet"
-          description="Add your family members to start scheduling trips."
-          action={{ label: 'Add First Rider', onClick: openAdd }}
-        />
-      ) : (
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {riders.map((rider) => (
-            <Card key={rider.id} variant="interactive">
-              <div className="flex items-start gap-3 mb-3">
-                <div className={`h-11 w-11 rounded-full flex items-center justify-center text-lg font-bold shrink-0 ${rider.isActive ? 'bg-emerald-100 text-fizza-primary' : 'bg-gray-100 text-gray-400'}`}>
-                  {rider.name.charAt(0).toUpperCase()}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-gray-900 truncate">{rider.name}</p>
-                  <p className="text-xs text-gray-500">{rider.relationship}</p>
-                </div>
-                <Badge variant={rider.isActive ? 'success' : 'gray'}>
-                  {rider.isActive ? 'Active' : 'Inactive'}
-                </Badge>
-              </div>
-
-              {/* Details */}
-              <div className="space-y-1.5 text-sm text-gray-600 mb-4">
-                {rider.school && (
-                  <div className="flex items-center gap-1.5">
-                    <School className="h-4 w-4 text-gray-400 shrink-0" strokeWidth={1.75} aria-hidden />
-                    <span className="truncate">{rider.school}{rider.grade ? ` · ${rider.grade}` : ''}</span>
-                  </div>
-                )}
-                {rider.phone && (
-                  <div className="flex items-center gap-1.5">
-                    <Phone className="h-4 w-4 text-gray-400 shrink-0" strokeWidth={1.75} aria-hidden />
-                    <span>{rider.phone}</span>
-                  </div>
-                )}
-                {rider.specialNeeds && (
-                  <div className="flex items-center gap-1.5">
-                    <Accessibility className="h-4 w-4 text-amber-600 shrink-0" strokeWidth={1.75} aria-hidden />
-                    <span className="text-amber-700 font-medium">Special needs</span>
-                  </div>
-                )}
-                {rider.notes && (
-                  <p className="text-gray-400 text-xs line-clamp-2 mt-1 italic">&ldquo;{rider.notes}&rdquo;</p>
-                )}
-              </div>
-
-              {/* Actions */}
-              <div className="flex gap-2 pt-3 border-t border-gray-50">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="flex-1"
-                  onClick={() => openEdit(rider)}
-                >
-                  Edit
-                </Button>
-                <Button
-                  variant={rider.isActive ? 'danger-outline' : 'ghost'}
-                  size="sm"
-                  className="flex-1"
-                  onClick={() => setConfirmToggle(rider)}
-                >
-                  {rider.isActive ? 'Deactivate' : 'Reactivate'}
-                </Button>
-              </div>
-            </Card>
-          ))}
-        </div>
-      )}
-
-      {/* Confirm toggle dialog */}
       <ConfirmDialog
         isOpen={!!confirmToggle}
         title={confirmToggle?.isActive ? 'Deactivate Rider?' : 'Reactivate Rider?'}
