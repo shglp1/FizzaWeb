@@ -110,7 +110,7 @@ export function Sidebar() {
     : { label: '…', cls: 'bg-white/10 text-white/40' };
 
   return (
-    <aside className="hidden md:flex flex-col w-64 min-h-screen bg-fizza-primary shrink-0">
+    <aside className="hidden md:flex flex-col w-64 h-screen sticky top-0 bg-fizza-primary shrink-0">
       {/* Logo + role chip */}
       <div className="flex items-center justify-between gap-2 px-5 py-5 border-b border-white/10">
         <Logo theme="dark" />

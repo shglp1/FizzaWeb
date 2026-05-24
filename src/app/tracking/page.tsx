@@ -5,20 +5,24 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { AppShell } from '@/components/layout/AppShell';
 import {
+  DriverCommandHeader,
   DriverEmptyState,
   DriverErrorState,
   DriverGpsPermissionCard,
   DriverLoadingState,
-  DriverPageHeader,
+  DriverNotice,
+  DriverRouteCard,
+  DriverTrackingGroup,
 } from '@/components/driver/DriverUI';
-import { Badge, Button, Card, StatusBadge } from '@/components/ui';
+import { Button, PageHeader } from '@/components/ui';
 import { trackingService } from '@/services/trackingService';
-import { TRIP_STATUS_LABEL } from '@/lib/trips/tripLifecycle';
 import type { TripStatus } from '@/lib/trips/tripLifecycle';
 import {
   DRIVER_TRACKING_LIST_COPY,
+  TRACKING_GROUP_LABELS,
   fmtDriverTime,
   getTrackingAvailability,
+  groupTripsByTrackingAvailability,
 } from '@/lib/ui/driverPortal';
 import { ExternalLink, MapPin, Radio } from 'lucide-react';
 
@@ -29,20 +33,48 @@ type TrackableTrip = {
   scheduledPickupTime: string | null;
   pickupLocation: string;
   dropoffLocation: string;
+  legType?: 'OUTBOUND' | 'RETURN';
   rider: { name: string } | null;
   driver: { profile: { fullName: string } | null } | null;
 };
 
-const AVAILABILITY_VARIANT: Record<string, 'success' | 'info' | 'warning' | 'gray'> = {
-  active_sharing: 'success',
-  available_now: 'info',
-  opens_soon: 'warning',
-  closed: 'gray',
-  not_assigned: 'gray',
-};
-
 function fmtDate(d: string) {
   return new Date(d).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+}
+
+function TrackingTripCard({ trip, isDriver }: { trip: TrackableTrip; isDriver: boolean }) {
+  const avail = getTrackingAvailability({
+    status: trip.status,
+    scheduledPickupTime: trip.scheduledPickupTime,
+  });
+
+  return (
+    <DriverRouteCard
+      time={fmtDriverTime(trip.scheduledPickupTime)}
+      dateLabel={fmtDate(trip.scheduledDate)}
+      riderName={trip.rider?.name ?? 'Rider'}
+      pickup={trip.pickupLocation}
+      dropoff={trip.dropoffLocation}
+      legType={trip.legType ?? 'OUTBOUND'}
+      status={trip.status as TripStatus}
+      primaryAction={isDriver && avail.availability === 'available_now' ? 'Start sharing' : undefined}
+      primaryDisabled={avail.availability === 'opens_soon'}
+      primaryDisabledReason={avail.availability === 'opens_soon' ? avail.label : undefined}
+      secondaryActions={
+        <>
+          <Link href={`/tracking/${trip.id}`}>
+            <Button variant="primary" size="sm" className="min-h-9">
+              <Radio className="h-3.5 w-3.5" aria-hidden />
+              Open live map
+            </Button>
+          </Link>
+          <a href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(trip.pickupLocation)}`} target="_blank" rel="noopener noreferrer">
+            <Button variant="outline" size="sm"><ExternalLink className="h-3.5 w-3.5" aria-hidden />Maps</Button>
+          </a>
+        </>
+      }
+    />
+  );
 }
 
 export default function TrackingIndexPage() {
@@ -86,105 +118,65 @@ export default function TrackingIndexPage() {
   }, [router, userRole]);
 
   const isDriver = userRole === 'DRIVER';
-  const subtitle = isDriver
-    ? DRIVER_TRACKING_LIST_COPY.driver
-    : DRIVER_TRACKING_LIST_COPY.parent;
 
   function checkGpsPermission() {
-    if (!navigator.geolocation) {
-      setGpsState('unsupported');
-      return;
-    }
+    if (!navigator.geolocation) { setGpsState('unsupported'); return; }
     navigator.geolocation.getCurrentPosition(
       () => setGpsState('granted'),
       (err) => setGpsState(err.code === err.PERMISSION_DENIED ? 'denied' : 'unknown'),
     );
   }
 
+  const grouped = isDriver ? groupTripsByTrackingAvailability(trips) : null;
+
   return (
     <AppShell>
-      <DriverPageHeader title="Live GPS" subtitle={subtitle} />
+      <div className="max-w-3xl mx-auto driver-portal pb-24 md:pb-6">
+        {isDriver ? (
+          <DriverCommandHeader title="Live GPS" subtitle={DRIVER_TRACKING_LIST_COPY.driver} />
+        ) : (
+          <PageHeader title="Live Tracking" subtitle={DRIVER_TRACKING_LIST_COPY.parent} />
+        )}
 
-      {isDriver && (
-        <div className="mb-4">
-          <DriverGpsPermissionCard state={gpsState} onEnable={checkGpsPermission} />
-        </div>
-      )}
+        {isDriver && (
+          <div className="mb-4 space-y-2">
+            <DriverGpsPermissionCard state={gpsState} onEnable={checkGpsPermission} />
+            {gpsState === 'granted' && (
+              <DriverNotice variant="gps" title="Ready to share" message="Open a trip below and tap Start sharing when eligible." />
+            )}
+          </div>
+        )}
 
-      {loading ? (
-        <DriverLoadingState message="Loading tracking trips…" />
-      ) : pageError ? (
-        <DriverErrorState message={pageError} onRetry={() => window.location.reload()} />
-      ) : trips.length === 0 ? (
-        <DriverEmptyState
-          icon={MapPin}
-          title={isDriver ? 'No active tracking trips' : 'No active trips to track'}
-          description={
-            isDriver
-              ? 'GPS sharing opens when you have an assigned trip in an active status.'
-              : 'Tracking opens when a driver is assigned and heading to pickup.'
-          }
-        />
-      ) : (
-        <div className="space-y-3">
-          {isDriver && (
-            <p className="text-sm text-gray-600">
-              Select a trip to start sharing or view the live map.
-            </p>
-          )}
-          {!isDriver && (
-            <p className="text-sm text-gray-500">Select a trip to view live tracking:</p>
-          )}
-          {trips.map((trip) => {
-            const avail = getTrackingAvailability({
-              status: trip.status,
-              scheduledPickupTime: trip.scheduledPickupTime,
-            });
-            return (
-              <Card key={trip.id} className="border-l-4 border-l-fizza-secondary">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                  <div className="min-w-0">
-                    <p className="font-semibold text-gray-900">{trip.rider?.name ?? 'Rider'}</p>
-                    <p className="text-xs text-gray-500 mt-0.5">
-                      {fmtDate(trip.scheduledDate)} · {fmtDriverTime(trip.scheduledPickupTime)}
-                    </p>
-                    <p className="text-xs text-gray-500 mt-1 truncate">
-                      {trip.pickupLocation} → {trip.dropoffLocation}
-                    </p>
-                    {!isDriver && trip.driver?.profile && (
-                      <p className="text-xs text-emerald-600 mt-1">Driver: {trip.driver.profile.fullName}</p>
-                    )}
-                    <Badge variant={AVAILABILITY_VARIANT[avail.availability] ?? 'gray'} className="mt-2 text-[10px]">
-                      {avail.label}
-                    </Badge>
-                  </div>
-                  <div className="flex flex-wrap gap-2 shrink-0">
-                    <StatusBadge variant="purple">
-                      {TRIP_STATUS_LABEL[trip.status as TripStatus] ?? trip.status}
-                    </StatusBadge>
-                    <Link href={`/tracking/${trip.id}`}>
-                      <Button variant="primary" size="sm">
-                        <Radio className="h-3.5 w-3.5" aria-hidden />
-                        {isDriver ? 'Open tracking' : 'Live map'}
-                      </Button>
-                    </Link>
-                    <a
-                      href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(trip.pickupLocation)}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      <Button variant="outline" size="sm">
-                        <ExternalLink className="h-3.5 w-3.5" aria-hidden />
-                        Maps
-                      </Button>
-                    </a>
-                  </div>
-                </div>
-              </Card>
-            );
-          })}
-        </div>
-      )}
+        {loading ? (
+          <DriverLoadingState message="Loading tracking trips…" />
+        ) : pageError ? (
+          <DriverErrorState message={pageError} onRetry={() => window.location.reload()} />
+        ) : trips.length === 0 ? (
+          <DriverEmptyState
+            icon={MapPin}
+            title={isDriver ? 'No active tracking trips' : 'No active trips to track'}
+            description={isDriver ? 'GPS sharing opens when you have an assigned trip in an active status.' : 'Tracking opens when a driver is assigned and heading to pickup.'}
+          />
+        ) : isDriver && grouped ? (
+          <div className="space-y-5">
+            {(['available_now', 'opens_soon', 'upcoming'] as const).map((key) =>
+              grouped[key].length > 0 ? (
+                <DriverTrackingGroup key={key} title={TRACKING_GROUP_LABELS[key]}>
+                  {grouped[key].map((trip) => (
+                    <TrackingTripCard key={trip.id} trip={trip as TrackableTrip} isDriver />
+                  ))}
+                </DriverTrackingGroup>
+              ) : null,
+            )}
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {trips.map((trip) => (
+              <TrackingTripCard key={trip.id} trip={trip} isDriver={isDriver} />
+            ))}
+          </div>
+        )}
+      </div>
     </AppShell>
   );
 }

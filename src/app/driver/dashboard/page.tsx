@@ -5,31 +5,32 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { AppShell } from '@/components/layout/AppShell';
 import {
-  DriverAlert,
+  DriverActionHero,
+  DriverCommandHeader,
   DriverEmptyState,
   DriverErrorState,
-  DriverHeroCard,
+  DriverKpiCard,
   DriverLoadingState,
-  DriverPageHeader,
-  DriverQuickAction,
-  DriverStatGrid,
-  DriverTripCard,
+  DriverNotice,
+  DriverQuickActionCard,
+  DriverRouteCard,
+  DriverSectionTitle,
   Bell,
   MapPin,
   Shield,
 } from '@/components/driver/DriverUI';
-import { Button, Card } from '@/components/ui';
+import { Button } from '@/components/ui';
 import { tripService } from '@/services/tripService';
 import type { TripStatus } from '@/lib/trips/tripLifecycle';
-import { isActiveStatus, isTrackableStatus } from '@/lib/trips/tripLifecycle';
+import { isTrackableStatus } from '@/lib/trips/tripLifecycle';
 import {
   fmtDriverTime,
-  getDriverPrimaryAction,
+  formatCountdown,
   getDriverStatusActionLabel,
   isWithinTrackingWindow,
   minutesUntilPickup,
 } from '@/lib/ui/driverPortal';
-import { ClipboardList, UserRound } from 'lucide-react';
+import { Calendar, CheckCircle2, ClipboardList, Clock, UserRound } from 'lucide-react';
 
 type Trip = {
   id: string;
@@ -73,137 +74,117 @@ export default function DriverDashboardPage() {
   const today = new Date().toISOString().split('T')[0]!;
   const todayTrips = trips.filter((t) => t.scheduledDate.startsWith(today));
   const activeTrip = trips.find((t) => ACTIVE.has(t.status));
-  const nextTrip = todayTrips
+  const heroTrip = activeTrip ?? todayTrips
     .filter((t) => UPCOMING.has(t.status) || ACTIVE.has(t.status))
     .sort((a, b) => (a.scheduledPickupTime ?? '').localeCompare(b.scheduledPickupTime ?? ''))[0];
   const completedToday = todayTrips.filter((t) => t.status === 'COMPLETED').length;
   const upcomingCount = todayTrips.filter((t) => UPCOMING.has(t.status)).length;
+  const minsNext = heroTrip ? minutesUntilPickup(heroTrip.scheduledPickupTime) : null;
+  const countdown = formatCountdown(minsNext);
 
-  const nextAction = activeTrip
-    ? getDriverStatusActionLabel(activeTrip.status)
-    : nextTrip
-    ? getDriverPrimaryAction(nextTrip.status, isWithinTrackingWindow(nextTrip.scheduledPickupTime)).label
-    : 'Review your schedule';
-
-  const warnings: string[] = [];
-  const minsNext = nextTrip ? minutesUntilPickup(nextTrip.scheduledPickupTime) : null;
-  if (minsNext != null && minsNext > 0 && minsNext <= 30 && !activeTrip) {
-    warnings.push(`Next trip starts in ~${minsNext} minutes.`);
-  }
-  if (activeTrip && isTrackableStatus(activeTrip.status)) {
-    warnings.push('Remember to start GPS sharing when en route.');
-  }
-
-  const attentionAlerts: { variant: 'gps' | 'soon' | 'late'; title: string; message: string; href?: string }[] = [];
-  if (!activeTrip && nextTrip && minsNext != null && minsNext <= 15) {
-    attentionAlerts.push({
-      variant: 'soon',
-      title: 'Trip starts soon',
-      message: `${nextTrip.rider?.name ?? 'Rider'} pickup at ${fmtDriverTime(nextTrip.scheduledPickupTime)}.`,
-      href: '/trips',
-    });
-  }
-  if (activeTrip && isTrackableStatus(activeTrip.status)) {
-    attentionAlerts.push({
-      variant: 'gps',
-      title: 'GPS sharing recommended',
-      message: 'Families can follow the ride once you start sharing location.',
-      href: `/tracking/${activeTrip.id}`,
-    });
-  }
+  const primaryCta = activeTrip
+    ? { label: getDriverStatusActionLabel(activeTrip.status), href: `/tracking/${activeTrip.id}` }
+    : heroTrip && isWithinTrackingWindow(heroTrip.scheduledPickupTime)
+    ? { label: 'Start GPS', href: `/tracking/${heroTrip.id}` }
+    : heroTrip
+    ? { label: 'Navigate to pickup', href: '/trips' }
+    : { label: 'Open route sheet', href: '/trips' };
 
   const previewTrips = [...todayTrips]
     .sort((a, b) => (a.scheduledPickupTime ?? '').localeCompare(b.scheduledPickupTime ?? ''))
-    .slice(0, 5);
+    .slice(0, 4);
+
+  const dateLabel = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
 
   return (
     <AppShell>
-      <DriverPageHeader
-        title="Driver Dashboard"
-        subtitle="Your assignments and next actions for today"
-      />
+      <div className="max-w-3xl mx-auto driver-portal pb-24 md:pb-6">
+        <DriverCommandHeader
+          title="Driver Dashboard"
+          subtitle="Your command center for today's route"
+          dateLabel={dateLabel}
+          driverStatus="On duty"
+          gpsIndicator={activeTrip && isTrackableStatus(activeTrip.status) ? 'idle' : 'off'}
+        />
 
-      {loading ? (
-        <DriverLoadingState message="Loading your dashboard…" />
-      ) : error ? (
-        <DriverErrorState message={error} onRetry={() => window.location.reload()} />
-      ) : (
-        <div className="space-y-5">
-          <DriverHeroCard
-            nextTripLabel={
-              activeTrip
-                ? `Active: ${activeTrip.rider?.name ?? 'Rider'}`
-                : nextTrip
-                ? `Next: ${nextTrip.rider?.name ?? 'Rider'} at ${fmtDriverTime(nextTrip.scheduledPickupTime)}`
-                : 'No trips scheduled today'
-            }
-            nextAction={nextAction}
-            gpsStatus={activeTrip && isTrackableStatus(activeTrip.status) ? 'idle' : 'unavailable'}
-            warnings={warnings.length > 0 ? warnings : undefined}
-          />
+        {loading ? (
+          <DriverLoadingState message="Loading your dashboard…" />
+        ) : error ? (
+          <DriverErrorState message={error} onRetry={() => window.location.reload()} />
+        ) : (
+          <div className="space-y-4">
+            {heroTrip ? (
+              <DriverActionHero
+                riderName={heroTrip.rider?.name ?? 'Rider'}
+                pickup={heroTrip.pickupLocation}
+                dropoff={heroTrip.dropoffLocation}
+                time={fmtDriverTime(heroTrip.scheduledPickupTime)}
+                countdown={countdown}
+                statusLabel={activeTrip ? 'Active trip' : 'Next trip'}
+                primaryAction={primaryCta.label}
+                onPrimaryAction={() => { window.location.href = primaryCta.href; }}
+                gpsStatus={activeTrip && isTrackableStatus(activeTrip.status) ? 'idle' : 'unavailable'}
+                secondaryActions={
+                  <>
+                    <Link href="/trips"><Button variant="outline" size="sm">Route sheet</Button></Link>
+                    {!activeTrip && heroTrip && (
+                      <Link href={`/tracking/${heroTrip.id}`}><Button variant="ghost" size="sm">Live map</Button></Link>
+                    )}
+                  </>
+                }
+              />
+            ) : (
+              <DriverEmptyState
+                title="No trips today"
+                description="Your route will appear here once trips are assigned."
+                action={<Link href="/trips"><Button variant="primary" size="sm">View route sheet</Button></Link>}
+              />
+            )}
 
-          <DriverStatGrid
-            stats={[
-              { label: "Today's trips", value: todayTrips.length },
-              { label: 'Active now', value: activeTrip ? 1 : 0, accent: activeTrip ? '#14A34A' : '#6B7280' },
-              { label: 'Completed today', value: completedToday, accent: '#1D4ED8' },
-              { label: 'Upcoming', value: upcomingCount, accent: '#7C3AED' },
-            ]}
-          />
-
-          {attentionAlerts.length > 0 && (
-            <div className="space-y-2">
-              <p className="text-xs font-bold uppercase tracking-wider text-gray-500 px-1">Needs attention</p>
-              {attentionAlerts.map((a) => (
-                <DriverAlert
-                  key={a.title}
-                  variant={a.variant}
-                  title={a.title}
-                  message={a.message}
-                  action={a.href ? (
-                    <a href={a.href}>
-                      <Button variant="outline" size="sm">Open</Button>
-                    </a>
-                  ) : undefined}
-                />
-              ))}
+            <div className="grid grid-cols-2 gap-2.5">
+              <DriverKpiCard icon={Calendar} value={todayTrips.length} label="Today's trips" accent="#0B683A" />
+              <DriverKpiCard icon={Clock} value={activeTrip ? 1 : 0} label="Active now" accent={activeTrip ? '#14A34A' : '#6B7280'} />
+              <DriverKpiCard icon={CheckCircle2} value={completedToday} label="Completed" accent="#1D4ED8" />
+              <DriverKpiCard icon={ClipboardList} value={upcomingCount} label="Upcoming" accent="#7C3AED" />
             </div>
-          )}
 
-          <div className="grid lg:grid-cols-3 gap-5">
-            <div className="lg:col-span-2 space-y-3">
-              <div className="flex items-center justify-between">
-                <h2 className="text-base font-semibold text-gray-900">Today&apos;s schedule</h2>
-                <Link href="/trips" className="text-sm font-medium text-fizza-secondary hover:text-fizza-primary">
-                  View full route sheet
-                </Link>
-              </div>
+            {!activeTrip && minsNext != null && minsNext <= 20 && minsNext > 0 && heroTrip && (
+              <DriverNotice
+                variant="soon"
+                title="Trip starts soon"
+                message={`${heroTrip.rider?.name ?? 'Rider'} pickup at ${fmtDriverTime(heroTrip.scheduledPickupTime)}.`}
+                action={<Link href="/trips"><Button variant="outline" size="sm">Prepare</Button></Link>}
+              />
+            )}
+            {activeTrip && isTrackableStatus(activeTrip.status) && (
+              <DriverNotice
+                variant="gps"
+                title="Start GPS sharing"
+                message="Families can follow the ride once you share live location."
+                action={<Link href={`/tracking/${activeTrip.id}`}><Button variant="primary" size="sm">Open Live GPS</Button></Link>}
+              />
+            )}
 
-              {previewTrips.length === 0 ? (
-                <DriverEmptyState
-                  title="No trips today"
-                  description="The admin assigns trips based on your vehicle and service area."
-                  action={
-                    <Link href="/trips">
-                      <Button variant="outline" size="sm">Open route sheet</Button>
-                    </Link>
-                  }
-                />
-              ) : (
+            <div>
+              <DriverSectionTitle
+                title="Today's schedule"
+                action={<Link href="/trips" className="text-xs font-semibold text-fizza-secondary hover:underline">View all</Link>}
+              />
+              {previewTrips.length === 0 ? null : (
                 <div className="space-y-2">
                   {previewTrips.map((trip) => (
-                    <DriverTripCard
+                    <DriverRouteCard
                       key={trip.id}
                       time={fmtDriverTime(trip.scheduledPickupTime)}
                       riderName={trip.rider?.name ?? 'Rider'}
+                      riderMeta={trip.rider?.school ?? undefined}
                       pickup={trip.pickupLocation}
                       dropoff={trip.dropoffLocation}
                       legType={trip.legType ?? 'OUTBOUND'}
                       status={trip.status}
+                      highlighted={ACTIVE.has(trip.status)}
                       secondaryActions={
-                        <Link href={`/tracking/${trip.id}`}>
-                          <Button variant="ghost" size="sm">Details</Button>
-                        </Link>
+                        <Link href={`/tracking/${trip.id}`}><Button variant="ghost" size="sm">Details</Button></Link>
                       }
                     />
                   ))}
@@ -211,19 +192,19 @@ export default function DriverDashboardPage() {
               )}
             </div>
 
-            <Card>
-              <h2 className="text-base font-semibold text-gray-900 mb-3">Quick actions</h2>
-              <div className="space-y-1">
-                <DriverQuickAction href="/trips" Icon={ClipboardList} title="My route sheet" subtitle={`${upcomingCount} upcoming today`} accent="bg-emerald-50 text-fizza-secondary" />
-                <DriverQuickAction href="/tracking" Icon={MapPin} title="Start GPS tracking" subtitle="Share live location" accent="bg-blue-50 text-blue-600" />
-                <DriverQuickAction href="/safety" Icon={Shield} title="Report safety issue" subtitle="Safety Center" accent="bg-red-50 text-red-500" />
-                <DriverQuickAction href="/notifications" Icon={Bell} title="Notifications" subtitle="Dispatch & trip updates" accent="bg-amber-50 text-amber-600" />
-                <DriverQuickAction href="/profile" Icon={UserRound} title="Profile" subtitle="Account settings" accent="bg-gray-100 text-gray-600" />
+            <div>
+              <DriverSectionTitle title="Quick actions" />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <DriverQuickActionCard href="/trips" Icon={ClipboardList} title="Route sheet" subtitle={`${upcomingCount} upcoming today`} accent="bg-emerald-50 text-fizza-secondary" />
+                <DriverQuickActionCard href="/tracking" Icon={MapPin} title="Live GPS" subtitle="Share location" accent="bg-blue-50 text-blue-600" />
+                <DriverQuickActionCard href="/safety" Icon={Shield} title="Safety Center" subtitle="Report an incident" accent="bg-red-50 text-red-600" />
+                <DriverQuickActionCard href="/notifications" Icon={Bell} title="Notifications" subtitle="Dispatch updates" accent="bg-amber-50 text-amber-600" />
+                <DriverQuickActionCard href="/profile" Icon={UserRound} title="Profile" subtitle="Account settings" accent="bg-gray-100 text-gray-600" />
               </div>
-            </Card>
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </AppShell>
   );
 }

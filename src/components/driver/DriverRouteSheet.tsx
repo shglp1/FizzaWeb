@@ -4,30 +4,33 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { DriverGpsPanel } from '@/components/DriverGpsPanel';
 import {
-  DriverActionBar,
+  DriverActionHero,
+  DriverBottomActionBar,
+  DriverCommandHeader,
   DriverEmptyState,
   DriverErrorState,
+  DriverKpiCard,
   DriverLoadingState,
-  DriverPageHeader,
-  DriverSafetyKpiRow,
-  DriverStatGrid,
-  DriverTripCard,
+  DriverRouteCard,
+  DriverSectionTitle,
   Navigation,
 } from '@/components/driver/DriverUI';
 import { Button, Tabs } from '@/components/ui';
 import { tripService } from '@/services/tripService';
 import type { TripStatus } from '@/lib/trips/tripLifecycle';
-import { isTrackableStatus, TRIP_STATUS_LABEL } from '@/lib/trips/tripLifecycle';
+import { isTrackableStatus } from '@/lib/trips/tripLifecycle';
 import {
   DRIVER_ROUTE_SHEET_TABS,
   fmtDriverDate,
   fmtDriverTime,
+  formatCountdown,
   getDriverPrimaryAction,
   isWithinTrackingWindow,
+  minutesUntilPickup,
   type DriverTripTab,
 } from '@/lib/ui/driverPortal';
 import { groupTripsByDate as groupByDate } from '@/lib/ui/driverRouteSheet';
-import { ExternalLink, MapPin, Shield } from 'lucide-react';
+import { Calendar, CheckCircle2, Clock, MapPin, MessageSquare, MoreHorizontal, Shield } from 'lucide-react';
 import { tripToGoogleMapsUrl } from '@/lib/maps/googleMapsLink';
 
 type Trip = {
@@ -57,89 +60,6 @@ function weekEndDate(): string {
   return d.toISOString().split('T')[0]!;
 }
 
-function ActiveTripPanel({ trip, onRefresh }: { trip: Trip; onRefresh: () => void }) {
-  const [updating, setUpdating] = useState(false);
-  const [err, setErr] = useState('');
-  const status = trip.status as TripStatus;
-  const action = getDriverPrimaryAction(status, isWithinTrackingWindow(trip.scheduledPickupTime));
-
-  async function advance() {
-    if (!action.nextStatus) return;
-    setUpdating(true);
-    setErr('');
-    const res = await tripService.updateStatus(trip.id, action.nextStatus);
-    setUpdating(false);
-    if (res.error) setErr(res.error.message ?? 'Update failed.');
-    else onRefresh();
-  }
-
-  async function reportLate() {
-    setUpdating(true);
-    const res = await tripService.reportLate(trip.id, 'RIDER', 'Rider not ready at pickup');
-    setUpdating(false);
-    if (res.error) setErr(res.error.message ?? 'Failed.');
-    else onRefresh();
-  }
-
-  async function noShow() {
-    const reason = window.prompt('No-show reason (required):');
-    if (!reason?.trim()) return;
-    setUpdating(true);
-    const res = await tripService.updateStatus(trip.id, 'NO_SHOW', { statusReason: reason.trim() });
-    setUpdating(false);
-    if (res.error) setErr(res.error.message ?? 'Failed.');
-    else onRefresh();
-  }
-
-  const navUrl = trip.pickupLat != null && trip.pickupLng != null
-    ? `https://www.google.com/maps/dir/?api=1&destination=${trip.pickupLat},${trip.pickupLng}`
-    : tripToGoogleMapsUrl(trip);
-
-  return (
-    <div className="rounded-2xl border-2 border-fizza-secondary/40 bg-emerald-50/30 p-4 mb-4">
-      <div className="flex items-start justify-between gap-3 mb-3">
-        <div>
-          <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase text-emerald-700">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            Active trip
-          </span>
-          <h2 className="text-lg font-bold text-gray-900 mt-1">{trip.rider?.name ?? 'Rider'}</h2>
-        </div>
-      </div>
-      {err && <p className="text-xs text-red-600 mb-2">{err}</p>}
-      <DriverActionBar>
-        {action.kind === 'status' && action.nextStatus && (
-          <Button variant="primary" size="sm" loading={updating} onClick={advance}>
-            {action.label}
-          </Button>
-        )}
-        <a href={navUrl} target="_blank" rel="noopener noreferrer">
-          <Button variant="outline" size="sm">
-            <Navigation className="h-3.5 w-3.5" aria-hidden />
-            Navigate
-          </Button>
-        </a>
-        <Link href={`/tracking/${trip.id}`}>
-          <Button variant="outline" size="sm">Live map</Button>
-        </Link>
-        {status === 'ARRIVED_PICKUP' && (
-          <>
-            <Button variant="outline" size="sm" loading={updating} onClick={reportLate}>Rider late</Button>
-            <Button variant="danger-outline" size="sm" loading={updating} onClick={noShow}>No show</Button>
-          </>
-        )}
-        <Link href="/safety">
-          <Button variant="ghost" size="sm">
-            <Shield className="h-3.5 w-3.5" aria-hidden />
-            Safety
-          </Button>
-        </Link>
-      </DriverActionBar>
-      {isTrackableStatus(status) && <DriverGpsPanel tripId={trip.id} />}
-    </div>
-  );
-}
-
 export function DriverRouteSheet() {
   const [trips, setTrips] = useState<Trip[]>([]);
   const [loading, setLoading] = useState(true);
@@ -148,6 +68,7 @@ export function DriverRouteSheet() {
   const [page, setPage] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
   const [hasMore, setHasMore] = useState(false);
+  const [actionLoading, setActionLoading] = useState(false);
 
   const today = new Date().toISOString().split('T')[0]!;
   const tomorrow = (() => {
@@ -175,10 +96,7 @@ export function DriverRouteSheet() {
 
     const res = await tripService.list({
       status: status ?? (activeTab === 'today' || activeTab === 'tomorrow' ? undefined : 'upcoming'),
-      from,
-      to,
-      page: pageNum,
-      limit: 50,
+      from, to, page: pageNum, limit: 50,
     });
 
     if (res.data) {
@@ -201,11 +119,11 @@ export function DriverRouteSheet() {
 
   const todayTrips = trips.filter((t) => t.scheduledDate.startsWith(today));
   const activeTrip = trips.find((t) => ACTIVE.has(t.status));
+  const nextTrip = todayTrips
+    .filter((t) => UPCOMING.has(t.status))
+    .sort((a, b) => (a.scheduledPickupTime ?? '').localeCompare(b.scheduledPickupTime ?? ''))[0];
   const completedToday = todayTrips.filter((t) => t.status === 'COMPLETED').length;
   const remainingToday = todayTrips.filter((t) => !['COMPLETED', 'CANCELLED', 'NO_SHOW'].includes(t.status)).length;
-  const nextPickup = todayTrips
-    .filter((t) => UPCOMING.has(t.status) || ACTIVE.has(t.status))
-    .sort((a, b) => (a.scheduledPickupTime ?? '').localeCompare(b.scheduledPickupTime ?? ''))[0];
 
   function displayTrips(): Trip[] {
     switch (activeTab) {
@@ -229,10 +147,23 @@ export function DriverRouteSheet() {
     const status = trip.status as TripStatus;
     const action = getDriverPrimaryAction(status, isWithinTrackingWindow(trip.scheduledPickupTime));
     if (action.kind === 'status' && action.nextStatus) {
+      setActionLoading(true);
       await tripService.updateStatus(trip.id, action.nextStatus);
+      setActionLoading(false);
       setLoading(true);
       loadTrips(page, false);
     }
+  }
+
+  async function handleActiveAdvance() {
+    if (!activeTrip) return;
+    const action = getDriverPrimaryAction(activeTrip.status as TripStatus, isWithinTrackingWindow(activeTrip.scheduledPickupTime));
+    if (!action.nextStatus) return;
+    setActionLoading(true);
+    await tripService.updateStatus(activeTrip.id, action.nextStatus);
+    setActionLoading(false);
+    setLoading(true);
+    loadTrips(page, false);
   }
 
   const tabs = DRIVER_ROUTE_SHEET_TABS.map((t) => ({
@@ -241,37 +172,87 @@ export function DriverRouteSheet() {
       t.value === 'active' ? trips.filter((x) => ACTIVE.has(x.status)).length : undefined,
   }));
 
+  const dateLabel = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+  const activeAction = activeTrip
+    ? getDriverPrimaryAction(activeTrip.status as TripStatus, isWithinTrackingWindow(activeTrip.scheduledPickupTime))
+    : null;
+  const navUrl = activeTrip
+    ? tripToGoogleMapsUrl(activeTrip)
+    : nextTrip ? tripToGoogleMapsUrl(nextTrip) : '#';
+
   return (
-    <>
-      <DriverPageHeader
+    <div className="max-w-3xl mx-auto driver-portal pb-28 md:pb-6">
+      <DriverCommandHeader
         title="My Route Sheet"
-        subtitle={`${new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })} · ${totalCount || trips.length} assigned trips`}
+        subtitle={`${totalCount || trips.length} assigned trips`}
+        dateLabel={dateLabel}
       />
 
       {!loading && !pageError && (
-        <>
-          <DriverStatGrid
-            stats={[
-              { label: 'Next pickup', value: nextPickup ? fmtDriverTime(nextPickup.scheduledPickupTime) : '—', accent: '#0B683A' },
-              { label: 'Active', value: activeTrip ? 1 : 0, accent: '#14A34A' },
-              { label: 'Completed today', value: completedToday, accent: '#1D4ED8' },
-              { label: 'Remaining', value: remainingToday, accent: '#7C3AED' },
-            ]}
-          />
-
-          {activeTrip && (
-            <div className="mt-4">
-              <ActiveTripPanel trip={activeTrip} onRefresh={() => { setLoading(true); loadTrips(page, false); }} />
-            </div>
-          )}
-        </>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mb-4">
+          <DriverKpiCard icon={Calendar} value={todayTrips.length} label="Today total" accent="#0B683A" />
+          <DriverKpiCard icon={Clock} value={activeTrip ? 1 : 0} label="Active" accent="#14A34A" />
+          <DriverKpiCard icon={CheckCircle2} value={completedToday} label="Completed" accent="#1D4ED8" />
+          <DriverKpiCard icon={MapPin} value={remainingToday} label="Remaining" accent="#7C3AED" helper={nextTrip ? `Next ${fmtDriverTime(nextTrip.scheduledPickupTime)}` : undefined} />
+        </div>
       )}
 
-      <div className="mt-4">
+      {!loading && activeTrip && (
+        <div className="mb-4">
+          <DriverSectionTitle title="Active trip" />
+          <DriverActionHero
+            eyebrow="In progress"
+            riderName={activeTrip.rider?.name ?? 'Rider'}
+            pickup={activeTrip.pickupLocation}
+            dropoff={activeTrip.dropoffLocation}
+            time={fmtDriverTime(activeTrip.scheduledPickupTime)}
+            statusLabel="Active now"
+            gpsStatus="idle"
+            primaryAction={activeAction?.label}
+            onPrimaryAction={handleActiveAdvance}
+            secondaryActions={
+              <>
+                <a href={navUrl} target="_blank" rel="noopener noreferrer"><Button variant="outline" size="sm"><Navigation className="h-3.5 w-3.5" aria-hidden />Navigate</Button></a>
+                <Link href={`/tracking/${activeTrip.id}`}><Button variant="ghost" size="sm">Live map</Button></Link>
+              </>
+            }
+          />
+          {isTrackableStatus(activeTrip.status as TripStatus) && (
+            <div className="mt-2 rounded-xl border border-gray-100 bg-white p-3">
+              <DriverGpsPanel tripId={activeTrip.id} />
+            </div>
+          )}
+        </div>
+      )}
+
+      {!loading && !activeTrip && nextTrip && activeTab === 'today' && (
+        <div className="mb-4">
+          <DriverSectionTitle title="Next trip" />
+          <DriverActionHero
+            eyebrow="Up next"
+            riderName={nextTrip.rider?.name ?? 'Rider'}
+            pickup={nextTrip.pickupLocation}
+            dropoff={nextTrip.dropoffLocation}
+            time={fmtDriverTime(nextTrip.scheduledPickupTime)}
+            countdown={formatCountdown(minutesUntilPickup(nextTrip.scheduledPickupTime))}
+            statusLabel="Scheduled"
+            gpsStatus="unavailable"
+            primaryAction={isWithinTrackingWindow(nextTrip.scheduledPickupTime) ? 'Start pre-trip' : 'View details'}
+            onPrimaryAction={() => handlePrimary(nextTrip)}
+            secondaryActions={
+              <a href={tripToGoogleMapsUrl(nextTrip)} target="_blank" rel="noopener noreferrer">
+                <Button variant="outline" size="sm">Navigate</Button>
+              </a>
+            }
+          />
+        </div>
+      )}
+
+      <div className="overflow-x-auto -mx-1 px-1 pb-1">
         <Tabs tabs={tabs} activeTab={activeTab} onChange={(v) => setActiveTab(v as DriverTripTab)} />
       </div>
 
-      <p className="text-xs text-gray-500 mt-3 mb-3">
+      <p className="text-xs font-medium text-gray-500 mt-3 mb-3">
         Showing {shown.length} of {totalCount || trips.length} trips
       </p>
 
@@ -282,81 +263,71 @@ export function DriverRouteSheet() {
       ) : shown.length === 0 ? (
         <DriverEmptyState
           title={activeTab === 'today' ? 'No trips today' : `No ${activeTab} trips`}
-          description={
-            activeTab === 'today'
-              ? "You don't have any trips scheduled for today."
-              : 'Try another tab or check back later.'
-          }
+          description={activeTab === 'today' ? "You don't have trips scheduled for today." : 'Try another tab.'}
         />
       ) : grouped ? (
         <div className="space-y-4">
           {Array.from(grouped.entries()).map(([dateKey, dateTrips]) => (
             <div key={dateKey}>
-              <p className="text-sm font-semibold text-gray-700 mb-2">{fmtDriverDate(dateKey)}</p>
-              <div className="space-y-2">
-                {dateTrips.map((trip) => renderTripCard(trip))}
-              </div>
+              <DriverSectionTitle title={fmtDriverDate(dateKey)} />
+              <div className="space-y-2">{dateTrips.map((trip) => renderTripCard(trip))}</div>
             </div>
           ))}
         </div>
       ) : (
-        <div className="space-y-2">
-          {shown.map((trip) => renderTripCard(trip))}
-        </div>
+        <div className="space-y-2">{shown.map((trip) => renderTripCard(trip))}</div>
       )}
 
       {hasMore && !loading && (
-        <Button
-          variant="outline"
-          size="sm"
-          className="mt-4 w-full sm:w-auto"
-          onClick={() => { const n = page + 1; setPage(n); setLoading(true); loadTrips(n, true); }}
-        >
-          Load more
+        <Button variant="outline" size="sm" className="mt-4 w-full min-h-10 font-semibold" onClick={() => { const n = page + 1; setPage(n); setLoading(true); loadTrips(n, true); }}>
+          Load more trips
         </Button>
       )}
-    </>
+
+      <DriverBottomActionBar label="Active trip actions" visible={!!activeTrip}>
+        {activeAction?.kind === 'status' && activeAction.nextStatus && (
+          <Button variant="primary" size="sm" loading={actionLoading} onClick={handleActiveAdvance} className="flex-1 min-h-10">
+            {activeAction.label}
+          </Button>
+        )}
+        <a href={navUrl} target="_blank" rel="noopener noreferrer" className="flex-1">
+          <Button variant="outline" size="sm" className="w-full min-h-10">Navigate</Button>
+        </a>
+        <Link href={`/tracking/${activeTrip?.id}`}><Button variant="ghost" size="sm" className="min-h-10">GPS</Button></Link>
+        <Link href="/safety"><Button variant="ghost" size="sm" className="min-h-10"><Shield className="h-4 w-4" aria-hidden /></Button></Link>
+      </DriverBottomActionBar>
+    </div>
   );
 
   function renderTripCard(trip: Trip) {
     const status = trip.status as TripStatus;
     const within = isWithinTrackingWindow(trip.scheduledPickupTime);
     const action = getDriverPrimaryAction(status, within);
-    const mapsUrl = tripToGoogleMapsUrl(trip);
+    const isCancelled = CANCELLED.has(trip.status);
 
     return (
-      <DriverTripCard
+      <DriverRouteCard
         key={trip.id}
         time={fmtDriverTime(trip.scheduledPickupTime)}
         dateLabel={fmtDriverDate(trip.scheduledDate)}
         riderName={trip.rider?.name ?? 'Rider'}
+        riderMeta={trip.rider?.school ?? undefined}
         pickup={trip.pickupLocation}
         dropoff={trip.dropoffLocation}
         legType={trip.legType ?? 'OUTBOUND'}
         status={status}
+        highlighted={ACTIVE.has(trip.status)}
+        attention={isCancelled ? 'cancelled' : trip.status === 'SCHEDULED' ? 'dispatch' : undefined}
         primaryAction={action.kind === 'status' ? action.label : action.kind === 'view' ? action.label : undefined}
         onPrimaryAction={action.kind === 'status' ? () => handlePrimary(trip) : undefined}
         primaryDisabled={action.disabled}
         primaryDisabledReason={action.disabledReason}
         secondaryActions={
           <>
-            <a href={mapsUrl} target="_blank" rel="noopener noreferrer">
-              <Button variant="outline" size="sm">
-                <ExternalLink className="h-3.5 w-3.5" aria-hidden />
-                Maps
-              </Button>
-            </a>
-            <Link href={`/tracking/${trip.id}`}>
-              <Button variant="ghost" size="sm">
-                <MapPin className="h-3.5 w-3.5" aria-hidden />
-                Track
-              </Button>
-            </Link>
-            {isTrackableStatus(status) && within && (
-              <Link href={`/tracking/${trip.id}`}>
-                <Button variant="ghost" size="sm">GPS</Button>
-              </Link>
-            )}
+            <Link href={`/tracking/${trip.id}`}><Button variant="outline" size="sm"><MapPin className="h-3.5 w-3.5" aria-hidden />Map</Button></Link>
+            <Link href="/safety"><Button variant="ghost" size="sm"><Shield className="h-3.5 w-3.5" aria-hidden /></Button></Link>
+            <Button variant="ghost" size="sm" title="Chat coming soon" disabled><MessageSquare className="h-3.5 w-3.5" aria-hidden /></Button>
+            <Button variant="ghost" size="sm" disabled title="More actions"><MoreHorizontal className="h-3.5 w-3.5" aria-hidden /></Button>
           </>
         }
       />

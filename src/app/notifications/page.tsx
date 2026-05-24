@@ -3,9 +3,9 @@
 import { useEffect, useState } from 'react';
 import { AppShell } from '@/components/layout/AppShell';
 import {
-  PageHeader,
   Card,
   Button,
+  PageHeader,
   Badge,
   LoadingState,
   ErrorState,
@@ -13,11 +13,12 @@ import {
 } from '@/components/ui';
 import { notificationService } from '@/services/notificationService';
 import {
+  DriverCommandHeader,
   DriverEmptyState,
   DriverErrorState,
   DriverLoadingState,
+  DriverNotificationCard,
   DriverNotificationGroup,
-  DriverPageHeader,
 } from '@/components/driver/DriverUI';
 import {
   groupNotificationsByDay,
@@ -133,68 +134,30 @@ export default function NotificationsPage() {
 
   const isDriver = userRole === 'DRIVER';
   const grouped = groupNotificationsByDay(notifications);
-  const categoryVariant: Record<string, 'info' | 'success' | 'danger' | 'warning' | 'purple' | 'gray'> = {
-    Trip: 'purple',
-    Dispatch: 'warning',
-    Safety: 'danger',
-    Payment: 'success',
-    System: 'gray',
-  };
 
-  function renderNotification(notif: Notification) {
+  function renderDriverNotification(notif: Notification) {
     const meta = TYPE_META[notif.type] ?? DEFAULT_META;
     const category = mapNotificationCategory(notif.type);
     return (
-      <div
+      <DriverNotificationCard
         key={notif.id}
-        className={`flex items-start gap-3 px-2 py-3.5 transition-colors rounded-xl ${
-          notif.isRead ? 'opacity-60' : 'bg-emerald-50/40'
-        }`}
-      >
-        <div className="mt-1 shrink-0 flex items-center justify-center w-5">
-          {!notif.isRead && <span className="w-2 h-2 rounded-full bg-fizza-secondary" />}
-        </div>
-        <div className={`flex h-9 w-9 items-center justify-center rounded-xl shrink-0 ${notif.isRead ? 'bg-gray-100' : 'bg-emerald-50'}`}>
-          <meta.Icon className="h-5 w-5" strokeWidth={1.75} aria-hidden />
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-start justify-between gap-2 mb-0.5">
-            <p className={`text-sm font-semibold truncate ${notif.isRead ? 'text-gray-600' : 'text-gray-900'}`}>
-              {notif.title}
-            </p>
-            <span className="text-xs text-gray-400 whitespace-nowrap shrink-0">{fmtDate(notif.createdAt)}</span>
-          </div>
-          <p className="text-sm text-gray-500 leading-relaxed">{notif.message}</p>
-          <div className="flex items-center gap-2 mt-1.5">
-            <Badge variant={categoryVariant[category] ?? meta.variant} className="text-[10px]">{category}</Badge>
-            <Badge variant={meta.variant} className="text-[10px]">{meta.label}</Badge>
-          </div>
-        </div>
-        {!notif.isRead && (
-          <button
-            onClick={() => handleMarkRead(notif.id)}
-            disabled={markingId === notif.id}
-            className="shrink-0 flex h-7 w-7 items-center justify-center rounded-lg text-gray-400 hover:bg-emerald-50 hover:text-fizza-secondary transition-colors disabled:opacity-50 mt-0.5"
-            title="Mark as read"
-            aria-label="Mark as read"
-          >
-            {markingId === notif.id ? (
-              <span className="animate-spin text-xs">...</span>
-            ) : (
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
-            )}
-          </button>
-        )}
-      </div>
+        title={notif.title}
+        message={notif.message}
+        time={fmtDate(notif.createdAt)}
+        category={category}
+        unread={!notif.isRead}
+        icon={meta.Icon}
+        marking={markingId === notif.id}
+        onMarkRead={!notif.isRead ? () => handleMarkRead(notif.id) : undefined}
+      />
     );
   }
 
   return (
     <AppShell>
+      <div className="max-w-3xl mx-auto driver-portal pb-24 md:pb-6">
       {isDriver ? (
-        <DriverPageHeader
+        <DriverCommandHeader
           title={unreadCount > 0 ? `Notifications · ${unreadCount} unread` : 'Notifications'}
           subtitle="Trip, dispatch, and safety updates for your route."
           action={
@@ -253,12 +216,12 @@ export default function NotificationsPage() {
         <div className="space-y-5">
           {grouped.today.length > 0 && (
             <DriverNotificationGroup title="Today">
-              <Card padding="sm"><div className="divide-y divide-gray-50">{grouped.today.map(renderNotification)}</div></Card>
+              {grouped.today.map(renderDriverNotification)}
             </DriverNotificationGroup>
           )}
           {grouped.earlier.length > 0 && (
             <DriverNotificationGroup title="Earlier">
-              <Card padding="sm"><div className="divide-y divide-gray-50">{grouped.earlier.map(renderNotification)}</div></Card>
+              {grouped.earlier.map(renderDriverNotification)}
             </DriverNotificationGroup>
           )}
         </div>
@@ -324,6 +287,7 @@ export default function NotificationsPage() {
           </div>
         </Card>
       )}
+      </div>
     </AppShell>
   );
 }

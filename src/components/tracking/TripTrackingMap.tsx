@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 export type TripMapPoint = {
   driverLat?: number | null;
@@ -35,7 +35,8 @@ export function TripTrackingMap({
   stale = false,
   className = '',
   height = 360,
-}: TripMapPoint & { className?: string; height?: number }) {
+  onReadyChange,
+}: TripMapPoint & { className?: string; height?: number; onReadyChange?: (ready: boolean) => void }) {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<import('leaflet').Map | null>(null);
   const layersRef = useRef<{
@@ -44,6 +45,11 @@ export function TripTrackingMap({
     dropoff?: import('leaflet').Marker;
     route?: import('leaflet').Polyline;
   }>({});
+  const [tilesReady, setTilesReady] = useState(false);
+
+  useEffect(() => {
+    onReadyChange?.(tilesReady);
+  }, [tilesReady, onReadyChange]);
 
   useEffect(() => {
     if (!document.querySelector('#leaflet-css')) {
@@ -58,6 +64,7 @@ export function TripTrackingMap({
   useEffect(() => {
     if (!mapRef.current) return;
     let cancelled = false;
+    setTilesReady(false);
 
     import('leaflet').then((L) => {
       if (cancelled || !mapRef.current) return;
@@ -86,7 +93,9 @@ export function TripTrackingMap({
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
           attribution: '&copy; OpenStreetMap contributors',
           maxZoom: 19,
-        }).addTo(map);
+        }).addTo(map).on('load', () => {
+          if (!cancelled) setTilesReady(true);
+        });
       }
 
       const map = mapInstanceRef.current;
@@ -173,7 +182,10 @@ export function TripTrackingMap({
       requestAnimationFrame(() => {
         map.invalidateSize();
       });
-      setTimeout(() => map.invalidateSize(), 200);
+      setTimeout(() => {
+        map.invalidateSize();
+        if (!cancelled) setTilesReady(true);
+      }, 400);
     }).catch(() => { /* leaflet load failed */ });
 
     return () => { cancelled = true; };

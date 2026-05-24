@@ -7,22 +7,24 @@ import { AppShell } from '@/components/layout/AppShell';
 import { DriverGpsPanel } from '@/components/DriverGpsPanel';
 import {
   DriverActionBar,
+  DriverBottomActionBar,
+  DriverCommandHeader,
   DriverMapFallback,
-  DriverPageHeader,
-  DriverTimeline,
+  DriverMapPanel,
+  DriverNotice,
+  DriverRouteTimeline,
   DriverErrorState,
   DriverLoadingState,
   Navigation,
 } from '@/components/driver/DriverUI';
 import { TripTrackingMap } from '@/components/tracking/TripTrackingMap';
 import {
-  Card, StatusBadge, Button, Alert,
+  Card, StatusBadge, Button,
 } from '@/components/ui';
 import { trackingService } from '@/services/trackingService';
 import { TRIP_STATUS_LABEL, isTrackableStatus } from '@/lib/trips/tripLifecycle';
 import type { TripStatus } from '@/lib/trips/tripLifecycle';
-import { TripEventIcon } from '@/components/trips/TripEventIcon';
-import { MapPin, XCircle, ExternalLink, Info, CheckCircle2, CircleOff } from 'lucide-react';
+import { MapPin, XCircle, Info, CheckCircle2, CircleOff } from 'lucide-react';
 import { tripToGoogleMapsUrl } from '@/lib/maps/googleMapsLink';
 import {
   getDriverPrimaryAction,
@@ -89,10 +91,6 @@ const STATUS_VARIANT: Record<string, 'info' | 'warning' | 'purple' | 'orange' | 
 function fmtTime(dt: string | null) {
   if (!dt) return '—';
   return new Date(dt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-}
-
-function fmtDateTime(dt: string) {
-  return new Date(dt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
 function minutesUntil(dt: string | null): number | null {
@@ -195,23 +193,6 @@ function LiveGpsGuide({
   );
 }
 
-function EventLog({ events }: { events: TripEvent[] }) {
-  if (events.length === 0) return null;
-  return (
-    <div className="space-y-2">
-      {events.map((ev) => (
-        <div key={ev.id} className="flex items-start gap-2 text-sm">
-          <TripEventIcon eventType={ev.eventType} className="h-4 w-4 text-fizza-secondary mt-0.5" />
-          <div className="flex-1 min-w-0">
-            <p className="text-gray-700">{ev.message ?? ev.eventType.replace(/_/g, ' ')}</p>
-            <p className="text-xs text-gray-400">{fmtDateTime(ev.createdAt)}</p>
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 export default function TrackingDetailPage() {
   const { tripId } = useParams<{ tripId: string }>();
   const [trip, setTrip] = useState<TrackingTrip | null>(null);
@@ -219,9 +200,9 @@ export default function TrackingDetailPage() {
   const [loading, setLoading] = useState(true);
   const [pageError, setPageError] = useState('');
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-  const [showEvents, setShowEvents] = useState(false);
   const [userRole, setUserRole] = useState<string | null>(null);
   const [statusUpdating, setStatusUpdating] = useState(false);
+  const [mapLoading, setMapLoading] = useState(true);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
@@ -322,9 +303,11 @@ export default function TrackingDetailPage() {
 
   return (
     <AppShell>
-      <DriverPageHeader
+      <div className="max-w-3xl mx-auto driver-portal pb-28 md:pb-6">
+      <DriverCommandHeader
         title={isDriver ? `Live GPS — ${trip.rider?.name ?? 'Trip'}` : `Tracking — ${trip.rider?.name ?? 'Rider'}`}
         subtitle={new Date(trip.scheduledDate).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+        gpsIndicator={location && !location.stale ? 'active' : trackable && isDriver ? 'idle' : 'off'}
         action={
           <Link href="/tracking">
             <Button variant="ghost" size="sm">All trips</Button>
@@ -332,7 +315,7 @@ export default function TrackingDetailPage() {
         }
       />
 
-      <div className="mb-4">
+      <div className="mb-3">
         <StatusBadge variant={STATUS_VARIANT[trip.status] ?? 'info'} className="text-sm px-3 py-1.5">
           {statusLabel}
         </StatusBadge>
@@ -340,86 +323,71 @@ export default function TrackingDetailPage() {
       </div>
 
       {location?.stale && (
-        <Alert variant="warning" className="mb-4">
-          GPS signal is delayed — location shown may be up to 1 minute old.
-        </Alert>
+        <DriverNotice variant="late" title="GPS signal delayed" message="Location shown may be up to 1 minute old." />
       )}
 
       {canRenderMap ? (
-        <Card className="mb-4 !p-0 overflow-hidden">
-          <div className="px-4 pt-3 pb-2 flex flex-wrap items-center justify-between gap-2">
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
-              {location ? 'Live location' : 'Route map'}
-            </p>
-            <div className="flex items-center gap-3">
-              {location && (
-                <span className="text-xs text-gray-400">
-                  {lastUpdated
-                    ? `Updated ${lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
-                    : 'Live'}
-                </span>
-              )}
-              <a href={routeMapsUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 hover:underline">
-                Open in Google Maps
-                <ExternalLink className="h-3 w-3" aria-hidden />
-              </a>
-            </div>
-          </div>
-          {isCancelled && (
-            <p className="px-4 pb-2 text-xs text-amber-700">Trip cancelled — live tracking has ended.</p>
-          )}
-          <TripTrackingMap {...mapPoints} height={320} className="sm:!h-[360px]" />
-          <div className="px-4 py-2 flex flex-wrap gap-4 text-xs text-gray-500">
-            {location && (
-              <span className="flex items-center gap-1">
-                <span className="inline-block w-3 h-3 rounded-full bg-blue-500 border-2 border-white shadow" />
-                Driver
-              </span>
-            )}
-            <span className="flex items-center gap-1">
-              <span className="inline-block w-3 h-3 rounded-full bg-emerald-500 border-2 border-white shadow" />
-              Pickup
-            </span>
-            <span className="flex items-center gap-1">
-              <span className="inline-block w-3 h-3 rounded-full bg-red-500 border-2 border-white shadow" />
-              Drop-off
-            </span>
-          </div>
-        </Card>
+        <div className="mb-4">
+          <DriverMapPanel
+            loading={mapLoading}
+            mapsUrl={routeMapsUrl}
+            statusOverlay={
+              <div className="inline-flex items-center gap-2 rounded-full bg-white/95 backdrop-blur px-3 py-1.5 text-xs font-semibold shadow-sm border border-gray-200">
+                <span className={`h-2 w-2 rounded-full ${location && !location.stale ? 'bg-emerald-500 animate-pulse' : liveGpsMode === 'live' ? 'bg-emerald-500' : 'bg-amber-400'}`} />
+                {location && !location.stale ? 'GPS active' : liveGpsMode === 'waiting_window' ? 'GPS opens soon' : liveGpsMode === 'live' ? 'GPS active' : 'GPS unavailable'}
+                {lastUpdated && location && (
+                  <span className="text-gray-500 font-normal">· {lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                )}
+              </div>
+            }
+            map={
+              <TripTrackingMap
+                {...mapPoints}
+                height={320}
+                className="sm:!min-h-[420px] sm:!h-[420px] rounded-none border-0"
+                onReadyChange={(ready) => setMapLoading(!ready)}
+              />
+            }
+          />
+        </div>
       ) : (
         <div className="mb-4">
           <DriverMapFallback pickup={trip.pickupLocation} dropoff={trip.dropoffLocation} mapsUrl={routeMapsUrl} />
         </div>
       )}
 
-      <LiveGpsGuide mode={liveGpsMode} minutesToPickup={minutesToPickup} statusLabel={statusLabel} isDriver={isDriver} />
+      {!isDriver && <LiveGpsGuide mode={liveGpsMode} minutesToPickup={minutesToPickup} statusLabel={statusLabel} isDriver={isDriver} />}
+      {isDriver && liveGpsMode !== 'live' && (
+        <div className="mb-4">
+          <DriverNotice
+            variant={liveGpsMode === 'waiting_window' ? 'soon' : 'gps'}
+            title={liveGpsMode === 'waiting_window' ? 'GPS opens soon' : 'Start sharing location'}
+            message={liveGpsMode === 'waiting_window'
+              ? `Tracking opens about 10 minutes before pickup${minutesToPickup != null ? ` (~${minutesToPickup} min)` : ''}.`
+              : 'Tap Start sharing below so families can follow the ride.'}
+          />
+        </div>
+      )}
 
       {isDriver && trackable && (
-        <Card className="mb-4">
-          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">GPS sharing</p>
+        <div className="mb-4 rounded-2xl border border-emerald-200 bg-gradient-to-br from-emerald-50/80 to-white p-4">
+          <p className="text-xs font-bold uppercase tracking-wider text-emerald-800 mb-3">GPS sharing</p>
           <DriverGpsPanel tripId={trip.id} />
           {driverAction && driverAction.kind === 'status' && driverAction.nextStatus && (
             <div className="mt-4">
               <DriverActionBar>
-                <Button variant="primary" size="sm" loading={statusUpdating} onClick={handleStatusAdvance}>
+                <Button variant="primary" size="sm" loading={statusUpdating} onClick={handleStatusAdvance} className="min-h-9">
                   {driverAction.label}
                 </Button>
                 <a href={routeMapsUrl} target="_blank" rel="noopener noreferrer">
-                  <Button variant="outline" size="sm">
-                    <Navigation className="h-3.5 w-3.5" aria-hidden />
-                    Navigate
-                  </Button>
+                  <Button variant="outline" size="sm"><Navigation className="h-3.5 w-3.5" aria-hidden />Navigate</Button>
                 </a>
-                <Link href="/trips">
-                  <Button variant="ghost" size="sm">Route sheet</Button>
-                </Link>
+                <Link href="/trips"><Button variant="ghost" size="sm">Route sheet</Button></Link>
               </DriverActionBar>
-              {driverAction.disabledReason && (
-                <p className="text-xs text-gray-500 mt-2">{driverAction.disabledReason}</p>
-              )}
+              {driverAction.disabledReason && <p className="text-xs text-amber-700 mt-2">{driverAction.disabledReason}</p>}
             </div>
           )}
-        </Card>
+        </div>
       )}
 
       <div className="grid grid-cols-1 gap-4 mb-4 sm:grid-cols-2">
@@ -493,23 +461,21 @@ export default function TrackingDetailPage() {
             <span>{statusLabel}</span>
           </div>
         ) : (
-          <DriverTimeline currentStatus={trip.status as TripStatus} />
+          <DriverRouteTimeline currentStatus={trip.status as TripStatus} />
         )}
       </Card>
 
-      {trip.events.length > 0 && (
-        <Card>
-          <button className="flex items-center justify-between w-full text-left" onClick={() => setShowEvents((v) => !v)}>
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
-              Activity log ({trip.events.length})
-            </p>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={`text-gray-400 transition-transform ${showEvents ? 'rotate-180' : ''}`} aria-hidden>
-              <polyline points="6 9 12 15 18 9" />
-            </svg>
-          </button>
-          {showEvents && <div className="mt-4"><EventLog events={trip.events} /></div>}
-        </Card>
+      {isDriver && trackable && driverAction?.kind === 'status' && (
+        <DriverBottomActionBar label="Trip actions" visible>
+          <Button variant="primary" size="sm" loading={statusUpdating} onClick={handleStatusAdvance} className="flex-1 min-h-10" disabled={!driverAction.nextStatus}>
+            {driverAction.label}
+          </Button>
+          <a href={routeMapsUrl} target="_blank" rel="noopener noreferrer" className="flex-1">
+            <Button variant="outline" size="sm" className="w-full min-h-10">Navigate</Button>
+          </a>
+        </DriverBottomActionBar>
       )}
+      </div>
     </AppShell>
   );
 }
