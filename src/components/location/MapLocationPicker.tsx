@@ -342,6 +342,7 @@ export function MapLocationPicker({
           longitude,
           provider: 'device',
         });
+        setGeoMessage('Using your current location — move the pin if needed.');
         setLocating(false);
         setQuery('');
         setSuggestions([]);
@@ -425,9 +426,9 @@ export function MapLocationPicker({
             {locating ? <Spinner /> : <PinIcon />}
             {locating ? 'Getting your location…' : 'Use my current location'}
           </button>
-          {geoMessage && (
-            <p className="mb-2 text-xs text-amber-700" role="status">{geoMessage}</p>
-          )}
+      {geoMessage && !staging && (
+        <p className="mb-2 text-xs text-emerald-700" role="status">{geoMessage}</p>
+      )}
 
           <div className="relative">
             <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-gray-400">
