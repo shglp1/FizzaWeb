@@ -4,8 +4,19 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { AppShell } from '@/components/layout/AppShell';
+import { DriverGpsPanel } from '@/components/DriverGpsPanel';
 import {
-  PageHeader, Card, StatusBadge, LoadingState, ErrorState, Button, Alert,
+  DriverActionBar,
+  DriverMapFallback,
+  DriverPageHeader,
+  DriverTimeline,
+  DriverErrorState,
+  DriverLoadingState,
+  Navigation,
+} from '@/components/driver/DriverUI';
+import { TripTrackingMap } from '@/components/tracking/TripTrackingMap';
+import {
+  Card, StatusBadge, Button, Alert,
 } from '@/components/ui';
 import { trackingService } from '@/services/trackingService';
 import { TRIP_STATUS_LABEL, isTrackableStatus } from '@/lib/trips/tripLifecycle';
@@ -13,8 +24,14 @@ import type { TripStatus } from '@/lib/trips/tripLifecycle';
 import { TripEventIcon } from '@/components/trips/TripEventIcon';
 import { MapPin, XCircle, ExternalLink, Info, CheckCircle2, CircleOff } from 'lucide-react';
 import { tripToGoogleMapsUrl } from '@/lib/maps/googleMapsLink';
-
-// ─── Types ────────────────────────────────────────────────────────────────────
+import {
+  getDriverPrimaryAction,
+  getDriverStatusActionLabel,
+  hasRouteCoordinates,
+  hasRenderableMapPoints,
+  isWithinTrackingWindow,
+} from '@/lib/ui/driverPortal';
+import { tripService } from '@/services/tripService';
 
 type TripEvent = {
   id: string;
@@ -56,19 +73,17 @@ type Location = {
   stale: boolean;
 };
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
 const STATUS_VARIANT: Record<string, 'info' | 'warning' | 'purple' | 'orange' | 'success' | 'danger'> = {
   DRIVER_ASSIGNED: 'info',
-  PRE_TRIP:        'purple',
-  ON_THE_WAY:      'purple',
-  ARRIVED_PICKUP:  'orange',
-  PICKED_UP:       'orange',
-  EN_ROUTE_DROPOFF:'purple',
+  PRE_TRIP: 'purple',
+  ON_THE_WAY: 'purple',
+  ARRIVED_PICKUP: 'orange',
+  PICKED_UP: 'orange',
+  EN_ROUTE_DROPOFF: 'purple',
   ARRIVED_DROPOFF: 'orange',
-  COMPLETED:       'success',
-  CANCELLED:       'danger',
-  NO_SHOW:         'danger',
+  COMPLETED: 'success',
+  CANCELLED: 'danger',
+  NO_SHOW: 'danger',
 };
 
 function fmtTime(dt: string | null) {
@@ -77,9 +92,7 @@ function fmtTime(dt: string | null) {
 }
 
 function fmtDateTime(dt: string) {
-  return new Date(dt).toLocaleString([], {
-    month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
-  });
+  return new Date(dt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
 function minutesUntil(dt: string | null): number | null {
@@ -107,243 +120,80 @@ function normalizeLocation(raw: unknown): Location | null {
   };
 }
 
-function hasRouteCoords(trip: TrackingTrip): boolean {
-  return (
-    (toCoord(trip.pickupLat) != null && toCoord(trip.pickupLng) != null) ||
-    (toCoord(trip.dropoffLat) != null && toCoord(trip.dropoffLng) != null)
-  );
+type LiveGpsMode = 'live' | 'waiting_driver' | 'waiting_window' | 'ended' | 'no_driver';
+
+function resolveLiveGpsMode(input: {
+  status: string;
+  trackable: boolean;
+  hasLocation: boolean;
+  hasDriver: boolean;
+  minutesToPickup: number | null;
+  isDriverView: boolean;
+}): LiveGpsMode {
+  const { status, trackable, hasLocation, hasDriver, minutesToPickup, isDriverView } = input;
+  if (['COMPLETED', 'CANCELLED', 'NO_SHOW'].includes(status)) return 'ended';
+  if (!hasDriver && !isDriverView) return 'no_driver';
+  if (hasLocation && trackable) return 'live';
+  if (trackable) return 'waiting_driver';
+  if (!isDriverView && minutesToPickup != null && minutesToPickup > 10) return 'waiting_window';
+  return 'waiting_driver';
 }
 
-// ─── Leaflet Map (SSR-safe) ───────────────────────────────────────────────────
+function LiveGpsGuide({
+  mode,
+  minutesToPickup,
+  statusLabel,
+  isDriver,
+}: {
+  mode: LiveGpsMode;
+  minutesToPickup: number | null;
+  statusLabel: string;
+  isDriver: boolean;
+}) {
+  const driverSummary = mode === 'live'
+    ? 'You are sharing live location. Families see updates about every 15 seconds.'
+    : mode === 'waiting_driver'
+    ? 'Start sharing location so families can follow the ride.'
+    : mode === 'ended'
+    ? `Trip is ${statusLabel.toLowerCase()}. GPS sharing has ended.`
+    : 'Live GPS opens when the trip is active.';
 
-type MapProps = {
-  driverLat?: number | null;
-  driverLng?: number | null;
-  pickupLat?: number | null;
-  pickupLng?: number | null;
-  dropoffLat?: number | null;
-  dropoffLng?: number | null;
-  stale?: boolean;
-};
+  const parentSummary = mode === 'live'
+    ? 'The driver is sharing location. The map refreshes about every 15 seconds.'
+    : mode === 'waiting_window'
+    ? minutesToPickup != null
+      ? `Tracking opens about 10 minutes before pickup (in ~${minutesToPickup} min).`
+      : 'Tracking opens about 10 minutes before scheduled pickup.'
+    : mode === 'waiting_driver'
+    ? 'The driver has not started sharing live GPS yet.'
+    : mode === 'ended'
+    ? `This trip is ${statusLabel.toLowerCase()}. Live tracking has ended.`
+    : 'No driver is assigned yet.';
 
-function TripTrackingMap({
-  driverLat,
-  driverLng,
-  pickupLat,
-  pickupLng,
-  dropoffLat,
-  dropoffLng,
-  stale = false,
-}: MapProps) {
-  const mapRef = useRef<HTMLDivElement>(null);
-  const mapInstanceRef = useRef<import('leaflet').Map | null>(null);
-  const markersRef = useRef<{ driver?: import('leaflet').Marker; pickup?: import('leaflet').Marker; dropoff?: import('leaflet').Marker }>({});
-
-  useEffect(() => {
-    if (!document.querySelector('#leaflet-css')) {
-      const link = document.createElement('link');
-      link.id = 'leaflet-css';
-      link.rel = 'stylesheet';
-      link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
-      document.head.appendChild(link);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!mapRef.current) return;
-    let cancelled = false;
-
-    import('leaflet').then((L) => {
-      if (cancelled || !mapRef.current) return;
-
-      const iconProto = L.Icon.Default.prototype as unknown as Record<string, unknown>;
-      delete iconProto._getIconUrl;
-      L.Icon.Default.mergeOptions({
-        iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
-        iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
-        shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-      });
-
-      if (!mapInstanceRef.current) {
-        const points: [number, number][] = [];
-        if (driverLat != null && driverLng != null) points.push([driverLat, driverLng]);
-        if (pickupLat != null && pickupLng != null) points.push([pickupLat, pickupLng]);
-        if (dropoffLat != null && dropoffLng != null) points.push([dropoffLat, dropoffLng]);
-        const center = points[0] ?? [24.4672, 39.6112];
-
-        const map = L.map(mapRef.current).setView(center, 14);
-        mapInstanceRef.current = map;
-
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-          attribution: '© OpenStreetMap contributors',
-        }).addTo(map);
-      }
-
-      const map = mapInstanceRef.current;
-      if (!map) return;
-
-      const upsertMarker = (
-        key: 'driver' | 'pickup' | 'dropoff',
-        lat: number,
-        lng: number,
-        html: string,
-        label: string,
-        size: number,
-      ) => {
-        const icon = L.divIcon({
-          html,
-          className: '',
-          iconSize: [size, size],
-          iconAnchor: [size / 2, size / 2],
-        });
-        const existing = markersRef.current[key];
-        if (existing) {
-          existing.setLatLng([lat, lng]);
-          existing.setIcon(icon);
-        } else {
-          markersRef.current[key] = L.marker([lat, lng], { icon }).addTo(map).bindPopup(label);
-        }
-      };
-
-      if (driverLat != null && driverLng != null) {
-        upsertMarker(
-          'driver',
-          driverLat,
-          driverLng,
-          `<div style="background:${stale ? '#9CA3AF' : '#2563EB'};width:16px;height:16px;border-radius:50%;border:3px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.4)"></div>`,
-          'Driver',
-          16,
-        );
-      } else if (markersRef.current.driver) {
-        map.removeLayer(markersRef.current.driver);
-        delete markersRef.current.driver;
-      }
-
-      if (pickupLat != null && pickupLng != null) {
-        upsertMarker(
-          'pickup',
-          pickupLat,
-          pickupLng,
-          `<div style="background:#10B981;width:14px;height:14px;border-radius:50%;border:3px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.3)"></div>`,
-          'Pickup',
-          14,
-        );
-      }
-
-      if (dropoffLat != null && dropoffLng != null) {
-        upsertMarker(
-          'dropoff',
-          dropoffLat,
-          dropoffLng,
-          `<div style="background:#EF4444;width:14px;height:14px;border-radius:50%;border:3px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.3)"></div>`,
-          'Drop-off',
-          14,
-        );
-      }
-
-      const boundsPoints: [number, number][] = [];
-      if (driverLat != null && driverLng != null) boundsPoints.push([driverLat, driverLng]);
-      if (pickupLat != null && pickupLng != null) boundsPoints.push([pickupLat, pickupLng]);
-      if (dropoffLat != null && dropoffLng != null) boundsPoints.push([dropoffLat, dropoffLng]);
-      if (boundsPoints.length === 1) {
-        map.setView(boundsPoints[0], 14);
-      } else if (boundsPoints.length > 1) {
-        map.fitBounds(boundsPoints, { padding: [32, 32] });
-      }
-    }).catch(() => { /* leaflet failed to load */ });
-
-    return () => { cancelled = true; };
-  }, [driverLat, driverLng, pickupLat, pickupLng, dropoffLat, dropoffLng, stale]);
-
-  useEffect(() => () => {
-    mapInstanceRef.current?.remove();
-    mapInstanceRef.current = null;
-    markersRef.current = {};
-  }, []);
+  const tone = mode === 'live' ? 'border-emerald-200 bg-emerald-50' :
+    mode === 'ended' || mode === 'no_driver' ? 'border-gray-200 bg-gray-50' :
+    'border-amber-200 bg-amber-50';
 
   return (
-    <div
-      ref={mapRef}
-      className="w-full rounded-2xl overflow-hidden border border-gray-200"
-      style={{ height: 360 }}
-      aria-label="Trip tracking map"
-    />
-  );
-}
-
-// ─── Status Timeline ──────────────────────────────────────────────────────────
-
-const TIMELINE_STEPS: { status: TripStatus; label: string }[] = [
-  { status: 'DRIVER_ASSIGNED',  label: 'Driver Assigned' },
-  { status: 'PRE_TRIP',         label: 'Driver Heading Out' },
-  { status: 'ON_THE_WAY',       label: 'En Route to Pickup' },
-  { status: 'ARRIVED_PICKUP',   label: 'Arrived at Pickup' },
-  { status: 'PICKED_UP',        label: 'Rider Picked Up' },
-  { status: 'EN_ROUTE_DROPOFF', label: 'En Route to Drop-off' },
-  { status: 'ARRIVED_DROPOFF',  label: 'Arrived at Drop-off' },
-  { status: 'COMPLETED',        label: 'Completed' },
-];
-
-const STEP_ORDER: TripStatus[] = TIMELINE_STEPS.map((s) => s.status);
-
-function getStepIndex(status: string): number {
-  return STEP_ORDER.indexOf(status as TripStatus);
-}
-
-function StatusTimeline({ currentStatus }: { currentStatus: string }) {
-  const currentIdx = getStepIndex(currentStatus);
-  const isCancelled = currentStatus === 'CANCELLED' || currentStatus === 'NO_SHOW';
-
-  if (isCancelled) {
-    return (
-      <div className="flex items-center gap-2 p-3 rounded-xl bg-red-50 text-red-700 text-sm font-medium">
-        <XCircle className="h-5 w-5 text-red-500" strokeWidth={1.75} aria-hidden />
-        <span>{TRIP_STATUS_LABEL[currentStatus as TripStatus] ?? currentStatus}</span>
+    <Card className={`mb-4 border ${tone}`}>
+      <div className="flex items-start gap-3">
+        {mode === 'live' ? (
+          <CheckCircle2 className="h-5 w-5 text-emerald-600 shrink-0 mt-0.5" aria-hidden />
+        ) : mode === 'ended' || mode === 'no_driver' ? (
+          <CircleOff className="h-5 w-5 text-gray-500 shrink-0 mt-0.5" aria-hidden />
+        ) : (
+          <Info className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" aria-hidden />
+        )}
+        <div>
+          <p className="text-sm font-semibold text-gray-900">
+            {mode === 'live' ? 'Live GPS active' : mode === 'waiting_window' ? 'Live GPS opens soon' : mode === 'ended' ? 'Live GPS ended' : 'Live GPS not available yet'}
+          </p>
+          <p className="text-sm text-gray-600 mt-1">{isDriver ? driverSummary : parentSummary}</p>
+        </div>
       </div>
-    );
-  }
-
-  return (
-    <ol className="relative space-y-0">
-      {TIMELINE_STEPS.map((step, idx) => {
-        const done = currentIdx > idx;
-        const active = currentIdx === idx;
-        return (
-          <li key={step.status} className="flex gap-3 items-start">
-            {/* Connector line + dot */}
-            <div className="flex flex-col items-center w-5 shrink-0">
-              <div
-                className={`w-4 h-4 rounded-full border-2 shrink-0 z-10 ${
-                  done
-                    ? 'bg-emerald-500 border-emerald-500'
-                    : active
-                    ? 'bg-fizza-secondary border-fizza-secondary'
-                    : 'bg-white border-gray-300'
-                }`}
-              />
-              {idx < TIMELINE_STEPS.length - 1 && (
-                <div className={`w-0.5 flex-1 min-h-4 ${done ? 'bg-emerald-400' : 'bg-gray-200'}`} />
-              )}
-            </div>
-            <p
-              className={`text-sm pb-3 ${
-                active
-                  ? 'font-semibold text-fizza-primary'
-                  : done
-                  ? 'text-emerald-700'
-                  : 'text-gray-400'
-              }`}
-            >
-              {step.label}
-            </p>
-          </li>
-        );
-      })}
-    </ol>
+    </Card>
   );
 }
-
-// ─── Event Log ────────────────────────────────────────────────────────────────
 
 function EventLog({ events }: { events: TripEvent[] }) {
   if (events.length === 0) return null;
@@ -362,126 +212,23 @@ function EventLog({ events }: { events: TripEvent[] }) {
   );
 }
 
-// ─── Live GPS guide ───────────────────────────────────────────────────────────
-
-type LiveGpsMode = 'live' | 'waiting_driver' | 'waiting_window' | 'ended' | 'no_driver';
-
-function resolveLiveGpsMode(input: {
-  status: string;
-  trackable: boolean;
-  hasLocation: boolean;
-  hasDriver: boolean;
-  minutesToPickup: number | null;
-}): LiveGpsMode {
-  const { status, trackable, hasLocation, hasDriver, minutesToPickup } = input;
-  if (['COMPLETED', 'CANCELLED', 'NO_SHOW'].includes(status)) return 'ended';
-  if (!hasDriver) return 'no_driver';
-  if (hasLocation && trackable) return 'live';
-  if (trackable) return 'waiting_driver';
-  if (minutesToPickup != null && minutesToPickup > 10) return 'waiting_window';
-  return 'waiting_driver';
-}
-
-function LiveGpsAvailabilityGuide({
-  mode,
-  minutesToPickup,
-  statusLabel,
-}: {
-  mode: LiveGpsMode;
-  minutesToPickup: number | null;
-  statusLabel: string;
-}) {
-  const modeCopy: Record<LiveGpsMode, { title: string; summary: string; tone: string }> = {
-    live: {
-      title: 'Live GPS is active',
-      summary: 'The driver is sharing location. The map refreshes about every 15 seconds.',
-      tone: 'border-emerald-200 bg-emerald-50',
-    },
-    waiting_driver: {
-      title: 'Live GPS not available yet',
-      summary: hasDriverWaitingCopy(minutesToPickup),
-      tone: 'border-amber-200 bg-amber-50',
-    },
-    waiting_window: {
-      title: 'Live GPS opens soon',
-      summary: minutesToPickup != null
-        ? `Tracking opens about 10 minutes before pickup (in ~${minutesToPickup} min). Until then, only the route map is shown.`
-        : 'Tracking opens about 10 minutes before scheduled pickup.',
-      tone: 'border-blue-200 bg-blue-50',
-    },
-    ended: {
-      title: 'Live GPS has ended',
-      summary: `This trip is ${statusLabel.toLowerCase()}. You can still view the route map, but the driver is no longer tracked live.`,
-      tone: 'border-gray-200 bg-gray-50',
-    },
-    no_driver: {
-      title: 'Live GPS unavailable',
-      summary: 'No driver is assigned yet. Live tracking starts after a driver is assigned and begins sharing location.',
-      tone: 'border-gray-200 bg-gray-50',
-    },
-  };
-
-  const copy = modeCopy[mode];
-
-  return (
-    <Card className={`mb-4 border ${copy.tone}`}>
-      <div className="flex items-start gap-3">
-        {mode === 'live' ? (
-          <CheckCircle2 className="h-5 w-5 text-emerald-600 shrink-0 mt-0.5" aria-hidden />
-        ) : mode === 'ended' || mode === 'no_driver' ? (
-          <CircleOff className="h-5 w-5 text-gray-500 shrink-0 mt-0.5" aria-hidden />
-        ) : (
-          <Info className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" aria-hidden />
-        )}
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold text-gray-900">{copy.title}</p>
-          <p className="text-sm text-gray-600 mt-1">{copy.summary}</p>
-
-          <div className="mt-4 grid gap-4 sm:grid-cols-2">
-            <div>
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">When live GPS is available</p>
-              <ul className="text-xs text-gray-600 space-y-1.5 list-disc pl-4">
-                <li>Trip is active (driver heading out, en route, or rider on board)</li>
-                <li>About 10 minutes before scheduled pickup</li>
-                <li>Driver taps <span className="font-medium">Start Sharing Location</span> on their trips page</li>
-                <li>Admins can view location whenever the driver is sharing</li>
-              </ul>
-            </div>
-            <div>
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">When live GPS is not available</p>
-              <ul className="text-xs text-gray-600 space-y-1.5 list-disc pl-4">
-                <li>Trip is cancelled, completed, or marked no-show</li>
-                <li>More than 10 minutes before pickup (parents)</li>
-                <li>Driver has not started location sharing yet</li>
-                <li>Driver GPS is off or signal is unavailable</li>
-              </ul>
-            </div>
-          </div>
-        </div>
-      </div>
-    </Card>
-  );
-}
-
-function hasDriverWaitingCopy(minutesToPickup: number | null): string {
-  if (minutesToPickup != null && minutesToPickup <= 10) {
-    return 'The tracking window is open, but the driver has not shared live GPS yet. Ask the driver to start sharing from their trips page.';
-  }
-  return 'The route map is shown now. Live driver location appears once the driver starts sharing GPS.';
-}
-
-// ─── Page ─────────────────────────────────────────────────────────────────────
-
 export default function TrackingDetailPage() {
   const { tripId } = useParams<{ tripId: string }>();
-
   const [trip, setTrip] = useState<TrackingTrip | null>(null);
   const [location, setLocation] = useState<Location | null>(null);
   const [loading, setLoading] = useState(true);
   const [pageError, setPageError] = useState('');
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [showEvents, setShowEvents] = useState(false);
+  const [userRole, setUserRole] = useState<string | null>(null);
+  const [statusUpdating, setStatusUpdating] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    fetch('/api/me').then((r) => r.json()).then((res) => {
+      if (res.data?.role) setUserRole(res.data.role);
+    }).catch(() => {});
+  }, []);
 
   const fetchTracking = useCallback(async () => {
     const res = await trackingService.get(tripId);
@@ -504,133 +251,124 @@ export default function TrackingDetailPage() {
     }
   }, [tripId]);
 
-  useEffect(() => {
-    fetchTracking();
-  }, [fetchTracking]);
+  useEffect(() => { fetchTracking(); }, [fetchTracking]);
 
-  // Poll driver location every 15 seconds while the trip is still open
   useEffect(() => {
     if (!trip) return;
     const terminal = ['COMPLETED', 'CANCELLED', 'NO_SHOW'].includes(trip.status);
     if (terminal) return;
-
     pollLocation();
     pollRef.current = setInterval(pollLocation, 15_000);
-    return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
-    };
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, [trip, pollLocation]);
 
-  if (loading) return (
-    <AppShell>
-      <LoadingState message="Loading trip tracking…" />
-    </AppShell>
-  );
+  const isDriver = userRole === 'DRIVER';
 
-  if (pageError || !trip) return (
-    <AppShell>
-      <ErrorState message={pageError || 'Trip not found.'} onRetry={fetchTracking} />
-    </AppShell>
-  );
+  if (loading) {
+    return (
+      <AppShell>
+        <DriverLoadingState message="Loading trip tracking…" />
+      </AppShell>
+    );
+  }
+
+  if (pageError || !trip) {
+    return (
+      <AppShell>
+        <DriverErrorState message={pageError || 'Trip not found.'} onRetry={fetchTracking} />
+      </AppShell>
+    );
+  }
 
   const trackable = isTrackableStatus(trip.status as TripStatus);
   const minutesToPickup = minutesUntil(trip.scheduledPickupTime);
-  const isCompleted = trip.status === 'COMPLETED';
   const isCancelled = trip.status === 'CANCELLED' || trip.status === 'NO_SHOW';
   const pickupLat = toCoord(trip.pickupLat);
   const pickupLng = toCoord(trip.pickupLng);
   const dropoffLat = toCoord(trip.dropoffLat);
   const dropoffLng = toCoord(trip.dropoffLng);
-  const showMap = !!(location || hasRouteCoords(trip));
   const routeMapsUrl = tripToGoogleMapsUrl({
     pickupLocation: trip.pickupLocation,
     dropoffLocation: trip.dropoffLocation,
-    pickupLat,
-    pickupLng,
-    dropoffLat,
-    dropoffLng,
+    pickupLat, pickupLng, dropoffLat, dropoffLng,
   });
+  const mapPoints = {
+    driverLat: location?.lat,
+    driverLng: location?.lng,
+    pickupLat, pickupLng, dropoffLat, dropoffLng,
+    stale: location?.stale,
+  };
+  const canRenderMap = hasRenderableMapPoints(mapPoints) || hasRouteCoordinates(trip);
   const liveGpsMode = resolveLiveGpsMode({
     status: trip.status,
     trackable,
     hasLocation: !!location,
     hasDriver: !!trip.driver,
     minutesToPickup,
+    isDriverView: isDriver,
   });
   const statusLabel = TRIP_STATUS_LABEL[trip.status as TripStatus] ?? trip.status;
+  const driverAction = isDriver
+    ? getDriverPrimaryAction(trip.status as TripStatus, isWithinTrackingWindow(trip.scheduledPickupTime))
+    : null;
+
+  async function handleStatusAdvance() {
+    if (!driverAction?.nextStatus) return;
+    setStatusUpdating(true);
+    await tripService.updateStatus(trip!.id, driverAction.nextStatus);
+    setStatusUpdating(false);
+    fetchTracking();
+  }
 
   return (
     <AppShell>
-      <PageHeader
-        title={`Tracking — ${trip.rider?.name ?? 'Rider'}`}
+      <DriverPageHeader
+        title={isDriver ? `Live GPS — ${trip.rider?.name ?? 'Trip'}` : `Tracking — ${trip.rider?.name ?? 'Rider'}`}
         subtitle={new Date(trip.scheduledDate).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
         action={
           <Link href="/tracking">
-            <Button variant="ghost" size="sm">← All trips</Button>
+            <Button variant="ghost" size="sm">All trips</Button>
           </Link>
         }
       />
 
-      {/* Status Banner */}
       <div className="mb-4">
         <StatusBadge variant={STATUS_VARIANT[trip.status] ?? 'info'} className="text-sm px-3 py-1.5">
-          {TRIP_STATUS_LABEL[trip.status as TripStatus] ?? trip.status}
+          {statusLabel}
         </StatusBadge>
-        {trip.statusReason && (
-          <p className="text-xs text-gray-500 mt-1">{trip.statusReason}</p>
-        )}
+        {trip.statusReason && <p className="text-xs text-gray-500 mt-1">{trip.statusReason}</p>}
       </div>
 
-      {/* GPS Stale Warning */}
       {location?.stale && (
         <Alert variant="warning" className="mb-4">
           GPS signal is delayed — location shown may be up to 1 minute old.
         </Alert>
       )}
 
-      {/* Live / route map */}
-      {showMap ? (
+      {canRenderMap ? (
         <Card className="mb-4 !p-0 overflow-hidden">
-          <div className="px-4 pt-3 pb-2 flex items-center justify-between gap-3">
+          <div className="px-4 pt-3 pb-2 flex flex-wrap items-center justify-between gap-2">
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
-              {location ? 'Live Location' : 'Route Map'}
+              {location ? 'Live location' : 'Route map'}
             </p>
             <div className="flex items-center gap-3">
               {location && (
-                <div className="flex items-center gap-1.5">
-                  <span className={`inline-block w-2 h-2 rounded-full ${location.stale ? 'bg-gray-400' : 'bg-emerald-500 animate-pulse'}`} />
-                  <span className="text-xs text-gray-400">
-                    {lastUpdated
-                      ? `Updated ${lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
-                      : 'Live'}
-                  </span>
-                </div>
+                <span className="text-xs text-gray-400">
+                  {lastUpdated
+                    ? `Updated ${lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+                    : 'Live'}
+                </span>
               )}
-              <a
-                href={routeMapsUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 hover:underline"
-              >
+              <a href={routeMapsUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 hover:underline">
                 Open in Google Maps
                 <ExternalLink className="h-3 w-3" aria-hidden />
               </a>
             </div>
           </div>
           {isCancelled && (
-            <div className="px-4 pb-2">
-              <p className="text-xs text-amber-700">Trip cancelled — live driver tracking has ended. Route points are shown below.</p>
-            </div>
+            <p className="px-4 pb-2 text-xs text-amber-700">Trip cancelled — live tracking has ended.</p>
           )}
-          <TripTrackingMap
-            driverLat={location?.lat}
-            driverLng={location?.lng}
-            pickupLat={pickupLat}
-            pickupLng={pickupLng}
-            dropoffLat={dropoffLat}
-            dropoffLng={dropoffLng}
-            stale={location?.stale}
-          />
+          <TripTrackingMap {...mapPoints} height={320} className="sm:!h-[360px]" />
           <div className="px-4 py-2 flex flex-wrap gap-4 text-xs text-gray-500">
             {location && (
               <span className="flex items-center gap-1">
@@ -649,46 +387,51 @@ export default function TrackingDetailPage() {
           </div>
         </Card>
       ) : (
+        <div className="mb-4">
+          <DriverMapFallback pickup={trip.pickupLocation} dropoff={trip.dropoffLocation} mapsUrl={routeMapsUrl} />
+        </div>
+      )}
+
+      <LiveGpsGuide mode={liveGpsMode} minutesToPickup={minutesToPickup} statusLabel={statusLabel} isDriver={isDriver} />
+
+      {isDriver && trackable && (
         <Card className="mb-4">
-          <div className="flex flex-col items-center py-6 gap-3 text-gray-500">
-            <MapPin className="h-10 w-10 text-fizza-secondary" strokeWidth={1.5} aria-hidden />
-            <p className="text-sm font-medium text-center">Map coordinates are not saved for this trip.</p>
-            <a
-              href={routeMapsUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 text-sm font-medium text-emerald-700 hover:underline"
-            >
-              Open route in Google Maps
-              <ExternalLink className="h-3.5 w-3.5" aria-hidden />
-            </a>
-          </div>
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">GPS sharing</p>
+          <DriverGpsPanel tripId={trip.id} />
+          {driverAction && driverAction.kind === 'status' && driverAction.nextStatus && (
+            <div className="mt-4">
+              <DriverActionBar>
+                <Button variant="primary" size="sm" loading={statusUpdating} onClick={handleStatusAdvance}>
+                  {driverAction.label}
+                </Button>
+                <a href={routeMapsUrl} target="_blank" rel="noopener noreferrer">
+                  <Button variant="outline" size="sm">
+                    <Navigation className="h-3.5 w-3.5" aria-hidden />
+                    Navigate
+                  </Button>
+                </a>
+                <Link href="/trips">
+                  <Button variant="ghost" size="sm">Route sheet</Button>
+                </Link>
+              </DriverActionBar>
+              {driverAction.disabledReason && (
+                <p className="text-xs text-gray-500 mt-2">{driverAction.disabledReason}</p>
+              )}
+            </div>
+          )}
         </Card>
       )}
 
-      <LiveGpsAvailabilityGuide
-        mode={liveGpsMode}
-        minutesToPickup={minutesToPickup}
-        statusLabel={statusLabel}
-      />
-
-      {/* Trip Info + Driver Card */}
       <div className="grid grid-cols-1 gap-4 mb-4 sm:grid-cols-2">
-        {/* Trip details */}
         <Card>
-          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Trip Details</p>
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Trip details</p>
           <div className="space-y-2 text-sm">
             <div className="flex items-start gap-2">
               <MapPin className="h-4 w-4 text-emerald-600 mt-0.5 shrink-0" aria-hidden />
               <div>
                 <p className="text-xs text-gray-400">Pickup</p>
                 <p className="font-medium text-gray-800">{trip.pickupLocation}</p>
-                {trip.scheduledPickupTime && (
-                  <p className="text-xs text-gray-500">Scheduled: {fmtTime(trip.scheduledPickupTime)}</p>
-                )}
-                {trip.actualPickupTime && (
-                  <p className="text-xs text-emerald-600">Actual: {fmtTime(trip.actualPickupTime)}</p>
-                )}
+                <p className="text-xs text-gray-500">Scheduled: {fmtTime(trip.scheduledPickupTime)}</p>
               </div>
             </div>
             <div className="flex items-start gap-2">
@@ -696,19 +439,13 @@ export default function TrackingDetailPage() {
               <div>
                 <p className="text-xs text-gray-400">Drop-off</p>
                 <p className="font-medium text-gray-800">{trip.dropoffLocation}</p>
-                {trip.scheduledDropoffTime && (
-                  <p className="text-xs text-gray-500">Scheduled: {fmtTime(trip.scheduledDropoffTime)}</p>
-                )}
-                {trip.actualDropoffTime && (
-                  <p className="text-xs text-emerald-600">Actual: {fmtTime(trip.actualDropoffTime)}</p>
-                )}
+                <p className="text-xs text-gray-500">Scheduled: {fmtTime(trip.scheduledDropoffTime)}</p>
               </div>
             </div>
           </div>
         </Card>
 
-        {/* Driver info */}
-        {trip.driver?.profile && (
+        {!isDriver && trip.driver?.profile && (
           <Card>
             <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Driver</p>
             <div className="flex items-center gap-3 mb-3">
@@ -729,50 +466,48 @@ export default function TrackingDetailPage() {
               </div>
             )}
             {trip.driver.profile.phone && (
-              <a
-                href={`tel:${trip.driver.profile.phone}`}
-                className="mt-3 flex items-center gap-1.5 text-xs text-fizza-secondary font-medium hover:underline"
-              >
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 13.6a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.6 3h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 10.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 17.92z" />
-                </svg>
+              <a href={`tel:${trip.driver.profile.phone}`} className="mt-3 inline-block text-xs text-fizza-secondary font-medium hover:underline">
                 Call driver
               </a>
             )}
           </Card>
         )}
+
+        {isDriver && (
+          <Card>
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Rider</p>
+            <p className="font-semibold text-gray-900">{trip.rider?.name ?? 'Rider'}</p>
+            <p className="text-xs text-gray-500 capitalize mt-1">{trip.rider?.relationship ?? 'Student'}</p>
+            <p className="text-sm text-gray-600 mt-3">
+              Next action: <span className="font-medium">{getDriverStatusActionLabel(trip.status as TripStatus)}</span>
+            </p>
+          </Card>
+        )}
       </div>
 
-      {/* Status Timeline */}
       <Card className="mb-4">
-        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-4">Trip Progress</p>
-        <StatusTimeline currentStatus={trip.status} />
+        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-4">Trip progress</p>
+        {isCancelled ? (
+          <div className="flex items-center gap-2 p-3 rounded-xl bg-red-50 text-red-700 text-sm font-medium">
+            <XCircle className="h-5 w-5 text-red-500" aria-hidden />
+            <span>{statusLabel}</span>
+          </div>
+        ) : (
+          <DriverTimeline currentStatus={trip.status as TripStatus} />
+        )}
       </Card>
 
-      {/* Activity Log */}
       {trip.events.length > 0 && (
         <Card>
-          <button
-            className="flex items-center justify-between w-full text-left"
-            onClick={() => setShowEvents((v) => !v)}
-          >
+          <button className="flex items-center justify-between w-full text-left" onClick={() => setShowEvents((v) => !v)}>
             <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
-              Activity Log ({trip.events.length})
+              Activity log ({trip.events.length})
             </p>
-            <svg
-              width="16" height="16" viewBox="0 0 24 24" fill="none"
-              stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-              className={`text-gray-400 transition-transform ${showEvents ? 'rotate-180' : ''}`}
-              aria-hidden="true"
-            >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={`text-gray-400 transition-transform ${showEvents ? 'rotate-180' : ''}`} aria-hidden>
               <polyline points="6 9 12 15 18 9" />
             </svg>
           </button>
-          {showEvents && (
-            <div className="mt-4">
-              <EventLog events={trip.events} />
-            </div>
-          )}
+          {showEvents && <div className="mt-4"><EventLog events={trip.events} /></div>}
         </Card>
       )}
     </AppShell>
