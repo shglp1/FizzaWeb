@@ -77,7 +77,8 @@ export function TripsSection() {
   const [generating, setGenerating] = useState(false);
   const [genStartDate, setGenStartDate] = useState('');
   const [genEndDate, setGenEndDate] = useState('');
-  const [genMsg, setGenMsg] = useState<{ text: string; type: 'success' | 'error'; result?: { generated: number; skipped: number } } | null>(null);
+  const [genMsg, setGenMsg] = useState<{ text: string; type: 'success' | 'error'; result?: { generated: number; confirmed: number; needsDispatch: number; skipped: number } } | null>(null);
+  const [dispatchQueue, setDispatchQueue] = useState<{ id: string; scheduledDate: string; scheduledPickupTime: string | null; pickupLocation: string; dispatchNote: string | null; rider: { name: string } | null }[]>([]);
 
   const loadTrips = useCallback((status: string, date: string, p: number, l: number, silent = false) => {
     if (!silent) setLoading(true);
@@ -96,6 +97,11 @@ export function TripsSection() {
 
   useEffect(() => { loadTrips(statusFilter, dateFilter, page, limit); }, [statusFilter, dateFilter, page, limit, loadTrips]);
   useEffect(() => { tripService.adminListDrivers().then((res) => { if (res.data) setDrivers(res.data.drivers ?? []); }); }, []);
+  useEffect(() => {
+    tripService.adminNeedsDispatch({ limit: 10 }).then((res) => {
+      if (res.data?.trips) setDispatchQueue(res.data.trips);
+    });
+  }, [genMsg, assignMsg]);
   useEffect(() => {
     const id = setInterval(() => loadTrips(statusFilter, dateFilter, page, limit, true), 25_000);
     return () => clearInterval(id);
@@ -122,7 +128,16 @@ export function TripsSection() {
     const res = await tripService.adminGenerateTrips(genStartDate || undefined, genEndDate || undefined);
     setGenerating(false);
     if (res.data) {
-      setGenMsg({ text: 'Trip generation complete.', type: 'success', result: { generated: res.data.generated ?? 0, skipped: res.data.skipped ?? 0 } });
+      setGenMsg({
+        text: 'Trip generation complete.',
+        type: 'success',
+        result: {
+          generated: res.data.generatedCount ?? 0,
+          confirmed: res.data.confirmedCount ?? 0,
+          needsDispatch: res.data.needsDispatchCount ?? 0,
+          skipped: res.data.skippedCount ?? 0,
+        },
+      });
       loadTrips(statusFilter, dateFilter, page, limit);
     } else {
       setGenMsg({ text: res.error?.message ?? 'Generation failed.', type: 'error' });
@@ -170,7 +185,9 @@ export function TripsSection() {
 
       <div className="rounded-2xl border border-emerald-100 bg-emerald-50/30 p-4 shadow-card">
         <h3 className="text-sm font-semibold text-gray-800 mb-2">Generate trips</h3>
-        <p className="text-xs text-gray-500 mb-3">Creates trips from active subscriptions. Idempotent — safe to run multiple times.</p>
+        <p className="text-xs text-gray-500 mb-3">
+          Creates trips from active paid subscriptions. Auto-confirms the default driver only when the day timeline is feasible; otherwise trips go to Needs Dispatch.
+        </p>
         <div className="flex flex-wrap gap-3 items-end">
           <div>
             <label className="block text-[10px] font-semibold text-gray-400 uppercase mb-1">Start</label>
@@ -187,10 +204,30 @@ export function TripsSection() {
         {genMsg && (
           <Alert variant={genMsg.type} className="mt-3" onClose={() => setGenMsg(null)}>
             {genMsg.text}
-            {genMsg.result && <span className="ml-2 font-semibold">{genMsg.result.generated} created · {genMsg.result.skipped} skipped</span>}
+            {genMsg.result && (
+              <span className="ml-2 font-semibold">
+                {genMsg.result.generated} created · {genMsg.result.confirmed} confirmed · {genMsg.result.needsDispatch} need dispatch · {genMsg.result.skipped} skipped
+              </span>
+            )}
           </Alert>
         )}
       </div>
+
+      {dispatchQueue.length > 0 && (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50/40 p-4 shadow-card">
+          <h3 className="text-sm font-semibold text-gray-800 mb-2">Needs dispatch ({dispatchQueue.length})</h3>
+          <p className="text-xs text-gray-500 mb-3">These trips could not auto-assign the default driver due to timeline conflicts. Assign a driver manually from the board or list.</p>
+          <ul className="space-y-2">
+            {dispatchQueue.map((t) => (
+              <li key={t.id} className="rounded-xl border border-amber-100 bg-white px-3 py-2 text-sm">
+                <p className="font-medium text-gray-900">{t.rider?.name ?? 'Rider'} · {new Date(t.scheduledDate).toLocaleDateString()}</p>
+                <p className="text-xs text-gray-500 truncate">{t.pickupLocation}</p>
+                {t.dispatchNote && <p className="text-xs text-amber-700 mt-1">{t.dispatchNote}</p>}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {viewMode === 'board' && <TripOperationsBoard date={dateFilter} onDateChange={setDateFilter} />}
 

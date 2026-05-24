@@ -3,6 +3,7 @@ import { randomUUID } from 'crypto';
 import { prisma } from '@/lib/prisma';
 import { getPaymentStatus } from '@/lib/payments/myfatoorah';
 import { applyPaymentOutcome } from '@/lib/payments/processPaymentStatus';
+import { triggerTripGenerationAfterPayment } from '@/lib/dispatch/triggerAfterPayment';
 import { webhookPayloadSchema } from '@/lib/validations/payment';
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rateLimit';
 
@@ -113,7 +114,11 @@ export async function POST(request: NextRequest) {
     }
 
     // Delegate to shared processing helper
-    await applyPaymentOutcome(payment, result.status, PaymentId);
+    const processResult = await applyPaymentOutcome(payment, result.status, PaymentId);
+
+    if (processResult.subscriptionActivated && processResult.subscriptionId) {
+      await triggerTripGenerationAfterPayment(processResult.subscriptionId);
+    }
 
     return NextResponse.json({ received: true });
   } catch (error) {

@@ -4,6 +4,8 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { requireAuth } from '@/lib/session';
+import { generateTrips, redispatchSubscriptionTrips } from '@/lib/dispatch/generateTrips';
+import { notifySubscriptionDriverAssigned } from '@/lib/dispatch/notifications';
 
 const assignDriverSchema = z.object({
   driverId: z.string().uuid('Invalid driver ID'),
@@ -64,7 +66,7 @@ export async function POST(
     // Verify subscription exists
     const subscription = await prisma.userSubscription.findUnique({
       where: { id: subscriptionId },
-      select: { id: true, status: true, assignedDriverId: true },
+      select: { id: true, status: true, assignedDriverId: true, userId: true },
     });
     if (!subscription) {
       return NextResponse.json(
@@ -130,17 +132,6 @@ export async function POST(
         data: { assignedDriverId: driverId },
       });
 
-      // Update future SCHEDULED trips that belong to this subscription and have no driver
-      await tx.trip.updateMany({
-        where: {
-          subscriptionId,
-          status: 'SCHEDULED',
-          driverId: null,
-          scheduledDate: { gte: new Date(effectiveFromDate) },
-        },
-        data: { driverId },
-      });
-
       await tx.auditLog.create({
         data: {
           id: randomUUID(),
@@ -159,7 +150,35 @@ export async function POST(
       return newAssignment;
     });
 
-    return NextResponse.json({ data: assignment, error: null }, { status: 201 });
+    await generateTrips({
+      subscriptionId,
+      triggeredBy: 'ADMIN',
+      actorUserId: auth.userId,
+    });
+
+    const dispatch = await redispatchSubscriptionTrips(
+      subscriptionId,
+      driverId,
+      new Date(effectiveFromDate),
+    );
+
+    await notifySubscriptionDriverAssigned({
+      subscriptionId,
+      parentUserId: subscription.userId,
+      driverFullName: driver.profile?.fullName ?? 'Driver',
+      conflictCount: dispatch.needsDispatch,
+    });
+
+    return NextResponse.json({
+      data: {
+        ...assignment,
+        dispatch: {
+          confirmed: dispatch.confirmed,
+          needsDispatch: dispatch.needsDispatch,
+        },
+      },
+      error: null,
+    }, { status: 201 });
   } catch {
     return NextResponse.json(
       { data: null, error: { message: 'Internal Server Error' } },

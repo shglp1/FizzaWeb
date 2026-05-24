@@ -18,7 +18,11 @@ import {
   formatRouteSummary,
   formatScheduleSummary,
   formatServiceDaysSummary,
+  formatServicePeriod,
+  formatDaysLeft,
+  formatEffectiveDateLabel,
 } from '../lib/ui/subscriptionSummary.ts';
+import { computeSubscriptionDaysLeft } from '../lib/admin/subscriptionTimeline.ts';
 import {
   formatAuditAction,
   getAuditSeverity,
@@ -29,6 +33,9 @@ import { ADMIN_SIDEBAR_CLASSES } from '../lib/ui/adminSidebarLayout.ts';
 import { OVERVIEW_KPI_CONFIG } from '../lib/ui/adminOverview.ts';
 import { paymentsToCsv } from '../lib/ui/adminExport.ts';
 import { DEFAULT_PAGE_LIMIT, buildPaginationMeta } from '../lib/pagination.ts';
+import { normalizeAdminTripDetail } from '../lib/ui/adminTripDetail.ts';
+import { resolveAdminMetricIcon } from '../lib/ui/adminMetricIcons.ts';
+import { Users, BarChart3 } from 'lucide-react';
 
 describe('Task 13.3 — pagination utilities', () => {
   it('default admin page limit is 10', () => {
@@ -88,6 +95,20 @@ describe('Task 13.3 — subscription summary formatters', () => {
     assert.match(formatScheduleSummary(sub), /Pickup 07:30/);
     assert.match(formatServiceDaysSummary(sub), /22 service days/);
   });
+
+  it('infers service period and days left when endsOn is missing', () => {
+    const sub = {
+      startsOn: '2026-06-01',
+      endsOn: null,
+      package: { billingCycle: 'monthly' },
+      createdAt: '2026-05-01',
+    };
+    assert.match(formatServicePeriod(sub), /2026/);
+    assert.notEqual(formatEffectiveDateLabel(sub, 'endsOn'), '—');
+    const daysLeft = computeSubscriptionDaysLeft(sub);
+    assert.ok(daysLeft != null);
+    assert.match(formatDaysLeft(daysLeft, null, sub), /day/);
+  });
 });
 
 describe('Task 13.3 — audit formatter', () => {
@@ -133,6 +154,42 @@ describe('Task 13.3 — financial CSV export', () => {
     ]);
     assert.match(csv, /SAR 850\.50/);
     assert.match(csv, /Parent One/);
+  });
+});
+
+describe('Task 13.3 — admin trip detail normalization', () => {
+  it('maps nested API payload to drawer fields', () => {
+    const normalized = normalizeAdminTripDetail({
+      trip: {
+        id: 'trip-1',
+        status: 'SCHEDULED',
+        scheduledDate: '2026-05-24',
+        scheduledPickupTime: '2026-05-24T12:00:00.000Z',
+        pickupLocation: 'School A',
+        dropoffLocation: 'Home B',
+        rider: { name: 'Salem', relationship: 'Son' },
+        driver: null,
+      },
+      parent: { fullName: 'Parent One', phone: '0500000000' },
+      chatSummary: { flagged: 0 },
+    });
+    assert.equal(normalized.rider?.name, 'Salem');
+    assert.equal(normalized.pickupLocation, 'School A');
+    assert.equal(normalized.parent?.profile?.fullName, 'Parent One');
+  });
+});
+
+describe('Task 13.3 — admin metric icon resolver', () => {
+  it('uses explicit icon when provided', () => {
+    assert.equal(resolveAdminMetricIcon('Parents', Users), Users);
+  });
+
+  it('falls back to label map', () => {
+    assert.equal(resolveAdminMetricIcon('Parents'), resolveAdminMetricIcon('parents'));
+  });
+
+  it('uses BarChart3 for unknown labels', () => {
+    assert.equal(resolveAdminMetricIcon('Unknown metric'), BarChart3);
   });
 });
 

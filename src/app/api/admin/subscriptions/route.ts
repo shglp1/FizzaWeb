@@ -10,6 +10,7 @@ import {
   DistanceError,
 } from '@/lib/maps/distance';
 import { buildPaginationMeta, parsePaginationParams } from '@/lib/pagination';
+import { computeSubscriptionDaysLeft } from '@/lib/admin/subscriptionTimeline';
 import { z } from 'zod';
 
 /** Normalise a location that may be a plain string or a coordinate object. */
@@ -73,8 +74,6 @@ export async function GET(req: NextRequest) {
       if (dateTo) (where.createdAt as Record<string, unknown>).lte = new Date(dateTo + 'T23:59:59Z');
     }
 
-    const today = new Date();
-
     const [subscriptions, total] = await Promise.all([
       prisma.userSubscription.findMany({
         where,
@@ -125,9 +124,7 @@ export async function GET(req: NextRequest) {
         const completedTrips = await prisma.trip.count({
           where: { subscriptionId: sub.id, status: 'COMPLETED' },
         });
-        const daysLeft = sub.endsOn
-          ? Math.max(0, Math.ceil((sub.endsOn.getTime() - today.getTime()) / 86_400_000))
-          : null;
+        const daysLeft = computeSubscriptionDaysLeft(sub);
         return { ...sub, ridesUsed: completedTrips, daysLeft };
       }),
     );
