@@ -2,9 +2,13 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { Card, Button, LoadingState, Alert, StatusBadge } from '@/components/ui';
+import { StatsGrid } from '@/components/ui/enterprise';
+import { TripDetailDrawer } from '@/components/admin/TripDetailDrawer';
 import { tripService } from '@/services/tripService';
 import { getDisplayLabel } from '@/lib/trips/statusCatalog';
+import { classifyTripForBoard } from '@/lib/ui/adminOperations';
 import type { TripStatus } from '@/lib/trips/tripLifecycle';
+import { AlertTriangle, Clock } from 'lucide-react';
 
 type OpsData = {
   today: {
@@ -30,18 +34,12 @@ type BoardTrip = {
   driver: { profile: { fullName: string } | null } | null;
 };
 
-type ColumnKey = 'scheduled' | 'active' | 'attention' | 'completed';
-
-const ACTIVE = new Set(['PRE_TRIP', 'ON_THE_WAY', 'ARRIVED_PICKUP', 'PICKED_UP', 'EN_ROUTE_DROPOFF', 'ARRIVED_DROPOFF']);
-
-function classifyTrip(t: BoardTrip): ColumnKey {
-  if (t.status === 'COMPLETED') return 'completed';
-  if (ACTIVE.has(t.status)) return 'active';
-  if (['SCHEDULED', 'DRIVER_ASSIGNED'].includes(t.status) && !t.driver) return 'attention';
-  if (['CANCELLED', 'NO_SHOW'].includes(t.status)) return 'attention';
-  if (['SCHEDULED', 'DRIVER_ASSIGNED'].includes(t.status)) return 'scheduled';
-  return 'active';
-}
+const COLUMN_STYLES = {
+  scheduled: 'border-l-4 border-l-blue-400',
+  active: 'border-l-4 border-l-emerald-500',
+  attention: 'border-l-4 border-l-amber-500',
+  completed: 'border-l-4 border-l-gray-300',
+};
 
 export function TripOperationsBoard() {
   const [ops, setOps] = useState<OpsData | null>(null);
@@ -77,79 +75,99 @@ export function TripOperationsBoard() {
   if (loading) return <LoadingState message="Loading operations board…" />;
   if (error) return <Alert variant="error">{error}</Alert>;
 
-  const columns: { key: ColumnKey; label: string }[] = [
-    { key: 'scheduled', label: 'Scheduled' },
-    { key: 'active', label: 'Active' },
-    { key: 'attention', label: 'Needs Attention' },
-    { key: 'completed', label: 'Completed' },
+  const columns = [
+    { key: 'scheduled' as const, label: 'Scheduled' },
+    { key: 'active' as const, label: 'Active' },
+    { key: 'attention' as const, label: 'Needs attention' },
+    { key: 'completed' as const, label: 'Completed' },
   ];
 
   const grouped = columns.map((col) => ({
     ...col,
-    trips: trips.filter((t) => classifyTrip(t) === col.key),
+    trips: trips.filter((t) => classifyTripForBoard(t) === col.key),
   }));
 
+  function fmtTime(iso: string | null) {
+    if (!iso) return '—';
+    return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+
   return (
-    <div className="space-y-4 mb-8">
+    <div className="space-y-6 mb-8">
       {ops && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
-          {[
-            ['Today', ops.today.total],
-            ['Active', ops.today.active],
-            ['Unassigned', ops.today.unassigned],
-            ['GPS Stale', ops.today.gpsStale],
-            ['Chat Flags', ops.today.chatFlagged],
-            ['No Show', ops.today.noShow],
-            ['Done', ops.today.completed],
-          ].map(([label, val]) => (
-            <Card key={String(label)} padding="sm" className="text-center">
-              <p className="text-xl font-bold">{val as number}</p>
-              <p className="text-xs text-gray-500">{String(label)}</p>
-            </Card>
-          ))}
-        </div>
+        <StatsGrid
+          columns={7}
+          items={[
+            { label: 'Today', value: ops.today.total, icon: Clock },
+            { label: 'Active', value: ops.today.active, color: '#14A34A' },
+            { label: 'Unassigned', value: ops.today.unassigned, color: '#B45309' },
+            { label: 'GPS stale', value: ops.today.gpsStale, color: '#DC2626' },
+            { label: 'Chat flags', value: ops.today.chatFlagged, color: '#DC2626' },
+            { label: 'No show', value: ops.today.noShow },
+            { label: 'Completed', value: ops.today.completed, color: '#15803D' },
+          ]}
+        />
       )}
 
       {ops && ops.driverWorkload.length > 0 && (
-        <Card padding="sm">
-          <p className="text-sm font-semibold mb-2">Driver workload</p>
-          <div className="grid sm:grid-cols-2 gap-2 text-xs">
+        <Card className="p-4 sm:p-5">
+          <p className="text-sm font-semibold text-gray-900 mb-3">Driver workload today</p>
+          <div className="grid sm:grid-cols-2 xl:grid-cols-4 gap-3">
             {ops.driverWorkload.slice(0, 8).map((d) => (
-              <div key={d.driverId} className="border border-gray-100 rounded-lg p-2">
-                <p className="font-medium">{d.fullName}</p>
-                <p className="text-gray-500">{d.tripsToday} today · {d.completedToday} done</p>
-                {d.activeTrip && <p className="text-emerald-600">Active: {d.activeTrip.status}</p>}
-                {d.nextTrip && <p className="text-gray-400">Next: {d.nextTrip.status}</p>}
+              <div key={d.driverId} className="rounded-xl border border-gray-100 bg-gray-50/50 p-3">
+                <p className="font-semibold text-sm text-gray-900">{d.fullName}</p>
+                <p className="text-xs text-gray-500 mt-0.5">{d.tripsToday} trips · {d.completedToday} done</p>
+                {d.activeTrip && <p className="text-xs text-emerald-700 mt-1 font-medium">Active now</p>}
               </div>
             ))}
           </div>
         </Card>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
         {grouped.map((col) => (
-          <div key={col.key} className="bg-gray-50/80 rounded-xl p-3 min-h-[200px]">
-            <div className="flex items-center justify-between mb-2">
-              <p className="text-sm font-semibold text-gray-800">{col.label}</p>
-              <span className="text-xs bg-white border rounded-full px-2 py-0.5">{col.trips.length}</span>
+          <div key={col.key} className="rounded-2xl bg-gray-50/90 border border-gray-100 p-3 min-h-[240px] flex flex-col">
+            <div className="flex items-center justify-between mb-3 px-1">
+              <p className="text-sm font-bold text-gray-800">{col.label}</p>
+              <span className="text-xs font-semibold bg-white border border-gray-200 rounded-full px-2.5 py-0.5">
+                {col.trips.length}
+              </span>
             </div>
-            <div className="space-y-2 max-h-[420px] overflow-y-auto">
+            <div className="space-y-2 flex-1 overflow-y-auto max-h-[480px] scrollbar-thin pr-0.5">
               {col.trips.map((t) => (
                 <button
                   key={t.id}
                   type="button"
                   onClick={() => setSelectedId(t.id)}
-                  className={`w-full text-left bg-white border rounded-lg p-2 text-xs hover:shadow-sm ${selectedId === t.id ? 'border-fizza-primary ring-1 ring-fizza-primary/30' : 'border-gray-100'}`}
+                  className={[
+                    'w-full text-left bg-white border rounded-xl p-3 text-sm hover:shadow-card transition-shadow',
+                    COLUMN_STYLES[col.key],
+                    selectedId === t.id ? 'ring-2 ring-fizza-secondary border-emerald-200' : 'border-gray-100',
+                  ].join(' ')}
                 >
-                  <p className="font-semibold text-gray-900">{t.rider?.name ?? 'Rider'}</p>
-                  <p className="text-gray-500 truncate">{t.pickupLocation}</p>
-                  <StatusBadge variant="info" className="mt-1">
-                    {getDisplayLabel(t.status as TripStatus)}
-                  </StatusBadge>
+                  <div className="flex items-start justify-between gap-2 mb-1">
+                    <p className="font-semibold text-gray-900">{t.rider?.name ?? 'Rider'}</p>
+                    <span className="text-xs text-gray-500 shrink-0">{fmtTime(t.scheduledPickupTime)}</span>
+                  </div>
+                  <p className="text-xs text-gray-500 truncate">{t.pickupLocation}</p>
+                  <p className="text-xs text-gray-400 truncate">→ {t.dropoffLocation}</p>
+                  <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                    <StatusBadge variant="info" className="text-[10px]">
+                      {getDisplayLabel(t.status as TripStatus)}
+                    </StatusBadge>
+                    {t.driver?.profile?.fullName ? (
+                      <span className="text-[10px] text-gray-500">{t.driver.profile.fullName}</span>
+                    ) : (
+                      <span className="inline-flex items-center gap-0.5 text-[10px] text-amber-700">
+                        <AlertTriangle className="h-3 w-3" aria-hidden />
+                        No driver
+                      </span>
+                    )}
+                  </div>
                 </button>
               ))}
               {col.trips.length === 0 && (
-                <p className="text-xs text-gray-400 text-center py-4">No trips</p>
+                <p className="text-xs text-gray-400 text-center py-8">No trips in this column</p>
               )}
             </div>
           </div>
@@ -157,24 +175,12 @@ export function TripOperationsBoard() {
       </div>
 
       {selectedId && detail && (
-        <Card className="border-fizza-secondary/30">
-          <div className="flex justify-between items-start mb-3">
-            <div>
-              <p className="font-semibold">Trip detail drawer</p>
-              <p className="text-xs text-gray-500 font-mono">{selectedId}</p>
-            </div>
-            <Button variant="ghost" size="sm" onClick={() => setSelectedId(null)}>Close</Button>
-          </div>
-          <pre className="text-xs bg-gray-50 rounded-lg p-3 overflow-auto max-h-64">
-            {JSON.stringify(detail, null, 2)}
-          </pre>
-          <div className="flex gap-2 mt-3 flex-wrap">
-            <a href={`/tracking/${selectedId}`} target="_blank" rel="noopener noreferrer">
-              <Button variant="outline" size="sm">View tracking</Button>
-            </a>
-            <Button variant="ghost" size="sm" onClick={() => tripService.adminCheckLate()}>Run late check</Button>
-          </div>
-        </Card>
+        <TripDetailDrawer
+          tripId={selectedId}
+          detail={detail as Parameters<typeof TripDetailDrawer>[0]['detail']}
+          onClose={() => setSelectedId(null)}
+          onRunLateCheck={() => void tripService.adminCheckLate()}
+        />
       )}
     </div>
   );

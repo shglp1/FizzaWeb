@@ -17,11 +17,13 @@ test('subscription wizard step labels', () => {
   assert.equal(subscriptionStepLabel(0), 'Plan');
   assert.equal(subscriptionStepLabel(1), 'Rider & Schedule');
   assert.equal(subscriptionStepLabel(2), 'Pickup & Drop-off');
-  assert.equal(subscriptionStepLabel(3), 'Review');
-  assert.deepEqual(SUBSCRIPTION_WIZARD_STEPS.slice(0, 4), [
+  assert.equal(subscriptionStepLabel(3), 'Price & Add-ons');
+  assert.equal(subscriptionStepLabel(4), 'Review');
+  assert.deepEqual(SUBSCRIPTION_WIZARD_STEPS.slice(0, 5), [
     'Plan',
     'Rider & Schedule',
     'Pickup & Drop-off',
+    'Price & Add-ons',
     'Review',
   ]);
 });

@@ -723,3 +723,5 @@ export function Pagination({ page, totalPages, onPageChange, className = '' }: P
     </div>
   );
 }
+
+export * from './enterprise';
