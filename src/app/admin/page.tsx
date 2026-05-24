@@ -27,6 +27,7 @@ import { SystemConfigSection } from './sections/SystemConfigSection';
 import { PackagesSection } from './sections/PackagesSection';
 import { TripOperationsBoard } from './sections/TripOperationsBoard';
 import { AuditLogsSection } from './sections/AuditLogsSection';
+import { Ban, MapPin, Paperclip } from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -157,8 +158,8 @@ function AdminForbidden() {
   return (
     <div className="min-h-screen bg-fizza-bg flex items-center justify-center p-6">
       <div className="max-w-md w-full text-center card-md p-8">
-        <div className="inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-red-50 text-3xl mb-4">
-          🚫
+        <div className="inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-red-50 mb-4">
+          <Ban className="h-8 w-8 text-red-500" strokeWidth={1.75} aria-hidden />
         </div>
         <h1 className="text-xl font-bold text-gray-900 mb-2">Admin access required</h1>
         <p className="text-sm text-gray-500 mb-4">
@@ -361,7 +362,7 @@ function ApplicationsSection() {
       ) : pageError ? (
         <ErrorState message={pageError} onRetry={() => loadApplications(activeTab, page)} />
       ) : applications.length === 0 ? (
-        <EmptyState icon="📝" title="No applications found" description="No driver applications match this filter." />
+        <EmptyState icon="file" title="No applications found" description="No driver applications match this filter." />
       ) : (
         <div className="space-y-4">
           {applications.map((app) => {
@@ -574,7 +575,7 @@ function TripCard({
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium truncate">{trip.driver.profile?.fullName ?? 'Driver'}</p>
-            {trip.driver.rating && <p className="text-xs text-amber-600">★ {Number(trip.driver.rating).toFixed(1)}</p>}
+            {trip.driver.rating && <p className="text-xs text-amber-600">Rating {Number(trip.driver.rating).toFixed(1)}</p>}
           </div>
           {trip.vehicle && (
             <p className="text-xs text-gray-500 shrink-0 text-right">
@@ -597,7 +598,7 @@ function TripCard({
           </Button>
         )}
         <a href={mapsUrl} target="_blank" rel="noopener noreferrer" title="Open full route in Google Maps">
-          <Button variant="ghost" size="sm">🗺 Route</Button>
+          <Button variant="ghost" size="sm"><MapPin className="h-4 w-4" aria-hidden /> Route</Button>
         </a>
         {trip.status !== 'COMPLETED' && trip.status !== 'CANCELLED' && (
           <a href={`/tracking/${trip.id}`} target="_blank" rel="noopener noreferrer">
@@ -621,7 +622,7 @@ function TripCard({
               <option key={d.id} value={d.id}>
                 {d.profile?.fullName ?? 'Driver'}
                 {d.vehicle ? ` — ${d.vehicle.model} (${d.vehicle.plateNumber})` : ''}
-                {d.rating ? ` ★ ${Number(d.rating).toFixed(1)}` : ''}
+                {d.rating ? ` Rating ${Number(d.rating).toFixed(1)}` : ''}
               </option>
             ))}
           </select>
@@ -893,7 +894,7 @@ function TripsSection() {
             <input type="date" className="input text-sm h-9" value={genEndDate} onChange={(e) => setGenEndDate(e.target.value)} />
           </div>
           <Button variant="primary" size="sm" loading={generating} onClick={handleGenerate}>
-            ⚡ Generate Trips
+            Generate Trips
           </Button>
         </div>
         {genMsg && (
@@ -934,7 +935,7 @@ function TripsSection() {
       ) : pageError ? (
         <ErrorState message={pageError} onRetry={() => loadTrips(statusFilter, dateFilter, page)} />
       ) : trips.length === 0 ? (
-        <EmptyState icon="🗓️" title="No trips found" description="No trips match the selected filters." />
+        <EmptyState icon="calendar" title="No trips found" description="No trips match the selected filters." />
       ) : viewMode === 'flat' ? (
         <div className="space-y-4">
           {trips.map((trip) => (
@@ -1094,7 +1095,7 @@ function SafetySection() {
       ) : pageError ? (
         <ErrorState message={pageError} onRetry={() => loadReports(statusFilter, categoryFilter, dateFrom, dateTo, safetyPage)} />
       ) : reports.length === 0 ? (
-        <EmptyState icon="🛡️" title="No safety reports found" description="No reports match the selected filters." />
+        <EmptyState icon="shield" title="No safety reports found" description="No reports match the selected filters." />
       ) : (
         <div className="space-y-4">
           {reports.map((report) => {
@@ -1130,7 +1131,7 @@ function SafetySection() {
                     {report.attachments.map((a, i) => (
                       <a key={a.id} href={a.filePath} target="_blank" rel="noopener noreferrer"
                         className="text-xs text-blue-600 underline hover:text-blue-800">
-                        📎 Attachment {i + 1}
+                        <Paperclip className="h-3 w-3 inline" aria-hidden /> Attachment {i + 1}
                       </a>
                     ))}
                   </div>

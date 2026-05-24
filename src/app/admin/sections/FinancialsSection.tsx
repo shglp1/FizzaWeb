@@ -135,7 +135,7 @@ export function FinancialsSection() {
       ) : payError ? (
         <ErrorState message={payError} onRetry={() => loadPayments(payStatus, payPage)} />
       ) : payments.length === 0 ? (
-        <EmptyState icon="💳" title="No payments found" description="No payments match your filter." />
+        <EmptyState icon="card" title="No payments found" description="No payments match your filter." />
       ) : (
         <Card padding="sm">
           <div className="overflow-x-auto">

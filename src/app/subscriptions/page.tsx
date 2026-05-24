@@ -1,5 +1,7 @@
 'use client';
 
+import { GraduationCap, School } from 'lucide-react';
+
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { AppShell } from '@/components/layout/AppShell';
@@ -100,7 +102,11 @@ function SubCard({
       <div className="flex items-start justify-between gap-4 mb-4">
         <div className="flex items-start gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50 text-lg shrink-0">
-            {sub.subscriptionType === 'SCHOOL' ? '🏫' : '🎓'}
+            {sub.subscriptionType === 'SCHOOL' ? (
+              <School className="h-5 w-5 text-fizza-secondary" strokeWidth={1.75} aria-hidden />
+            ) : (
+              <GraduationCap className="h-5 w-5 text-fizza-secondary" strokeWidth={1.75} aria-hidden />
+            )}
           </div>
           <div>
             <h2 className="font-semibold text-gray-900 capitalize">{sub.subscriptionType.toLowerCase()} Subscription</h2>
@@ -350,7 +356,7 @@ export default function SubscriptionsPage() {
         <ErrorState message={pageError} onRetry={loadSubscriptions} />
       ) : subscriptions.length === 0 ? (
         <EmptyState
-          icon="📋"
+          icon="clipboard"
           title="No subscriptions yet"
           description="Set up a school or university transport plan for your family."
           action={{ label: 'Create First Subscription', onClick: () => window.location.assign('/subscriptions/new') }}

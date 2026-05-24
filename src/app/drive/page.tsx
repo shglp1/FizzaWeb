@@ -1,6 +1,21 @@
 'use client';
 
 import { useState } from 'react';
+import type { LucideIcon } from 'lucide-react';
+import {
+  Briefcase,
+  Bus,
+  Car,
+  ClipboardList,
+  Clock,
+  FileText,
+  IdCard,
+  MapPin,
+  Shield,
+  Sparkles,
+  Truck,
+  Users,
+} from 'lucide-react';
 import { Logo } from '@/components/layout/Logo';
 
 // ─── FAQ data ─────────────────────────────────────────────────────────────────
@@ -150,40 +165,16 @@ export default function DriveLandingPage() {
         </div>
 
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
-          {[
-            {
-              icon: '🕐',
-              title: 'Flexible hours',
-              desc: 'Set your own availability. Work mornings, afternoons, or weekends — your schedule, your choice.',
-            },
-            {
-              icon: '👨‍👩‍👧',
-              title: 'Trusted families',
-              desc: 'You transport verified family members — children and students — from a platform built on trust.',
-            },
-            {
-              icon: '📋',
-              title: 'Clear assignments',
-              desc: 'Trips are structured and pre-scheduled. Know your route, pickup, and dropoff in advance.',
-            },
-            {
-              icon: '🗺️',
-              title: 'GPS-assisted ops',
-              desc: 'GPS tracking built in. Share your location during trips for family peace of mind.',
-            },
-            {
-              icon: '🛡️',
-              title: 'Safety-first',
-              desc: 'Safety reporting, incident escalation, and admin support — you are never alone on the road.',
-            },
-            {
-              icon: '💼',
-              title: 'Professional support',
-              desc: 'Dedicated admin team to review your application, handle issues, and support your operations.',
-            },
-          ].map((b) => (
+          {([
+            { Icon: Clock, title: 'Flexible hours', desc: 'Set your own availability. Work mornings, afternoons, or weekends — your schedule, your choice.' },
+            { Icon: Users, title: 'Trusted families', desc: 'You transport verified family members — children and students — from a platform built on trust.' },
+            { Icon: ClipboardList, title: 'Clear assignments', desc: 'Trips are structured and pre-scheduled. Know your route, pickup, and dropoff in advance.' },
+            { Icon: MapPin, title: 'GPS-assisted ops', desc: 'GPS tracking built in. Share your location during trips for family peace of mind.' },
+            { Icon: Shield, title: 'Safety-first', desc: 'Safety reporting, incident escalation, and admin support — you are never alone on the road.' },
+            { Icon: Briefcase, title: 'Professional support', desc: 'Dedicated admin team to review your application, handle issues, and support your operations.' },
+          ] as { Icon: LucideIcon; title: string; desc: string }[]).map((b) => (
             <div key={b.title} className="rounded-2xl border border-gray-100 bg-white p-6 hover:shadow-md transition-shadow">
-              <div className="text-3xl mb-3">{b.icon}</div>
+              <b.Icon className="h-8 w-8 text-fizza-secondary mb-3" strokeWidth={1.75} aria-hidden />
               <h3 className="font-semibold text-gray-900 mb-1.5">{b.title}</h3>
               <p className="text-sm text-gray-500 leading-relaxed">{b.desc}</p>
             </div>
@@ -253,35 +244,35 @@ export default function DriveLandingPage() {
               To join the Fizza driver network, you must meet the following requirements.
             </p>
             <ul className="space-y-3">
-              {[
-                { icon: '🪪', text: 'Valid national ID or iqama' },
-                { icon: '📋', text: 'Valid Saudi driving license' },
-                { icon: '🚗', text: 'Vehicle details (brand, model, year, plate)' },
-                { icon: '📄', text: 'Vehicle registration document' },
-                { icon: '✨', text: 'Clean, safe, and road-worthy vehicle' },
-                { icon: '🛡️', text: 'Commitment to safety and punctuality' },
-              ].map((r) => (
+              {([
+                { Icon: IdCard, text: 'Valid national ID or iqama' },
+                { Icon: ClipboardList, text: 'Valid Saudi driving license' },
+                { Icon: Car, text: 'Vehicle details (brand, model, year, plate)' },
+                { Icon: FileText, text: 'Vehicle registration document' },
+                { Icon: Sparkles, text: 'Clean, safe, and road-worthy vehicle' },
+                { Icon: Shield, text: 'Commitment to safety and punctuality' },
+              ] as { Icon: LucideIcon; text: string }[]).map((r) => (
                 <li key={r.text} className="flex items-start gap-3">
-                  <span className="text-lg shrink-0 mt-0.5">{r.icon}</span>
+                  <r.Icon className="h-5 w-5 text-fizza-secondary shrink-0 mt-0.5" strokeWidth={1.75} aria-hidden />
                   <span className="text-gray-700 text-sm">{r.text}</span>
                 </li>
               ))}
             </ul>
           </div>
           <div className="rounded-3xl bg-gradient-to-br from-fizza-primary to-emerald-700 p-8 text-white">
-            <div className="text-4xl mb-4">🚗</div>
+            <Car className="h-10 w-10 text-white mb-4" strokeWidth={1.75} aria-hidden />
             <h3 className="text-xl font-bold mb-2">Accepted vehicle types</h3>
             <div className="grid grid-cols-2 gap-2 mt-4">
-              {[
-                { emoji: '🚗', label: 'Economy' },
-                { emoji: '🚙', label: 'Comfort' },
-                { emoji: '🚐', label: 'Family SUV' },
-                { emoji: '🚌', label: 'Van' },
-                { emoji: '🚍', label: 'School Bus' },
-                { emoji: '✨', label: 'Premium' },
-              ].map((v) => (
+              {([
+                { Icon: Car, label: 'Economy' },
+                { Icon: Car, label: 'Comfort' },
+                { Icon: Truck, label: 'Family SUV' },
+                { Icon: Bus, label: 'Van' },
+                { Icon: Bus, label: 'School Bus' },
+                { Icon: Sparkles, label: 'Premium' },
+              ] as { Icon: LucideIcon; label: string }[]).map((v) => (
                 <div key={v.label} className="flex items-center gap-2 rounded-xl bg-white/10 px-3 py-2">
-                  <span>{v.emoji}</span>
+                  <v.Icon className="h-4 w-4" strokeWidth={1.75} aria-hidden />
                   <span className="text-sm font-medium">{v.label}</span>
                 </div>
               ))}

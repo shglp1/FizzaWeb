@@ -9,6 +9,7 @@ import {
 import { tripService } from '@/services/tripService';
 import { TRIP_STATUS_LABEL, DRIVER_TRANSITIONS } from '@/lib/trips/tripLifecycle';
 import type { TripStatus } from '@/lib/trips/tripLifecycle';
+import { Clock, ExternalLink } from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -195,7 +196,7 @@ function ActiveTripPanel({
               target="_blank" rel="noopener noreferrer"
               className="text-xs text-blue-600 hover:underline"
             >
-              Navigate ↗
+              <span className="inline-flex items-center gap-0.5">Navigate <ExternalLink className="h-3 w-3" aria-hidden /></span>
             </a>
           )}
         </div>
@@ -209,14 +210,17 @@ function ActiveTripPanel({
               target="_blank" rel="noopener noreferrer"
               className="text-xs text-blue-600 hover:underline"
             >
-              Navigate ↗
+              <span className="inline-flex items-center gap-0.5">Navigate <ExternalLink className="h-3 w-3" aria-hidden /></span>
             </a>
           )}
         </div>
       </div>
 
       {minsToPickup != null && minsToPickup > 0 && status === 'PRE_TRIP' && (
-        <p className="text-xs text-amber-600 mb-3">⏱ {minsToPickup} min until scheduled pickup</p>
+        <p className="text-xs text-amber-600 mb-3 inline-flex items-center gap-1">
+          <Clock className="h-3.5 w-3.5" aria-hidden />
+          {minsToPickup} min until scheduled pickup
+        </p>
       )}
       {minsToPickup != null && minsToPickup < -5 && ACTIVE_STATUSES.has(status) && status !== 'PICKED_UP' && status !== 'EN_ROUTE_DROPOFF' && status !== 'ARRIVED_DROPOFF' && (
         <Alert variant="warning" className="mb-3">Driver is {Math.abs(minsToPickup)} min behind schedule.</Alert>
@@ -326,7 +330,7 @@ function TripRowCard({ trip, onStatusUpdate }: { trip: Trip; onStatusUpdate: () 
                   href={`https://www.google.com/maps/dir/?api=1&destination=${trip.pickupLat},${trip.pickupLng}`}
                   target="_blank" rel="noopener noreferrer"
                   className="text-blue-600 hover:underline"
-                >Navigate ↗</a>
+                ><span className="inline-flex items-center gap-0.5">Navigate <ExternalLink className="h-3 w-3" aria-hidden /></span></a>
               )}
             </div>
             <div>
@@ -337,7 +341,7 @@ function TripRowCard({ trip, onStatusUpdate }: { trip: Trip; onStatusUpdate: () 
                   href={`https://www.google.com/maps/dir/?api=1&destination=${trip.dropoffLat},${trip.dropoffLng}`}
                   target="_blank" rel="noopener noreferrer"
                   className="text-blue-600 hover:underline"
-                >Navigate ↗</a>
+                ><span className="inline-flex items-center gap-0.5">Navigate <ExternalLink className="h-3 w-3" aria-hidden /></span></a>
               )}
             </div>
           </div>
@@ -525,7 +529,7 @@ export default function DriverTripsPage() {
           {/* Trip List */}
           {displayTrips.length === 0 ? (
             <EmptyState
-              icon="📋"
+              icon="clipboard"
               title={`No ${activeTab} trips`}
               description={
                 activeTab === 'today'

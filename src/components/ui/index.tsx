@@ -1,5 +1,8 @@
 'use client';
 
+import type { LucideIcon } from 'lucide-react';
+import { Inbox } from 'lucide-react';
+import { resolveEmptyIcon } from '@/components/icons';
 import {
   forwardRef,
   useState,
@@ -361,7 +364,9 @@ export function Card({ children, className = '', variant = 'default', padding }:
 // ─── EmptyState ───────────────────────────────────────────────────────────────
 
 interface EmptyStateProps {
-  icon: string;
+  /** @deprecated Use `Icon` — legacy emoji string still resolves to Lucide */
+  icon?: string;
+  Icon?: LucideIcon;
   title: string;
   description?: string;
   action?: {
@@ -371,11 +376,12 @@ interface EmptyStateProps {
   };
 }
 
-export function EmptyState({ icon, title, description, action }: EmptyStateProps) {
+export function EmptyState({ icon, Icon: IconProp, title, description, action }: EmptyStateProps) {
+  const ResolvedIcon = IconProp ?? (icon ? resolveEmptyIcon(icon) : Inbox);
   return (
     <div className="empty-state">
-      <div className="empty-icon">
-        <span role="img" aria-hidden="true">{icon}</span>
+      <div className="empty-icon" aria-hidden="true">
+        <ResolvedIcon className="h-7 w-7 text-fizza-secondary" strokeWidth={1.75} />
       </div>
       <div>
         <p className="font-semibold text-gray-700">{title}</p>

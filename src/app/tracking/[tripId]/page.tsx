@@ -10,6 +10,8 @@ import {
 import { trackingService } from '@/services/trackingService';
 import { TRIP_STATUS_LABEL, isTrackableStatus } from '@/lib/trips/tripLifecycle';
 import type { TripStatus } from '@/lib/trips/tripLifecycle';
+import { TripEventIcon } from '@/components/trips/TripEventIcon';
+import { MapPin, Radio, XCircle } from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -83,23 +85,6 @@ function minutesUntil(dt: string | null): number | null {
   if (!dt) return null;
   return Math.round((new Date(dt).getTime() - Date.now()) / 60_000);
 }
-
-const EVENT_ICON: Record<string, string> = {
-  DRIVER_ASSIGNED:       '🚗',
-  LOCATION_SHARING:      '📍',
-  NEAR_PICKUP:           '📍',
-  ARRIVED_PICKUP:        '🏁',
-  RIDER_PICKED_UP:       '✅',
-  NEAR_DROPOFF:          '📍',
-  ARRIVED_DROPOFF:       '🏫',
-  TRIP_COMPLETED:        '🎉',
-  DRIVER_LATE:           '⏰',
-  RIDER_LATE:            '⏰',
-  TRIP_CANCELLED:        '❌',
-  NO_SHOW:               '❌',
-  STATUS_CHANGE:         '🔄',
-  CHAT_MESSAGE_FLAGGED:  '⚠️',
-};
 
 // ─── Leaflet Map (SSR-safe) ───────────────────────────────────────────────────
 
@@ -252,7 +237,7 @@ function StatusTimeline({ currentStatus }: { currentStatus: string }) {
   if (isCancelled) {
     return (
       <div className="flex items-center gap-2 p-3 rounded-xl bg-red-50 text-red-700 text-sm font-medium">
-        <span>❌</span>
+        <XCircle className="h-5 w-5 text-red-500" strokeWidth={1.75} aria-hidden />
         <span>{TRIP_STATUS_LABEL[currentStatus as TripStatus] ?? currentStatus}</span>
       </div>
     );
@@ -306,7 +291,7 @@ function EventLog({ events }: { events: TripEvent[] }) {
     <div className="space-y-2">
       {events.map((ev) => (
         <div key={ev.id} className="flex items-start gap-2 text-sm">
-          <span className="text-base leading-none mt-0.5">{EVENT_ICON[ev.eventType] ?? '📌'}</span>
+          <TripEventIcon eventType={ev.eventType} className="h-4 w-4 text-fizza-secondary mt-0.5" />
           <div className="flex-1 min-w-0">
             <p className="text-gray-700">{ev.message ?? ev.eventType.replace(/_/g, ' ')}</p>
             <p className="text-xs text-gray-400">{fmtDateTime(ev.createdAt)}</p>
@@ -455,9 +440,9 @@ export default function TrackingDetailPage() {
       {!location && trackable && (
         <Card className="mb-4">
           <div className="flex flex-col items-center py-6 gap-2 text-gray-500">
-            <span className="text-3xl">📡</span>
-            <p className="text-sm font-medium">GPS signal not yet available</p>
-            <p className="text-xs text-gray-400">The driver&apos;s location will appear here shortly.</p>
+            <Radio className="h-10 w-10 text-fizza-secondary" strokeWidth={1.5} aria-hidden />
+            <p className="text-sm font-medium">Your driver has not started sharing location yet.</p>
+            <p className="text-xs text-gray-400">Tracking opens about 10 minutes before pickup.</p>
           </div>
         </Card>
       )}
@@ -469,7 +454,7 @@ export default function TrackingDetailPage() {
           <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Trip Details</p>
           <div className="space-y-2 text-sm">
             <div className="flex items-start gap-2">
-              <span className="text-gray-400 mt-0.5">🟢</span>
+              <MapPin className="h-4 w-4 text-emerald-600 mt-0.5 shrink-0" aria-hidden />
               <div>
                 <p className="text-xs text-gray-400">Pickup</p>
                 <p className="font-medium text-gray-800">{trip.pickupLocation}</p>
@@ -482,7 +467,7 @@ export default function TrackingDetailPage() {
               </div>
             </div>
             <div className="flex items-start gap-2">
-              <span className="text-gray-400 mt-0.5">🔴</span>
+              <MapPin className="h-4 w-4 text-red-500 mt-0.5 shrink-0" aria-hidden />
               <div>
                 <p className="text-xs text-gray-400">Drop-off</p>
                 <p className="font-medium text-gray-800">{trip.dropoffLocation}</p>
@@ -508,7 +493,7 @@ export default function TrackingDetailPage() {
               <div>
                 <p className="font-semibold text-gray-900">{trip.driver.profile.fullName}</p>
                 {trip.driver.rating != null && (
-                  <p className="text-xs text-amber-500">★ {trip.driver.rating.toFixed(1)}</p>
+                  <p className="text-xs text-amber-500">Rating {trip.driver.rating.toFixed(1)}</p>
                 )}
               </div>
             </div>

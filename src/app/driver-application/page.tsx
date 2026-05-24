@@ -10,6 +10,20 @@ import {
 import { driverApplicationService } from '@/services/driverApplicationService';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { DRIVER_APPLICATION_LOGIN_PATH } from '@/lib/driverAuthFlow';
+import type { LucideIcon } from 'lucide-react';
+import {
+  Ban,
+  Bus,
+  Car,
+  CheckCircle,
+  FileText,
+  Lock,
+  PartyPopper,
+  Search,
+  Sparkles,
+  Truck,
+  Clock,
+} from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -56,13 +70,13 @@ type FormValues = {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const VEHICLE_TYPES: { type: VehicleType; label: string; emoji: string; seats: string }[] = [
-  { type: 'ECONOMY', label: 'Economy',    emoji: '🚗', seats: 'Up to 4 seats' },
-  { type: 'COMFORT', label: 'Comfort',    emoji: '🚙', seats: 'Up to 4 seats' },
-  { type: 'FAMILY',  label: 'Family SUV', emoji: '🚐', seats: 'Up to 6 seats' },
-  { type: 'VAN',     label: 'Van',        emoji: '🚌', seats: 'Up to 9 seats' },
-  { type: 'BUS',     label: 'School Bus', emoji: '🚍', seats: 'Up to 30 seats' },
-  { type: 'PREMIUM', label: 'Premium',    emoji: '✨', seats: 'Up to 4 seats' },
+const VEHICLE_TYPES: { type: VehicleType; label: string; Icon: LucideIcon; seats: string }[] = [
+  { type: 'ECONOMY', label: 'Economy', Icon: Car, seats: 'Up to 4 seats' },
+  { type: 'COMFORT', label: 'Comfort', Icon: Car, seats: 'Up to 4 seats' },
+  { type: 'FAMILY',  label: 'Family SUV', Icon: Truck, seats: 'Up to 6 seats' },
+  { type: 'VAN',     label: 'Van', Icon: Bus, seats: 'Up to 9 seats' },
+  { type: 'BUS',     label: 'School Bus', Icon: Bus, seats: 'Up to 30 seats' },
+  { type: 'PREMIUM', label: 'Premium', Icon: Sparkles, seats: 'Up to 4 seats' },
 ];
 
 const STATUS_BADGE: Record<AppStatus, 'warning' | 'success' | 'danger' | 'orange'> = {
@@ -81,10 +95,10 @@ const STATUS_LABEL: Record<AppStatus, string> = {
 
 // ─── Status tracker ───────────────────────────────────────────────────────────
 
-const STEPS = [
-  { key: 'submitted', label: 'Submitted',   icon: '📝' },
-  { key: 'review',    label: 'Under Review', icon: '🔍' },
-  { key: 'decision',  label: 'Decision',    icon: '✅' },
+const STEPS: { key: string; label: string; Icon: LucideIcon }[] = [
+  { key: 'submitted', label: 'Submitted', Icon: FileText },
+  { key: 'review', label: 'Under Review', Icon: Search },
+  { key: 'decision', label: 'Decision', Icon: CheckCircle },
 ];
 
 function StatusTracker({ status }: { status: AppStatus }) {
@@ -99,7 +113,7 @@ function StatusTracker({ status }: { status: AppStatus }) {
                 ? 'border-fizza-secondary bg-fizza-secondary/10'
                 : 'border-gray-200 bg-white'
             }`}>
-              {s.icon}
+              <s.Icon className="h-4 w-4 text-fizza-secondary" strokeWidth={1.75} aria-hidden />
             </div>
             <p className={`text-xs mt-1 font-medium ${i <= stepIndex ? 'text-fizza-secondary' : 'text-gray-400'}`}>
               {s.label}
@@ -120,8 +134,8 @@ function SignInRequiredCard() {
   return (
     <div className="min-h-screen bg-fizza-bg flex flex-col items-center justify-center px-4 py-12">
       <div className="max-w-md w-full text-center card-md p-8">
-        <div className="inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-amber-50 text-3xl mb-5">
-          🔐
+        <div className="inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-amber-50 mb-5">
+          <Lock className="h-8 w-8 text-amber-600" strokeWidth={1.75} aria-hidden />
         </div>
         <h1 className="text-xl font-bold text-gray-900 mb-2">Sign in to continue</h1>
         <p className="text-sm text-gray-500 mb-6 leading-relaxed">
@@ -156,8 +170,8 @@ function ForbiddenCard() {
   return (
     <div className="min-h-[60vh] flex items-center justify-center px-4">
       <div className="max-w-md w-full text-center">
-        <div className="inline-flex h-20 w-20 items-center justify-center rounded-3xl bg-gray-100 text-5xl mb-6 mx-auto">
-          🚫
+        <div className="inline-flex h-20 w-20 items-center justify-center rounded-3xl bg-gray-100 mb-6 mx-auto">
+          <Ban className="h-10 w-10 text-gray-500" strokeWidth={1.75} aria-hidden />
         </div>
         <h1 className="text-xl font-bold text-gray-900 mb-2">
           Driver applications are not available here
@@ -191,8 +205,8 @@ function ApprovedCard() {
   return (
     <div className="min-h-[60vh] flex items-center justify-center px-4">
       <div className="max-w-md w-full text-center">
-        <div className="inline-flex h-20 w-20 items-center justify-center rounded-3xl bg-emerald-50 text-5xl mb-6 mx-auto">
-          🎉
+        <div className="inline-flex h-20 w-20 items-center justify-center rounded-3xl bg-emerald-50 mb-6 mx-auto">
+          <PartyPopper className="h-10 w-10 text-emerald-600" strokeWidth={1.75} aria-hidden />
         </div>
         <div className="inline-flex items-center gap-2 rounded-full bg-emerald-50 border border-emerald-200 px-3 py-1 text-xs font-semibold text-emerald-700 mb-4">
           <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
@@ -434,7 +448,7 @@ export default function DriverApplicationPage() {
           {/* State-specific guidance */}
           {status === 'PENDING' && (
             <div className="mt-3 rounded-xl bg-blue-50 border border-blue-100 px-3 py-2.5 flex items-start gap-2">
-              <span className="text-base shrink-0">🔍</span>
+              <Search className="h-5 w-5 text-blue-600 shrink-0" strokeWidth={1.75} aria-hidden />
               <div>
                 <p className="text-sm font-medium text-blue-800">Application under review</p>
                 <p className="text-xs text-blue-600 mt-0.5">
@@ -460,7 +474,7 @@ export default function DriverApplicationPage() {
       {/* ── Pending — read-only state, no form ───────────────────────────── */}
       {status === 'PENDING' && (
         <Card className="text-center py-10">
-          <div className="text-5xl mb-4">⏳</div>
+          <Clock className="h-12 w-12 text-amber-500 mx-auto mb-4" strokeWidth={1.75} aria-hidden />
           <h2 className="text-lg font-semibold text-gray-800 mb-2">Your application is being reviewed</h2>
           <p className="text-sm text-gray-500 mb-6 max-w-sm mx-auto">
             We will notify you once a decision is made. While you wait, make sure
@@ -493,7 +507,7 @@ export default function DriverApplicationPage() {
               Vehicle Type <span className="text-red-500">*</span>
             </h2>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-              {VEHICLE_TYPES.map(({ type, label, emoji, seats }) => (
+              {VEHICLE_TYPES.map(({ type, label, Icon, seats }) => (
                 <button
                   key={type}
                   type="button"
@@ -511,7 +525,7 @@ export default function DriverApplicationPage() {
                       </svg>
                     </span>
                   )}
-                  <span className="text-2xl block mb-2">{emoji}</span>
+                  <Icon className="h-7 w-7 mx-auto mb-2 text-fizza-secondary" strokeWidth={1.75} aria-hidden />
                   <p className="font-semibold text-sm">{label}</p>
                   <p className="text-xs text-gray-400 mt-0.5">{seats}</p>
                 </button>

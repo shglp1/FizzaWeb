@@ -2,6 +2,15 @@
 import { useEffect, useState, useCallback } from 'react';
 import { adminStatsService } from '@/services/adminService';
 import { StatCard, Card, Button, LoadingState, ErrorState } from '@/components/ui';
+import type { LucideIcon } from 'lucide-react';
+import {
+  Car,
+  ClipboardList,
+  FileText,
+  Settings,
+  Shield,
+  Wallet,
+} from 'lucide-react';
 
 type Stats = {
   totalUsers: number;
@@ -104,21 +113,21 @@ export function OverviewSection({ onNavigate }: { onNavigate: (section: string) 
       <Card>
         <h3 className="text-sm font-semibold text-gray-700 mb-4">Quick Actions</h3>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-          {[
-            { label: 'Pending Applications', section: 'applications', badge: stats.pendingApplications, emoji: '📝' },
-            { label: 'Open Safety Reports',  section: 'safety',        badge: stats.pendingSafetyReports, emoji: '🛡️' },
-            { label: 'Manage Subscriptions', section: 'subscriptions', badge: null, emoji: '📋' },
-            { label: 'Financial Overview',   section: 'financials',    badge: null, emoji: '💰' },
-            { label: 'System Configuration', section: 'sysconfig',     badge: null, emoji: '⚙️' },
-            { label: 'Manage Drivers',       section: 'drivers',       badge: null, emoji: '🚗' },
-          ].map((item) => (
+          {([
+            { label: 'Pending Applications', section: 'applications', badge: stats.pendingApplications, Icon: FileText },
+            { label: 'Open Safety Reports', section: 'safety', badge: stats.pendingSafetyReports, Icon: Shield },
+            { label: 'Manage Subscriptions', section: 'subscriptions', badge: null, Icon: ClipboardList },
+            { label: 'Financial Overview', section: 'financials', badge: null, Icon: Wallet },
+            { label: 'System Configuration', section: 'sysconfig', badge: null, Icon: Settings },
+            { label: 'Manage Drivers', section: 'drivers', badge: null, Icon: Car },
+          ] as { label: string; section: string; badge: number | null; Icon: LucideIcon }[]).map((item) => (
             <button
               key={item.section}
               onClick={() => onNavigate(item.section)}
               className="flex items-center justify-between px-3.5 py-3 rounded-xl border border-gray-200 hover:border-fizza-secondary hover:bg-emerald-50/50 transition-all text-left group"
             >
               <div className="flex items-center gap-2.5">
-                <span className="text-base">{item.emoji}</span>
+                <item.Icon className="h-5 w-5 text-fizza-secondary" strokeWidth={1.75} aria-hidden />
                 <span className="text-sm font-medium text-gray-700 group-hover:text-fizza-primary">{item.label}</span>
               </div>
               {item.badge ? (

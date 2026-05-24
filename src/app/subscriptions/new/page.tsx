@@ -65,9 +65,9 @@ const WEEKDAYS = [
 const TOTAL_STEPS = 4;
 
 const STEP_META = [
-  { label: 'Package', number: 1 },
-  { label: 'Schedule', number: 2 },
-  { label: 'Route & Price', number: 3 },
+  { label: 'Plan', number: 1 },
+  { label: 'Rider & Schedule', number: 2 },
+  { label: 'Pickup & Drop-off', number: 3 },
   { label: 'Review', number: 4 },
 ];
 
@@ -361,11 +361,11 @@ export default function NewSubscriptionPage() {
     setQuoteError('');
 
     if (!pickupLocation) {
-      setQuoteError('Please select a pickup location from the search suggestions.');
+      setQuoteError('Please confirm the exact pickup pin on the map.');
       return;
     }
     if (!dropoffLocation) {
-      setQuoteError('Please select a drop-off location from the search suggestions.');
+      setQuoteError('Please confirm the exact drop-off pin on the map.');
       return;
     }
     if (selectedRiderIds.length === 0) {
@@ -453,11 +453,11 @@ export default function NewSubscriptionPage() {
     }
     if (step === 2) {
       if (!pickupLocation) {
-        setStepError('Please select a pickup location from the search suggestions.');
+        setStepError('Please confirm the exact pickup pin on the map.');
         return false;
       }
       if (!dropoffLocation) {
-        setStepError('Please select a drop-off location from the search suggestions.');
+        setStepError('Please confirm the exact drop-off pin on the map.');
         return false;
       }
       if (!pickupTime) { setStepError('Pickup time is required.'); return false; }

@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import { trackingService } from '@/services/trackingService';
+import { Ban, MapPin, TriangleAlert } from 'lucide-react';
 
 type GpsStatus =
   | { kind: 'idle' }
@@ -116,7 +117,10 @@ export function DriverGpsPanel({ tripId }: { tripId: string }) {
   return (
     <div className="mt-3 border-t border-gray-100 pt-3">
       <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
-        📍 Driver Location Sharing
+        <span className="inline-flex items-center gap-1.5">
+          <MapPin className="h-3.5 w-3.5" aria-hidden />
+          Driver Location Sharing
+        </span>
       </p>
 
       {status.kind === 'idle' && (
@@ -155,7 +159,7 @@ export function DriverGpsPanel({ tripId }: { tripId: string }) {
       {status.kind === 'denied' && (
         <div className="space-y-2">
           <div className="flex items-start gap-2 text-sm text-red-600 bg-red-50 rounded-xl px-3 py-2.5 border border-red-100">
-            <span className="shrink-0 mt-0.5">🚫</span>
+            <Ban className="h-4 w-4 shrink-0 mt-0.5" strokeWidth={1.75} aria-hidden />
             <span>
               Location access denied.{' '}
               <span className="font-medium">Enable location in your browser settings</span> then try again.
@@ -173,7 +177,7 @@ export function DriverGpsPanel({ tripId }: { tripId: string }) {
       {status.kind === 'error' && (
         <div className="space-y-2">
           <div className="flex items-start gap-2 text-sm text-orange-700 bg-orange-50 rounded-xl px-3 py-2.5 border border-orange-100">
-            <span className="shrink-0 mt-0.5">⚠️</span>
+            <TriangleAlert className="h-4 w-4 shrink-0 mt-0.5" strokeWidth={1.75} aria-hidden />
             <span>
               {status.msg}
               {status.lastSentAt && (

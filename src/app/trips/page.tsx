@@ -178,7 +178,7 @@ export default function TripsPage() {
         <ErrorState message={pageError} onRetry={() => loadTrips(activeTab)} />
       ) : trips.length === 0 ? (
         <EmptyState
-          icon="🗓️"
+          icon="calendar"
           title={`No ${activeTab} trips`}
           description={
             activeTab === 'upcoming'
@@ -264,7 +264,7 @@ export default function TripsPage() {
                       </p>
                       {trip.driver.rating && (
                         <p className="text-xs text-amber-600 font-medium">
-                          ★ {Number(trip.driver.rating).toFixed(1)}
+                          Rating {Number(trip.driver.rating).toFixed(1)}
                         </p>
                       )}
                     </div>

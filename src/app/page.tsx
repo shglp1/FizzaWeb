@@ -1,21 +1,23 @@
 import Link from 'next/link';
+import type { LucideIcon } from 'lucide-react';
+import { Bell, CalendarDays, Car, CheckCircle, CreditCard, MapPin, Radio, Shield, Users } from 'lucide-react';
 import { Logo } from '@/components/layout/Logo';
 
 // ─── Feature card ─────────────────────────────────────────────────────────────
 
 function FeatureCard({
-  icon,
+  icon: Icon,
   title,
   description,
 }: {
-  icon: string;
+  icon: LucideIcon;
   title: string;
   description: string;
 }) {
   return (
     <div className="card p-6 flex flex-col gap-3">
-      <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-50 text-fizza-secondary text-2xl">
-        {icon}
+      <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-50 text-fizza-secondary">
+        <Icon className="h-6 w-6" strokeWidth={1.75} aria-hidden />
       </div>
       <h3 className="font-semibold text-gray-900">{title}</h3>
       <p className="text-sm text-gray-500 leading-relaxed">{description}</p>
@@ -47,8 +49,9 @@ export default function HomePage() {
         {/* Hero */}
         <section className="mx-auto max-w-6xl px-4 md:px-8 pt-16 pb-20 grid md:grid-cols-2 gap-12 items-center">
           <div className="flex flex-col gap-6">
-            <div className="badge-success w-fit text-xs font-semibold px-3 py-1 rounded-full">
-              🛡️ Safety-First Transportation
+            <div className="badge-success w-fit text-xs font-semibold px-3 py-1 rounded-full inline-flex items-center gap-1.5">
+              <Shield className="h-3.5 w-3.5" aria-hidden />
+              Safety-First Transportation
             </div>
             <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight text-gray-900 leading-tight">
               Safe Rides.{' '}
@@ -87,7 +90,9 @@ export default function HomePage() {
             {/* Mock stat cards */}
             <div className="relative space-y-3">
               <div className="rounded-2xl bg-white/15 backdrop-blur-sm p-4 flex items-center gap-3">
-                <div className="h-10 w-10 rounded-xl bg-fizza-soft/30 flex items-center justify-center text-xl">🚗</div>
+                <div className="h-10 w-10 rounded-xl bg-fizza-soft/30 flex items-center justify-center">
+                  <Car className="h-5 w-5 text-white" strokeWidth={1.75} aria-hidden />
+                </div>
                 <div>
                   <p className="text-xs text-white/70">Next pickup</p>
                   <p className="font-bold">In 8 minutes · Ahmad</p>
@@ -96,7 +101,9 @@ export default function HomePage() {
               </div>
 
               <div className="rounded-2xl bg-white/15 backdrop-blur-sm p-4 flex items-center gap-3">
-                <div className="h-10 w-10 rounded-xl bg-fizza-soft/30 flex items-center justify-center text-xl">✅</div>
+                <div className="h-10 w-10 rounded-xl bg-fizza-soft/30 flex items-center justify-center">
+                  <CheckCircle className="h-5 w-5 text-white" strokeWidth={1.75} aria-hidden />
+                </div>
                 <div>
                   <p className="text-xs text-white/70">Status</p>
                   <p className="font-bold">Noura dropped safely</p>
@@ -105,7 +112,9 @@ export default function HomePage() {
               </div>
 
               <div className="rounded-2xl bg-white/15 backdrop-blur-sm p-4 flex items-center gap-3">
-                <div className="h-10 w-10 rounded-xl bg-fizza-soft/30 flex items-center justify-center text-xl">📍</div>
+                <div className="h-10 w-10 rounded-xl bg-fizza-soft/30 flex items-center justify-center">
+                  <MapPin className="h-5 w-5 text-white" strokeWidth={1.75} aria-hidden />
+                </div>
                 <div>
                   <p className="text-xs text-white/70">Tracking</p>
                   <p className="font-bold">Al-Nuzha District</p>
@@ -124,32 +133,32 @@ export default function HomePage() {
             </div>
             <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
               <FeatureCard
-                icon="🗓️"
+                icon={CalendarDays}
                 title="Scheduled Trips"
                 description="Set recurring routes and let Fizza handle pick-ups and drop-offs — no daily booking needed."
               />
               <FeatureCard
-                icon="📡"
+                icon={Radio}
                 title="Real-Time Tracking"
                 description="See exactly where your riders are at every moment with live GPS updates."
               />
               <FeatureCard
-                icon="🛡️"
+                icon={Shield}
                 title="Verified Drivers"
                 description="Every driver is background-checked, trained, and monitored for your family's safety."
               />
               <FeatureCard
-                icon="🔔"
+                icon={Bell}
                 title="Instant Notifications"
                 description="Get alerts the moment a rider is picked up, dropped off, or if anything changes."
               />
               <FeatureCard
-                icon="💳"
+                icon={CreditCard}
                 title="Flexible Plans"
                 description="Choose from monthly or annual subscriptions — scale up, down, or pause any time."
               />
               <FeatureCard
-                icon="👨‍👩‍👧"
+                icon={Users}
                 title="Multiple Riders"
                 description="Manage all your family members from one account with individual profiles per rider."
               />

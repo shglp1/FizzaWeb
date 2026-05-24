@@ -15,17 +15,28 @@ import {
   Textarea,
 } from '@/components/ui';
 import { safetyService } from '@/services/safetyService';
+import type { LucideIcon } from 'lucide-react';
+import {
+  Car,
+  ClipboardList,
+  Clock,
+  MapPin,
+  MessageSquare,
+  Paperclip,
+  TriangleAlert,
+  Wrench,
+} from 'lucide-react';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const CATEGORIES = [
-  { value: 'UNSAFE_DRIVING',    label: 'Unsafe Driving',    emoji: '🚗' },
-  { value: 'HARASSMENT',        label: 'Harassment',        emoji: '⚠️' },
-  { value: 'VEHICLE_CONDITION', label: 'Vehicle Condition', emoji: '🔧' },
-  { value: 'ROUTE_DEVIATION',   label: 'Route Deviation',   emoji: '📍' },
-  { value: 'LATE_PICKUP',       label: 'Late Pickup',       emoji: '⏰' },
-  { value: 'BEHAVIOUR',         label: 'Behaviour Issue',   emoji: '🗣️' },
-  { value: 'OTHER',             label: 'Other',             emoji: '📋' },
+const CATEGORIES: { value: string; label: string; Icon: LucideIcon }[] = [
+  { value: 'UNSAFE_DRIVING', label: 'Unsafe Driving', Icon: Car },
+  { value: 'HARASSMENT', label: 'Harassment', Icon: TriangleAlert },
+  { value: 'VEHICLE_CONDITION', label: 'Vehicle Condition', Icon: Wrench },
+  { value: 'ROUTE_DEVIATION', label: 'Route Deviation', Icon: MapPin },
+  { value: 'LATE_PICKUP', label: 'Late Pickup', Icon: Clock },
+  { value: 'BEHAVIOUR', label: 'Behaviour Issue', Icon: MessageSquare },
+  { value: 'OTHER', label: 'Other', Icon: ClipboardList },
 ];
 
 type SafetyStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'RESOLVED';
@@ -122,8 +133,7 @@ export default function SafetyPage() {
     }
   };
 
-  const catLabel = (val: string) => CATEGORIES.find((c) => c.value === val)?.label ?? val;
-  const catEmoji = (val: string) => CATEGORIES.find((c) => c.value === val)?.emoji ?? '📋';
+  const catMeta = (val: string) => CATEGORIES.find((c) => c.value === val) ?? CATEGORIES[CATEGORIES.length - 1];
 
   return (
     <AppShell>
@@ -179,7 +189,7 @@ export default function SafetyPage() {
                       : 'border-gray-200 text-gray-600 hover:border-emerald-200'
                   }`}
                 >
-                  <span>{c.emoji}</span>
+                  <c.Icon className="h-4 w-4 shrink-0" strokeWidth={1.75} aria-hidden />
                   <span className="truncate">{c.label}</span>
                 </button>
               ))}
@@ -237,7 +247,7 @@ export default function SafetyPage() {
         <ErrorState message={pageError} onRetry={loadReports} />
       ) : reports.length === 0 ? (
         <EmptyState
-          icon="🛡️"
+          icon="shield"
           title="No safety reports yet"
           description="If you experienced a safety concern on a trip, please submit a report."
           action={{ label: 'Submit First Report', onClick: () => setShowForm(true) }}
@@ -249,11 +259,14 @@ export default function SafetyPage() {
               {/* Header */}
               <div className="flex items-start justify-between gap-3 mb-3">
                 <div className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-red-50 text-xl shrink-0">
-                    {catEmoji(report.category)}
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-red-50 shrink-0">
+                    {(() => {
+                      const m = catMeta(report.category);
+                      return <m.Icon className="h-5 w-5 text-red-600" strokeWidth={1.75} aria-hidden />;
+                    })()}
                   </div>
                   <div>
-                    <p className="font-semibold text-gray-900">{catLabel(report.category)}</p>
+                    <p className="font-semibold text-gray-900">{catMeta(report.category).label}</p>
                     <p className="text-xs text-gray-400">
                       {new Date(report.createdAt).toLocaleDateString('en-SA', {
                         year: 'numeric', month: 'short', day: 'numeric',
@@ -309,7 +322,8 @@ export default function SafetyPage() {
                       rel="noopener noreferrer"
                       className="inline-flex items-center gap-1 text-xs text-blue-600 underline hover:text-blue-800"
                     >
-                      📎 Attachment {i + 1}
+                      <Paperclip className="h-3 w-3" aria-hidden />
+                      Attachment {i + 1}
                     </a>
                   ))}
                 </div>

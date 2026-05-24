@@ -12,6 +12,18 @@ import {
   EmptyState,
 } from '@/components/ui';
 import { notificationService } from '@/services/notificationService';
+import type { LucideIcon } from 'lucide-react';
+import {
+  Bell,
+  Car,
+  ClipboardList,
+  CreditCard,
+  FileText,
+  Settings,
+  Shield,
+  Wallet,
+  XCircle,
+} from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -24,21 +36,20 @@ type Notification = {
   createdAt: string;
 };
 
-// Type → badge variant + emoji
-const TYPE_META: Record<string, { variant: 'info' | 'success' | 'danger' | 'warning' | 'purple' | 'orange' | 'gray'; emoji: string; label: string }> = {
-  SUBSCRIPTION:           { variant: 'info',    emoji: '📋', label: 'Subscription' },
-  SUBSCRIPTION_PAYMENT:   { variant: 'success', emoji: '💳', label: 'Payment' },
-  SUBSCRIPTION_CANCELLED: { variant: 'danger',  emoji: '❌', label: 'Cancelled' },
-  PAYMENT:                { variant: 'success', emoji: '💳', label: 'Payment' },
-  WALLET_TOP_UP:          { variant: 'success', emoji: '💰', label: 'Wallet' },
-  TRIP:                   { variant: 'purple',  emoji: '🚗', label: 'Trip' },
-  DRIVER_APPLICATION:     { variant: 'orange',  emoji: '📝', label: 'Application' },
-  SAFETY:                 { variant: 'danger',  emoji: '🛡️', label: 'Safety' },
-  WALLET:                 { variant: 'info',    emoji: '💰', label: 'Wallet' },
-  SYSTEM:                 { variant: 'gray',    emoji: '⚙️', label: 'System' },
+const TYPE_META: Record<string, { variant: 'info' | 'success' | 'danger' | 'warning' | 'purple' | 'orange' | 'gray'; Icon: LucideIcon; label: string }> = {
+  SUBSCRIPTION:           { variant: 'info',    Icon: ClipboardList, label: 'Subscription' },
+  SUBSCRIPTION_PAYMENT:   { variant: 'success', Icon: CreditCard, label: 'Payment' },
+  SUBSCRIPTION_CANCELLED: { variant: 'danger',  Icon: XCircle, label: 'Cancelled' },
+  PAYMENT:                { variant: 'success', Icon: CreditCard, label: 'Payment' },
+  WALLET_TOP_UP:          { variant: 'success', Icon: Wallet, label: 'Wallet' },
+  TRIP:                   { variant: 'purple',  Icon: Car, label: 'Trip' },
+  DRIVER_APPLICATION:     { variant: 'orange',  Icon: FileText, label: 'Application' },
+  SAFETY:                 { variant: 'danger',  Icon: Shield, label: 'Safety' },
+  WALLET:                 { variant: 'info',    Icon: Wallet, label: 'Wallet' },
+  SYSTEM:                 { variant: 'gray',    Icon: Settings, label: 'System' },
 };
 
-const DEFAULT_META = { variant: 'gray' as const, emoji: '🔔', label: 'Notification' };
+const DEFAULT_META = { variant: 'gray' as const, Icon: Bell, label: 'Notification' };
 
 function fmtDate(dt: string) {
   const d = new Date(dt);
@@ -141,7 +152,7 @@ export default function NotificationsPage() {
         <ErrorState message={pageError} onRetry={() => loadNotifications()} />
       ) : notifications.length === 0 ? (
         <EmptyState
-          icon="🔔"
+          icon="bell"
           title={unreadOnly ? 'No unread notifications' : 'No notifications yet'}
           description="Notifications for payments, trips, safety reports, and more will appear here."
           action={unreadOnly ? { label: 'Show All', onClick: handleFilterToggle } : undefined}
@@ -167,7 +178,7 @@ export default function NotificationsPage() {
 
                   {/* Icon */}
                   <div className={`flex h-9 w-9 items-center justify-center rounded-xl shrink-0 text-base ${notif.isRead ? 'bg-gray-100' : 'bg-emerald-50'}`}>
-                    {meta.emoji}
+                    <meta.Icon className="h-5 w-5" strokeWidth={1.75} aria-hidden />
                   </div>
 
                   {/* Content */}

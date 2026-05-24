@@ -16,6 +16,15 @@ import { tripService } from '@/services/tripService';
 import { walletService } from '@/services/walletService';
 import { subscriptionService } from '@/services/subscriptionService';
 import { riderService } from '@/services/riderService';
+import {
+  CalendarDays,
+  Car,
+  ClipboardList,
+  CreditCard,
+  Shield,
+  Users,
+  type LucideIcon,
+} from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -204,7 +213,9 @@ export default function DashboardPage() {
 
                 {trips.length === 0 ? (
                   <div className="flex flex-col items-center py-10 gap-3 text-center">
-                    <div className="h-12 w-12 rounded-2xl bg-gray-100 flex items-center justify-center text-2xl">🚗</div>
+                    <div className="h-12 w-12 rounded-2xl bg-gray-100 flex items-center justify-center">
+                      <Car className="h-6 w-6 text-gray-400" strokeWidth={1.75} aria-hidden />
+                    </div>
                     <div>
                       <p className="text-sm font-medium text-gray-700">No upcoming trips</p>
                       <p className="text-xs text-gray-400 mt-0.5">Start with a subscription plan</p>
@@ -237,16 +248,16 @@ export default function DashboardPage() {
               <Card>
                 <h2 className="text-base font-semibold text-gray-900 mb-4">Quick Actions</h2>
                 <div className="space-y-2">
-                  {[
-                    { href: '/riders',        emoji: '👨‍👩‍👧', title: 'Add Family Member',  sub: 'Manage family members',     bg: 'bg-emerald-50 text-fizza-secondary' },
-                    { href: '/subscriptions', emoji: '📋',   title: activeSub ? 'Manage Plan' : 'Create Subscription', sub: activeSub?.package?.name ?? 'No active plan', bg: 'bg-blue-50 text-blue-600' },
-                    { href: '/wallet',        emoji: '💳',   title: 'Top Up Wallet',        sub: safeBalance(wallet),          bg: 'bg-amber-50 text-amber-600' },
-                    { href: '/trips',         emoji: '🗓️',  title: 'View Trips',            sub: `${upcomingTrips} upcoming`,  bg: 'bg-purple-50 text-purple-600' },
-                    { href: '/safety',        emoji: '🛡️',  title: 'Safety Report',         sub: 'Report an issue',            bg: 'bg-red-50 text-red-500' },
-                  ].map((item) => (
+                  {([
+                    { href: '/riders',        Icon: Users,         title: 'Add Family Member',  sub: 'Manage family members',     bg: 'bg-emerald-50 text-fizza-secondary' },
+                    { href: '/subscriptions', Icon: ClipboardList, title: activeSub ? 'Manage Plan' : 'Create Subscription', sub: activeSub?.package?.name ?? 'No active plan', bg: 'bg-blue-50 text-blue-600' },
+                    { href: '/wallet',        Icon: CreditCard,    title: 'Top Up Wallet',        sub: safeBalance(wallet),          bg: 'bg-amber-50 text-amber-600' },
+                    { href: '/trips',         Icon: CalendarDays,  title: 'View Trips',            sub: `${upcomingTrips} upcoming`,  bg: 'bg-purple-50 text-purple-600' },
+                    { href: '/safety',        Icon: Shield,        title: 'Safety Report',         sub: 'Report an issue',            bg: 'bg-red-50 text-red-500' },
+                  ] as { href: string; Icon: LucideIcon; title: string; sub: string; bg: string }[]).map((item) => (
                     <a key={item.href} href={item.href} className="flex items-center gap-3 rounded-xl px-3 py-2.5 hover:bg-gray-50 transition-colors group">
-                      <span className={`flex h-9 w-9 items-center justify-center rounded-xl text-base shrink-0 ${item.bg}`}>
-                        {item.emoji}
+                      <span className={`flex h-9 w-9 items-center justify-center rounded-xl shrink-0 ${item.bg}`}>
+                        <item.Icon className="h-5 w-5" strokeWidth={1.75} aria-hidden />
                       </span>
                       <div className="min-w-0">
                         <p className="text-sm font-semibold text-gray-800 truncate">{item.title}</p>

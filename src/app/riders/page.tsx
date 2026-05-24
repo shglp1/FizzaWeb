@@ -1,5 +1,7 @@
 'use client';
 
+import { Accessibility, Phone, School } from 'lucide-react';
+
 import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { AppShell } from '@/components/layout/AppShell';
@@ -253,7 +255,7 @@ export default function RidersPage() {
         <ErrorState message={pageError} onRetry={loadRiders} />
       ) : riders.length === 0 ? (
         <EmptyState
-          icon="👤"
+          icon="rider"
           title="No riders yet"
           description="Add your family members to start scheduling trips."
           action={{ label: 'Add First Rider', onClick: openAdd }}
@@ -279,19 +281,19 @@ export default function RidersPage() {
               <div className="space-y-1.5 text-sm text-gray-600 mb-4">
                 {rider.school && (
                   <div className="flex items-center gap-1.5">
-                    <span className="text-base">🏫</span>
+                    <School className="h-4 w-4 text-gray-400 shrink-0" strokeWidth={1.75} aria-hidden />
                     <span className="truncate">{rider.school}{rider.grade ? ` · ${rider.grade}` : ''}</span>
                   </div>
                 )}
                 {rider.phone && (
                   <div className="flex items-center gap-1.5">
-                    <span className="text-base">📞</span>
+                    <Phone className="h-4 w-4 text-gray-400 shrink-0" strokeWidth={1.75} aria-hidden />
                     <span>{rider.phone}</span>
                   </div>
                 )}
                 {rider.specialNeeds && (
                   <div className="flex items-center gap-1.5">
-                    <span className="text-base">♿</span>
+                    <Accessibility className="h-4 w-4 text-amber-600 shrink-0" strokeWidth={1.75} aria-hidden />
                     <span className="text-amber-700 font-medium">Special needs</span>
                   </div>
                 )}

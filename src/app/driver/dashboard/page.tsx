@@ -7,6 +7,14 @@ import {
   PageHeader, StatCard, Card, StatusBadge, Button, LoadingState, ErrorState,
 } from '@/components/ui';
 import { tripService } from '@/services/tripService';
+import type { LucideIcon } from 'lucide-react';
+import {
+  Bell,
+  ClipboardList,
+  MapPin,
+  Shield,
+  UserRound,
+} from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -230,7 +238,9 @@ export default function DriverDashboardPage() {
 
                 {trips.length === 0 ? (
                   <div className="flex flex-col items-center py-10 gap-3 text-center">
-                    <div className="h-12 w-12 rounded-2xl bg-gray-100 flex items-center justify-center text-2xl">📋</div>
+                    <div className="h-12 w-12 rounded-2xl bg-gray-100 flex items-center justify-center">
+                      <ClipboardList className="h-6 w-6 text-gray-400" strokeWidth={1.75} aria-hidden />
+                    </div>
                     <div>
                       <p className="text-sm font-medium text-gray-700">No trips assigned yet</p>
                       <p className="text-xs text-gray-400 mt-0.5">
@@ -269,50 +279,20 @@ export default function DriverDashboardPage() {
               <Card>
                 <h2 className="text-base font-semibold text-gray-900 mb-4">Quick Actions</h2>
                 <div className="space-y-2">
-                  {[
-                    {
-                      href: '/trips',
-                      emoji: '📋',
-                      title: 'My Trips',
-                      sub: `${upcomingCount} upcoming`,
-                      bg: 'bg-emerald-50 text-fizza-secondary',
-                    },
-                    {
-                      href: '/tracking',
-                      emoji: '🗺️',
-                      title: 'GPS Tracking',
-                      sub: 'Share live location',
-                      bg: 'bg-blue-50 text-blue-600',
-                    },
-                    {
-                      href: '/safety',
-                      emoji: '🛡️',
-                      title: 'Safety Report',
-                      sub: 'Report an incident',
-                      bg: 'bg-red-50 text-red-500',
-                    },
-                    {
-                      href: '/notifications',
-                      emoji: '🔔',
-                      title: 'Notifications',
-                      sub: 'View updates',
-                      bg: 'bg-amber-50 text-amber-600',
-                    },
-                    {
-                      href: '/profile',
-                      emoji: '👤',
-                      title: 'My Profile',
-                      sub: 'Account settings',
-                      bg: 'bg-gray-100 text-gray-600',
-                    },
-                  ].map((item) => (
+                  {([
+                    { href: '/trips', Icon: ClipboardList, title: 'My Trips', sub: `${upcomingCount} upcoming`, bg: 'bg-emerald-50 text-fizza-secondary' },
+                    { href: '/tracking', Icon: MapPin, title: 'GPS Tracking', sub: 'Share live location', bg: 'bg-blue-50 text-blue-600' },
+                    { href: '/safety', Icon: Shield, title: 'Safety Report', sub: 'Report an incident', bg: 'bg-red-50 text-red-500' },
+                    { href: '/notifications', Icon: Bell, title: 'Notifications', sub: 'View updates', bg: 'bg-amber-50 text-amber-600' },
+                    { href: '/profile', Icon: UserRound, title: 'My Profile', sub: 'Account settings', bg: 'bg-gray-100 text-gray-600' },
+                  ] as { href: string; Icon: LucideIcon; title: string; sub: string; bg: string }[]).map((item) => (
                     <a
                       key={item.href}
                       href={item.href}
                       className="flex items-center gap-3 rounded-xl px-3 py-2.5 hover:bg-gray-50 transition-colors"
                     >
-                      <span className={`flex h-9 w-9 items-center justify-center rounded-xl text-base shrink-0 ${item.bg}`}>
-                        {item.emoji}
+                      <span className={`flex h-9 w-9 items-center justify-center rounded-xl shrink-0 ${item.bg}`}>
+                        <item.Icon className="h-5 w-5" strokeWidth={1.75} aria-hidden />
                       </span>
                       <div className="min-w-0">
                         <p className="text-sm font-semibold text-gray-800 truncate">{item.title}</p>
@@ -326,7 +306,7 @@ export default function DriverDashboardPage() {
               {/* GPS guidance card */}
               <Card className="bg-blue-50/50 border-blue-100">
                 <div className="flex items-start gap-3">
-                  <div className="text-2xl shrink-0">🗺️</div>
+                  <MapPin className="h-8 w-8 text-blue-600 shrink-0" strokeWidth={1.75} aria-hidden />
                   <div>
                     <h3 className="text-sm font-semibold text-gray-800 mb-1">GPS Sharing</h3>
                     <p className="text-xs text-gray-500 leading-relaxed">
