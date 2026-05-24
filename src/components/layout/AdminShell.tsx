@@ -1,16 +1,17 @@
 'use client';
 
-import { type ReactNode, useState, useCallback } from 'react';
+import { type ReactNode, useState, useCallback, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
+import { Menu, X } from 'lucide-react';
 import { Logo } from './Logo';
 import {
   ADMIN_SECTIONS,
+  ADMIN_SECTION_LABELS,
   adminSectionHref,
   parseAdminSection,
   type AdminSection,
 } from '@/lib/adminNav';
 
-// Reuse sidebar icon paths from Sidebar
 const ICONS: Record<string, string> = {
   dashboard:    'M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z M9 22V12h6v10',
   riders:       'M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2 M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z M23 21v-2a4 4 0 0 0-3-3.87 M16 3.13a4 4 0 0 1 0 7.75',
@@ -24,33 +25,44 @@ const ICONS: Record<string, string> = {
   logout:       'M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4 M16 17l5-5-5-5 M21 12H9',
 };
 
+const MOBILE_QUICK_SECTIONS: AdminSection[] = ['overview', 'trips', 'users', 'drivers', 'audit'];
+
+function NavIcon({ icon }: { icon: string }) {
+  const iconPath = ICONS[icon] ?? ICONS.dashboard;
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      {iconPath.split(' M').map((seg, i) => (
+        <path key={i} d={i === 0 ? seg : 'M' + seg} />
+      ))}
+    </svg>
+  );
+}
+
 function AdminNavLink({
   href,
   label,
   icon,
   active,
+  onNavigate,
 }: {
   href: string;
   label: string;
   icon: string;
   active: boolean;
+  onNavigate?: () => void;
 }) {
-  const iconPath = ICONS[icon] ?? ICONS.dashboard;
   return (
     <a
       href={href}
-      className={`group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-150 ${
+      onClick={onNavigate}
+      className={`group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-150 min-h-[44px] ${
         active
           ? 'bg-white/15 text-white'
           : 'text-white/60 hover:bg-white/10 hover:text-white'
       }`}
     >
       <span className={`shrink-0 ${active ? 'text-fizza-soft' : 'text-white/50 group-hover:text-white/80'}`}>
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          {iconPath.split(' M').map((seg, i) => (
-            <path key={i} d={i === 0 ? seg : 'M' + seg} />
-          ))}
-        </svg>
+        <NavIcon icon={icon} />
       </span>
       <span className="truncate">{label}</span>
       {active && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-fizza-soft shrink-0" />}
@@ -58,26 +70,111 @@ function AdminNavLink({
   );
 }
 
-function AdminMobileNav({ active }: { active: AdminSection }) {
+function MobileTopBar({
+  title,
+  onMenuOpen,
+}: {
+  title: string;
+  onMenuOpen: () => void;
+}) {
   return (
-    <div className="md:hidden sticky top-0 z-30 bg-white border-b border-gray-100 px-3 py-2">
-      <label htmlFor="admin-section-mobile" className="sr-only">
-        Admin section
-      </label>
-      <select
-        id="admin-section-mobile"
-        value={active}
-        onChange={(e) => {
-          window.location.href = adminSectionHref(e.target.value as AdminSection);
-        }}
-        className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm font-medium text-gray-800"
+    <header className="md:hidden sticky top-0 z-40 flex items-center gap-3 border-b border-gray-100 bg-white/95 backdrop-blur-sm px-4 py-3 safe-area-top">
+      <button
+        type="button"
+        onClick={onMenuOpen}
+        className="flex h-11 w-11 items-center justify-center rounded-xl border border-gray-200 text-gray-700 hover:bg-gray-50"
+        aria-label="Open admin menu"
       >
-        {ADMIN_SECTIONS.map((s) => (
-          <option key={s.section} value={s.section}>
-            {s.label}
-          </option>
-        ))}
-      </select>
+        <Menu className="h-5 w-5" />
+      </button>
+      <div className="min-w-0 flex-1">
+        <p className="text-[10px] font-semibold uppercase tracking-wide text-fizza-secondary">Admin Console</p>
+        <h1 className="text-base font-bold text-gray-900 truncate">{title}</h1>
+      </div>
+      <span className="shrink-0 rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-bold text-red-600">Admin</span>
+    </header>
+  );
+}
+
+function MobileBottomNav({ active }: { active: AdminSection }) {
+  const items = MOBILE_QUICK_SECTIONS.map((section) => {
+    const nav = ADMIN_SECTIONS.find((s) => s.section === section);
+    return nav ? { ...nav, href: adminSectionHref(section) } : null;
+  }).filter(Boolean) as { label: string; section: AdminSection; icon: string; href: string }[];
+
+  return (
+    <nav
+      className="md:hidden fixed bottom-0 left-0 right-0 z-30 border-t border-gray-200 bg-white/95 backdrop-blur-sm safe-area-bottom"
+      aria-label="Quick admin navigation"
+    >
+      <div className="flex items-stretch justify-around px-1 pt-1 pb-1">
+        {items.map((item) => {
+          const isActive = active === item.section;
+          return (
+            <a
+              key={item.section}
+              href={item.href}
+              className={`flex flex-1 flex-col items-center justify-center gap-0.5 py-2 min-h-[52px] rounded-lg text-[10px] font-medium transition-colors ${
+                isActive ? 'text-fizza-primary' : 'text-gray-500'
+              }`}
+            >
+              <span className={isActive ? 'text-fizza-secondary' : 'text-gray-400'}>
+                <NavIcon icon={item.icon} />
+              </span>
+              <span className="truncate max-w-[64px]">{item.label.split(' ')[0]}</span>
+            </a>
+          );
+        })}
+      </div>
+    </nav>
+  );
+}
+
+function MobileNavDrawer({
+  open,
+  onClose,
+  active,
+}: {
+  open: boolean;
+  onClose: () => void;
+  active: AdminSection;
+}) {
+  useEffect(() => {
+    if (!open) return;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = ''; };
+  }, [open]);
+
+  if (!open) return null;
+
+  return (
+    <div className="md:hidden fixed inset-0 z-50">
+      <button type="button" className="absolute inset-0 bg-black/40" onClick={onClose} aria-label="Close menu" />
+      <aside className="relative flex h-full w-[min(100%,280px)] flex-col bg-fizza-primary shadow-2xl">
+        <div className="flex items-center justify-between gap-2 px-4 py-4 border-b border-white/10">
+          <Logo theme="dark" />
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex h-10 w-10 items-center justify-center rounded-xl text-white/70 hover:bg-white/10"
+            aria-label="Close"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+        <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-0.5">
+          {ADMIN_SECTIONS.map((item) => (
+            <AdminNavLink
+              key={item.section}
+              href={adminSectionHref(item.section)}
+              label={item.label}
+              icon={item.icon}
+              active={active === item.section}
+              onNavigate={onClose}
+            />
+          ))}
+        </nav>
+      </aside>
     </div>
   );
 }
@@ -86,6 +183,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
   const searchParams = useSearchParams();
   const active = parseAdminSection(searchParams.get('section'));
   const [loggingOut, setLoggingOut] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   const handleLogout = useCallback(async () => {
     setLoggingOut(true);
@@ -120,23 +218,23 @@ export function AdminShell({ children }: { children: ReactNode }) {
             type="button"
             onClick={handleLogout}
             disabled={loggingOut}
-            className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-white/50 hover:bg-white/10 hover:text-white transition-all disabled:opacity-50"
+            className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-white/50 hover:bg-white/10 hover:text-white transition-all disabled:opacity-50 min-h-[44px]"
           >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="shrink-0" aria-hidden="true">
-              {ICONS.logout.split(' M').map((seg, i) => (
-                <path key={i} d={i === 0 ? seg : 'M' + seg} />
-              ))}
-            </svg>
+            <NavIcon icon="logout" />
             <span>{loggingOut ? 'Signing out…' : 'Sign Out'}</span>
           </button>
         </div>
       </aside>
 
       <div className="flex flex-1 flex-col min-w-0">
-        <AdminMobileNav active={active} />
-        <main className="flex-1 p-4 md:p-6 lg:p-8">
+        <MobileTopBar title={ADMIN_SECTION_LABELS[active]} onMenuOpen={() => setMobileNavOpen(true)} />
+        <MobileNavDrawer open={mobileNavOpen} onClose={() => setMobileNavOpen(false)} active={active} />
+
+        <main className="flex-1 p-4 md:p-6 lg:p-8 pb-24 md:pb-8 overflow-x-hidden">
           <div className="mx-auto max-w-6xl">{children}</div>
         </main>
+
+        <MobileBottomNav active={active} />
       </div>
     </div>
   );

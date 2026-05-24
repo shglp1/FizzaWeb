@@ -1,7 +1,26 @@
 'use client';
+
+import { Users, Heart, School, Bus } from 'lucide-react';
 import { useEffect, useState, useCallback } from 'react';
 import { adminRiderService } from '@/services/adminService';
-import { Card, Badge, Button, Alert, Input, LoadingState, ErrorState, EmptyState, Pagination } from '@/components/ui';
+import { Button, Alert, Pagination, ErrorState } from '@/components/ui';
+import {
+  AdminSectionHeader,
+  AdminToolbar,
+  AdminMetricGrid,
+  AdminDataCard,
+  AdminMetaItem,
+  AdminStatusBadge,
+  AdminEmptyState,
+  AdminDrawer,
+  AdminDrawerSection,
+  AdminDrawerRow,
+  AdminFilterSelect,
+  AdminSectionLoading,
+  AdminAvatar,
+  useDebouncedValue,
+} from '@/components/admin/AdminUI';
+import { ConfirmDialog } from '@/components/ui';
 
 type RiderRow = {
   id: string;
@@ -19,13 +38,18 @@ type RiderRow = {
 type Meta = { page: number; limit: number; total: number; totalPages: number };
 
 export function RidersSection() {
-  const [riders, setRiders]       = useState<RiderRow[]>([]);
-  const [meta, setMeta]           = useState<Meta | null>(null);
-  const [loading, setLoading]     = useState(true);
-  const [error, setError]         = useState('');
-  const [search, setSearch]       = useState('');
+  const [riders, setRiders] = useState<RiderRow[]>([]);
+  const [meta, setMeta] = useState<Meta | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [searchInput, setSearchInput] = useState('');
+  const debouncedSearch = useDebouncedValue(searchInput, 350);
   const [activeFilter, setActiveFilter] = useState('');
-  const [page, setPage]           = useState(1);
+  const [specialFilter, setSpecialFilter] = useState('');
+  const [page, setPage] = useState(1);
+  const [activeCount, setActiveCount] = useState<number | null>(null);
+  const [selected, setSelected] = useState<RiderRow | null>(null);
+  const [confirmDeactivate, setConfirmDeactivate] = useState<RiderRow | null>(null);
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [toggleMsg, setToggleMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
@@ -44,94 +68,147 @@ export function RidersSection() {
     });
   }, []);
 
-  useEffect(() => { load(search, activeFilter, page); }, [search, activeFilter, page, load]);
+  useEffect(() => { load(debouncedSearch, activeFilter, page); }, [debouncedSearch, activeFilter, page, load]);
+
+  useEffect(() => {
+    adminRiderService.list({ isActive: true, page: 1 }).then((res) => {
+      if (res.data) setActiveCount((res.data as { meta: Meta }).meta.total);
+    });
+  }, []);
+
+  const filteredRiders = specialFilter === 'special'
+    ? riders.filter((r) => r.specialNeeds)
+    : specialFilter === 'subscriptions'
+    ? riders.filter((r) => r._count.subscriptions > 0)
+    : riders;
+
+  const specialCount = riders.filter((r) => r.specialNeeds).length;
+  const withSubsCount = riders.filter((r) => r._count.subscriptions > 0).length;
 
   const toggleActive = async (rider: RiderRow) => {
     setTogglingId(rider.id);
     setToggleMsg(null);
     const res = await adminRiderService.update(rider.id, { isActive: !rider.isActive });
     setTogglingId(null);
+    setConfirmDeactivate(null);
     if (res.data) {
       setToggleMsg({ text: `${rider.name} ${!rider.isActive ? 'activated' : 'deactivated'}.`, type: 'success' });
-      load(search, activeFilter, page);
+      setSelected(null);
+      load(debouncedSearch, activeFilter, page);
     } else {
       setToggleMsg({ text: res.error?.message ?? 'Update failed.', type: 'error' });
     }
   };
 
-  return (
-    <>
-      <h2 className="text-base font-semibold text-gray-900 mb-4">Riders</h2>
+  const resetFilters = () => {
+    setSearchInput('');
+    setActiveFilter('');
+    setSpecialFilter('');
+    setPage(1);
+  };
 
-      <div className="flex flex-wrap gap-3 mb-5">
-        <div className="flex-1 min-w-52">
-          <Input
-            placeholder="Search by name or school…"
-            value={search}
-            onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-          />
-        </div>
-        <select
-          className="input text-sm h-10"
-          value={activeFilter}
-          onChange={(e) => { setActiveFilter(e.target.value); setPage(1); }}
-        >
-          <option value="">All Riders</option>
-          <option value="true">Active Only</option>
-          <option value="false">Inactive Only</option>
-        </select>
-      </div>
+  return (
+    <div>
+      <AdminSectionHeader
+        title="Riders"
+        subtitle="Student profiles, parent links, and subscription activity"
+        count={meta?.total}
+        countLabel="riders"
+      />
+
+      <AdminMetricGrid
+        columns={4}
+        items={[
+          { label: 'Total Riders', value: meta?.total ?? '—', icon: Users },
+          { label: 'Active', value: activeCount ?? '—', color: '#059669' },
+          { label: 'Special Needs', value: specialCount, icon: Heart, color: '#D97706', helper: 'On current page' },
+          { label: 'With Subscriptions', value: withSubsCount, icon: Bus, color: '#6366F1', helper: 'On current page' },
+        ]}
+      />
+
+      <AdminToolbar
+        search={searchInput}
+        onSearchChange={(v) => { setSearchInput(v); setPage(1); }}
+        searchPlaceholder="Search by name or school…"
+        filters={[
+          {
+            id: 'rider-status',
+            label: 'Status',
+            element: (
+              <AdminFilterSelect
+                id="rider-status"
+                value={activeFilter}
+                onChange={(v) => { setActiveFilter(v); setPage(1); }}
+                options={[
+                  { value: '', label: 'All riders' },
+                  { value: 'true', label: 'Active only' },
+                  { value: 'false', label: 'Inactive only' },
+                ]}
+              />
+            ),
+          },
+          {
+            id: 'rider-special',
+            label: 'Special needs',
+            element: (
+              <AdminFilterSelect
+                id="rider-special"
+                value={specialFilter}
+                onChange={setSpecialFilter}
+                options={[
+                  { value: '', label: 'All' },
+                  { value: 'special', label: 'Special needs' },
+                  { value: 'subscriptions', label: 'Has subscriptions' },
+                ]}
+              />
+            ),
+          },
+        ]}
+        activeChips={[
+          ...(debouncedSearch ? [{ label: `"${debouncedSearch}"`, onRemove: () => { setSearchInput(''); setPage(1); } }] : []),
+          ...(activeFilter ? [{ label: activeFilter === 'true' ? 'Active' : 'Inactive', onRemove: () => { setActiveFilter(''); setPage(1); } }] : []),
+        ]}
+        onReset={resetFilters}
+      />
 
       {toggleMsg && (
-        <Alert variant={toggleMsg.type} className="mb-4" onClose={() => setToggleMsg(null)}>
-          {toggleMsg.text}
-        </Alert>
+        <Alert variant={toggleMsg.type} className="mb-4" onClose={() => setToggleMsg(null)}>{toggleMsg.text}</Alert>
       )}
 
       {loading ? (
-        <LoadingState message="Loading riders…" />
+        <AdminSectionLoading message="Loading riders…" />
       ) : error ? (
-        <ErrorState message={error} onRetry={() => load(search, activeFilter, page)} />
-      ) : riders.length === 0 ? (
-        <EmptyState icon="rider" title="No riders found" description="No riders match your current filter." />
+        <ErrorState message={error} onRetry={() => load(debouncedSearch, activeFilter, page)} />
+      ) : filteredRiders.length === 0 ? (
+        <AdminEmptyState
+          icon={Users}
+          title="No riders found"
+          description="Adjust filters or search to find riders."
+          action={<Button variant="outline" size="sm" onClick={resetFilters}>Reset filters</Button>}
+        />
       ) : (
-        <div className="space-y-3">
-          {riders.map((r) => (
-            <Card key={r.id} className="flex items-center gap-4">
-              {/* Avatar */}
-              <div className="w-10 h-10 rounded-full bg-purple-100 flex items-center justify-center text-purple-700 font-bold text-sm shrink-0">
-                {r.name[0]}
-              </div>
-
-              {/* Details */}
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-                  <p className="font-medium text-gray-900">{r.name}</p>
-                  {!r.isActive && <Badge variant="danger" className="text-[10px]">Inactive</Badge>}
-                  {r.specialNeeds && <Badge variant="warning" className="text-[10px]">Special Needs</Badge>}
-                </div>
-                <p className="text-sm text-gray-500">
-                  {r.relationship}
-                  {r.school ? ` · ${r.school}` : ''}
-                  {r.grade ? ` (Grade ${r.grade})` : ''}
-                </p>
-                <p className="text-xs text-gray-400 mt-0.5">
-                  Parent: {r.parent.fullName}
-                  {' · '}{r._count.subscriptions} subs · {r._count.trips} trips
-                </p>
-              </div>
-
-              {/* Toggle */}
-              <Button
-                variant={r.isActive ? 'danger-outline' : 'outline'}
-                size="sm"
-                loading={togglingId === r.id}
-                onClick={() => toggleActive(r)}
-                className="shrink-0"
-              >
-                {r.isActive ? 'Deactivate' : 'Activate'}
-              </Button>
-            </Card>
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {filteredRiders.map((r) => (
+            <AdminDataCard
+              key={r.id}
+              title={r.name}
+              subtitle={[r.relationship, r.school, r.grade ? `Grade ${r.grade}` : null].filter(Boolean).join(' · ')}
+              badges={
+                <>
+                  {!r.isActive && <AdminStatusBadge status="INACTIVE" label="Inactive" />}
+                  {r.specialNeeds && <AdminStatusBadge status="PENDING" label="Special needs" />}
+                </>
+              }
+              onClick={() => setSelected(r)}
+              metadata={
+                <>
+                  <AdminMetaItem label="Parent" value={r.parent.fullName} />
+                  <AdminMetaItem label="Subscriptions" value={r._count.subscriptions} />
+                  <AdminMetaItem label="Trips" value={r._count.trips} />
+                </>
+              }
+              compact
+            />
           ))}
         </div>
       )}
@@ -139,6 +216,70 @@ export function RidersSection() {
       {meta && meta.totalPages > 1 && (
         <Pagination page={meta.page} totalPages={meta.totalPages} onPageChange={setPage} className="mt-5" />
       )}
-    </>
+
+      <AdminDrawer
+        open={!!selected}
+        onClose={() => setSelected(null)}
+        title={selected?.name ?? ''}
+        subtitle={selected ? `${selected.relationship}${selected.school ? ` · ${selected.school}` : ''}` : undefined}
+        footer={
+          selected && (
+            <Button
+              variant={selected.isActive ? 'danger-outline' : 'primary'}
+              size="sm"
+              loading={togglingId === selected.id}
+              onClick={() => selected.isActive ? setConfirmDeactivate(selected) : toggleActive(selected)}
+              className="w-full min-h-[44px]"
+            >
+              {selected.isActive ? 'Deactivate rider' : 'Activate rider'}
+            </Button>
+          )
+        }
+      >
+        {selected && (
+          <>
+            <div className="flex items-center gap-3 mb-4">
+              <AdminAvatar name={selected.name} colorClass="bg-purple-500" />
+              <div>
+                <AdminStatusBadge status={selected.isActive ? 'ACTIVE' : 'INACTIVE'} />
+                {selected.specialNeeds && (
+                  <span className="ml-2"><AdminStatusBadge status="PENDING" label="Special needs" /></span>
+                )}
+              </div>
+            </div>
+            <AdminDrawerSection title="Profile">
+              <AdminDrawerRow label="Grade" value={selected.grade ?? '—'} />
+              <AdminDrawerRow label="School" value={selected.school ?? '—'} />
+              <AdminDrawerRow label="Relationship" value={selected.relationship} />
+              <AdminDrawerRow label="Joined" value={new Date(selected.createdAt).toLocaleDateString()} />
+            </AdminDrawerSection>
+            <AdminDrawerSection title="Parent">
+              <AdminDrawerRow label="Name" value={selected.parent.fullName} />
+              <AdminDrawerRow label="Email" value={selected.parent.user.email} />
+              <AdminDrawerRow label="Phone" value={selected.parent.phone ?? '—'} />
+            </AdminDrawerSection>
+            <AdminDrawerSection title="Activity">
+              <AdminDrawerRow label="Active subscriptions" value={selected._count.subscriptions} />
+              <AdminDrawerRow label="Total trips" value={selected._count.trips} />
+            </AdminDrawerSection>
+            {selected.specialNeeds && (
+              <AdminDrawerSection title="Safety notes">
+                <p className="text-sm text-amber-800">This rider is flagged for special needs. Review trip assignments and driver notes before scheduling changes.</p>
+              </AdminDrawerSection>
+            )}
+          </>
+        )}
+      </AdminDrawer>
+
+      <ConfirmDialog
+        isOpen={!!confirmDeactivate}
+        title="Deactivate rider?"
+        message={confirmDeactivate ? `${confirmDeactivate.name} will no longer appear in active trip planning.` : ''}
+        confirmLabel="Deactivate"
+        confirmVariant="danger"
+        onConfirm={() => confirmDeactivate && toggleActive(confirmDeactivate)}
+        onCancel={() => setConfirmDeactivate(null)}
+      />
+    </div>
   );
 }
