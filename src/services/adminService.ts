@@ -285,6 +285,44 @@ export const adminAddOnService = {
     apiFetch<unknown>(`/api/admin/add-ons/${id}`, { method: 'DELETE' }),
 };
 
+// ─── Promo codes ──────────────────────────────────────────────────────────────
+
+export const adminPromoService = {
+  list: () => apiFetch<unknown[]>('/api/admin/promo-codes'),
+  create: (data: {
+    code: string;
+    partnerName?: string | null;
+    discountPercent: number;
+    maxUses?: number | null;
+    expiresAt?: string | null;
+    notes?: string | null;
+    isActive?: boolean;
+  }) =>
+    apiFetch<unknown>('/api/admin/promo-codes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    }),
+  update: (
+    id: string,
+    data: {
+      code?: string;
+      partnerName?: string | null;
+      discountPercent?: number;
+      maxUses?: number | null;
+      expiresAt?: string | null;
+      notes?: string | null;
+      isActive?: boolean;
+    },
+  ) =>
+    apiFetch<unknown>(`/api/admin/promo-codes/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    }),
+  get: (id: string) => apiFetch<unknown>(`/api/admin/promo-codes/${id}`),
+};
+
 // ─── Admin-created subscriptions ──────────────────────────────────────────────
 
 export const adminSubscriptionCreateService = {

@@ -1,6 +1,9 @@
 import 'server-only';
 import { randomUUID } from 'crypto';
 import { prisma } from '@/lib/prisma';
+import { awardLoyaltyPointsForPayment } from '@/lib/loyalty/awardLoyaltyPoints';
+import { redeemLoyaltyPointsOnPayment } from '@/lib/loyalty/redeemLoyaltyPoints';
+import { recordPromoRedemption } from '@/lib/promo/promoCode';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -136,17 +139,62 @@ export async function applyPaymentOutcome(
 
       // ── Subscription payment ────────────────────────────────────────────
       if (payment.purpose === 'SUBSCRIPTION_PAYMENT' && payment.subscriptionId) {
+        const sub = await tx.userSubscription.findUnique({
+          where: { id: payment.subscriptionId },
+          select: {
+            id: true,
+            promoCodeId: true,
+            subtotalSar: true,
+            promoDiscountSar: true,
+            loyaltyPointsRedeemed: true,
+            finalPriceSar: true,
+          },
+        });
+
         await tx.userSubscription.update({
           where: { id: payment.subscriptionId },
           data: { paymentStatus: 'PAID', status: 'ACTIVE' },
         });
+
+        if (sub?.loyaltyPointsRedeemed && sub.loyaltyPointsRedeemed > 0) {
+          await redeemLoyaltyPointsOnPayment(tx, {
+            userId: payment.userId,
+            subscriptionId: sub.id,
+            paymentId: payment.id,
+            pointsToRedeem: sub.loyaltyPointsRedeemed,
+          });
+        }
+
+        if (sub?.promoCodeId) {
+          const subtotal = Number(sub.subtotalSar ?? sub.finalPriceSar);
+          const discount = Number(sub.promoDiscountSar ?? 0);
+          const finalSar = Number(sub.finalPriceSar);
+          await recordPromoRedemption(tx, {
+            promoCodeId: sub.promoCodeId,
+            userId: payment.userId,
+            subscriptionId: sub.id,
+            paymentId: payment.id,
+            subtotalSar: subtotal,
+            discountSar: discount,
+            finalSar,
+          });
+        }
+
+        const points = await awardLoyaltyPointsForPayment(
+          tx,
+          payment.userId,
+          Number(payment.amountSar),
+          'Subscription payment',
+        );
 
         await tx.notification.create({
           data: {
             id: randomUUID(),
             userId: payment.userId,
             title: 'Subscription Activated',
-            message: 'Your subscription payment was successful and your subscription is now active.',
+            message: points > 0
+              ? `Your subscription is now active. You earned ${points} loyalty points.`
+              : 'Your subscription payment was successful and your subscription is now active.',
             type: 'SUBSCRIPTION_PAYMENT',
           },
         });

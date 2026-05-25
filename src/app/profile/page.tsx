@@ -16,6 +16,7 @@ import {
 import { CheckCircle, ClipboardList } from 'lucide-react';
 import { profileService } from '@/services/profileService';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
+import { FileUploadField } from '@/components/upload/FileUploadField';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -54,7 +55,8 @@ export default function ProfilePage() {
   const [success, setSuccess] = useState('');
   const [error, setError] = useState('');
 
-  const { register, handleSubmit, reset, formState: { errors } } = useForm<FormValues>();
+  const { register, handleSubmit, reset, watch, setValue, formState: { errors } } = useForm<FormValues>();
+  const avatarUrl = watch('avatarUrl');
 
   useEffect(() => {
     profileService.get().then((res) => {
@@ -218,12 +220,10 @@ export default function ProfilePage() {
                 helpText="Used for trip notifications"
                 {...register('phone')}
               />
-              <Input
-                label="Avatar URL"
-                type="url"
-                placeholder="https://example.com/avatar.jpg"
-                helpText="Link to a profile photo (optional)"
-                {...register('avatarUrl')}
+              <FileUploadField
+                category="profile-avatar"
+                value={avatarUrl}
+                onChange={(url) => setValue('avatarUrl', url ?? '', { shouldDirty: true })}
               />
 
               <div className="pt-2">

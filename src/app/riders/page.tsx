@@ -16,6 +16,7 @@ import {
 } from '@/components/parent/ParentUI';
 import { Button, Input, Textarea, Alert, ConfirmDialog } from '@/components/ui';
 import { riderService } from '@/services/riderService';
+import { FileUploadField } from '@/components/upload/FileUploadField';
 import { emergencyContactComplete, hasSpecialNeedsIndicator } from '@/lib/riders/riderExposure';
 import type { RiderRecord } from '@/lib/riders/riderExposure';
 
@@ -131,7 +132,8 @@ export default function RidersPage() {
   const [submitting, setSubmitting] = useState(false);
   const [confirmToggle, setConfirmToggle] = useState<Rider | null>(null);
 
-  const { register, handleSubmit, reset, watch, formState: { errors } } = useForm<FormValues>();
+  const { register, handleSubmit, reset, watch, setValue, formState: { errors } } = useForm<FormValues>();
+  const riderAvatar = watch('avatarUrl');
   const specialNeedsChecked = watch('specialNeeds');
 
   const loadRiders = () => {
@@ -331,7 +333,11 @@ export default function RidersPage() {
               <Input label="Gender" placeholder="Male, Female, etc." {...register('gender')} />
             </div>
             <Input label="Phone" type="tel" placeholder="+966 5X XXX XXXX" {...register('phone')} />
-            <Input label="Avatar URL" type="url" placeholder="https://…" {...register('avatarUrl')} />
+            <FileUploadField
+              category="rider-avatar"
+              value={riderAvatar || null}
+              onChange={(url) => setValue('avatarUrl', url ?? '', { shouldDirty: true })}
+            />
           </fieldset>
 
           <fieldset className="space-y-3">

@@ -61,6 +61,8 @@ export const subscriptionCreateSchema = z.object({
   startsOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Start date must be YYYY-MM-DD').optional(),
   pickupPhotoUrl: z.string().url().optional().nullable(),
   dropoffPhotoUrl: z.string().url().optional().nullable(),
+  promoCode: z.string().trim().min(3).max(32).optional(),
+  loyaltyPointsToRedeem: z.number().int().min(0).optional().default(0),
 });
 
 export const subscriptionUpdateSchema = z.object({
@@ -101,6 +103,8 @@ export const subscriptionQuoteSchema = z.object({
    * Defaults to today when omitted. Used with billingCycle to determine service window.
    */
   startsOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Start date must be YYYY-MM-DD').optional(),
+  promoCode: z.string().trim().min(3).max(32).optional(),
+  loyaltyPointsToRedeem: z.number().int().min(0).optional().default(0),
 });
 
 export const adminSubscriptionUpdateSchema = z.object({

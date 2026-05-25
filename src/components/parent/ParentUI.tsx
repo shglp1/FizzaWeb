@@ -101,8 +101,13 @@ export function ParentKpiCard({
   );
 }
 
-export function ParentKpiGrid({ children, columns = 4 }: { children: ReactNode; columns?: 2 | 3 | 4 }) {
-  const cols = { 2: 'grid-cols-2', 3: 'grid-cols-2 sm:grid-cols-3', 4: 'grid-cols-2 lg:grid-cols-4' }[columns];
+export function ParentKpiGrid({ children, columns = 4 }: { children: ReactNode; columns?: 2 | 3 | 4 | 5 }) {
+  const cols = {
+    2: 'grid-cols-2',
+    3: 'grid-cols-2 sm:grid-cols-3',
+    4: 'grid-cols-2 lg:grid-cols-4',
+    5: 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-5',
+  }[columns];
   return <div className={`grid gap-3 ${cols}`}>{children}</div>;
 }
 
@@ -346,24 +351,29 @@ export function ParentDriverBlock({
   name,
   rating,
   avatarUrl,
+  onDark = false,
 }: {
   name: string;
   rating?: string;
   avatarUrl?: string | null;
+  /** Use on brand/green hero cards for readable contrast. */
+  onDark?: boolean;
 }) {
   return (
-    <div className="flex items-center gap-3">
+    <div className={`flex items-center gap-3 rounded-xl px-3 py-2 ${onDark ? 'bg-black/15 border border-white/20' : ''}`}>
       {avatarUrl ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={avatarUrl} alt="" className="h-9 w-9 rounded-full object-cover" />
+        <img src={avatarUrl} alt="" className={`rounded-full object-cover ring-2 ${onDark ? 'h-10 w-10 ring-white/30' : 'h-9 w-9 ring-emerald-100'}`} />
       ) : (
-        <div className="h-9 w-9 rounded-full bg-emerald-100 flex items-center justify-center text-sm font-bold text-fizza-primary">
+        <div className={`rounded-full flex items-center justify-center text-sm font-bold ${onDark ? 'h-10 w-10 bg-white/20 text-white' : 'h-9 w-9 bg-emerald-100 text-fizza-primary'}`}>
           {name.charAt(0)}
         </div>
       )}
       <div>
-        <p className="text-sm font-medium text-gray-900">{name}</p>
-        {rating && rating !== '—' && <p className="text-xs text-gray-500">Rating {rating}</p>}
+        <p className={`text-sm font-semibold ${onDark ? 'text-white' : 'text-gray-900'}`}>{name}</p>
+        {rating && rating !== '—' && (
+          <p className={`text-xs ${onDark ? 'text-white/80' : 'text-gray-500'}`}>Driver rating {rating}</p>
+        )}
       </div>
     </div>
   );

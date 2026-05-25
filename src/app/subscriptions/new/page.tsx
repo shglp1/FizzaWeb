@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { AppShell } from '@/components/layout/AppShell';
 import { subscriptionService } from '@/services/subscriptionService';
 import { riderService } from '@/services/riderService';
+import { walletService } from '@/services/walletService';
 import { MapLocationPicker, type SelectedLocation } from '@/components/location/MapLocationPicker';
 import {
   Alert,
@@ -21,6 +22,7 @@ import {
   SUBSCRIPTION_WIZARD_STEP_COUNT,
 } from '@/lib/ui/subscriptionWizard';
 import { Check } from 'lucide-react';
+import { mapDistanceProviderLabel } from '@/lib/ui/mapLocation';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -50,9 +52,27 @@ type PriceQuote = {
   extraRiderCount: number;
   extraRiderSameDropoffMultiplier: number;
   extraRiderChargeSar: number;
+  subtotalSar?: number;
+  promoDiscountSar?: number;
+  promo?: { code: string; partnerName: string | null; discountPercent: number } | null;
+  loyaltyPointsUsed?: number;
+  loyaltyDiscountSar?: number;
+  loyalty?: {
+    availablePoints: number;
+    redemptionEnabled: boolean;
+    pointsUsed: number;
+    discountSar: number;
+    remainingPoints: number;
+    maxDiscountSar: number;
+    maxRedeemablePoints: number;
+    minimumPointsToRedeem: number;
+    pointsPerSar: number;
+  };
   finalPriceSar: number;
   // ── Meta ─────────────────────────────────────────────────────────────────────
   distanceProvider: string;
+  distanceApproximate?: boolean;
+  distanceWarning?: string | null;
   normalizedPickupLabel: string;
   normalizedDropoffLabel: string;
   packageName: string | null;
@@ -88,6 +108,8 @@ function makeQuoteKey(
   direction: TripDirection,
   weekdays: number[],
   startsOn: string,
+  promoCode: string,
+  loyaltyPoints: number,
 ): string {
   return [
     packageId ?? '',
@@ -98,6 +120,8 @@ function makeQuoteKey(
     direction,
     [...weekdays].sort().join(','),
     startsOn,
+    promoCode.trim().toUpperCase(),
+    String(loyaltyPoints),
   ].join('|');
 }
 
@@ -273,13 +297,35 @@ function QuoteBreakdown({ quote }: { quote: PriceQuote }) {
         </div>
       )}
 
+      {(quote.promoDiscountSar ?? 0) > 0 && (
+        <div className="flex justify-between text-emerald-700">
+          <span>
+            Promo {quote.promo?.code}
+            {quote.promo?.discountPercent ? ` (${quote.promo.discountPercent}% off)` : ''}
+          </span>
+          <span className="font-medium">− SAR {quote.promoDiscountSar!.toFixed(2)}</span>
+        </div>
+      )}
+
+      {(quote.loyaltyDiscountSar ?? 0) > 0 && (
+        <div className="flex justify-between text-purple-700">
+          <span>Loyalty points ({quote.loyaltyPointsUsed ?? 0} pts)</span>
+          <span className="font-medium">− SAR {quote.loyaltyDiscountSar!.toFixed(2)}</span>
+        </div>
+      )}
+
       <div className="border-t border-emerald-200 pt-2 flex justify-between font-bold text-base">
         <span className="text-emerald-800">Total ({quote.billingCycle})</span>
         <span className="text-emerald-700">SAR {quote.finalPriceSar.toFixed(2)}</span>
       </div>
 
       <p className="text-xs text-gray-400 pt-1">
-        Calculated via {quote.distanceProvider.replace('_', ' ').toLowerCase()}.
+        Calculated via {mapDistanceProviderLabel(quote.distanceProvider, quote.distanceApproximate)}.
+        {quote.distanceApproximate && (
+          <span className="block text-amber-700 mt-1">
+            {quote.distanceWarning ?? 'Approximate distance. Final price may be reviewed by admin.'}
+          </span>
+        )}
         {quote.tripDirection === 'ROUND_TRIP' ? ' Round-trip counts both directions.' : ''}
       </p>
     </Card>
@@ -319,6 +365,9 @@ export default function NewSubscriptionPage() {
   const [returnTime, setReturnTime] = useState('15:00');
   const [femaleDriver, setFemaleDriver] = useState(false);
   const [selectedAddOnIds, setSelectedAddOnIds] = useState<string[]>([]);
+  const [promoCode, setPromoCode] = useState('');
+  const [loyaltyPointsToRedeem, setLoyaltyPointsToRedeem] = useState('');
+  const [availableLoyaltyPoints, setAvailableLoyaltyPoints] = useState(0);
 
   // ── Quote state ──
   const [quote, setQuote] = useState<PriceQuote | null>(null);
@@ -332,10 +381,14 @@ export default function NewSubscriptionPage() {
       subscriptionService.listPackages(),
       subscriptionService.listAddOns(),
       riderService.list(),
-    ]).then(([pkgRes, addOnRes, riderRes]) => {
+      walletService.getWallet(),
+    ]).then(([pkgRes, addOnRes, riderRes, walletRes]) => {
       setPackages(pkgRes.data ?? []);
       setAddOns(addOnRes.data ?? []);
       setRiders((riderRes.data ?? []).filter((r: Rider) => r.isActive));
+      if (typeof walletRes.data?.loyaltyPoints === 'number') {
+        setAvailableLoyaltyPoints(walletRes.data.loyaltyPoints);
+      }
       setLoading(false);
     });
   }, []);
@@ -350,6 +403,8 @@ export default function NewSubscriptionPage() {
     tripDirection,
     weekdays,
     startsOn,
+    promoCode,
+    Number(loyaltyPointsToRedeem) || 0,
   );
 
   useEffect(() => {
@@ -405,6 +460,8 @@ export default function NewSubscriptionPage() {
           riderIds: selectedRiderIds,
           weekdays,
           startsOn: startsOn || undefined,
+          promoCode: promoCode.trim() || undefined,
+          loyaltyPointsToRedeem: Number(loyaltyPointsToRedeem) || 0,
         }),
       });
 
@@ -423,7 +480,7 @@ export default function NewSubscriptionPage() {
     }
   }, [
     pickupLocation, dropoffLocation, selectedRiderIds, selectedPackageId,
-    selectedAddOnIds, tripDirection, weekdays, startsOn, currentQuoteKey,
+    selectedAddOnIds, tripDirection, weekdays, startsOn, currentQuoteKey, promoCode, loyaltyPointsToRedeem,
   ]);
 
   // ── Form helpers ──
@@ -531,6 +588,8 @@ export default function NewSubscriptionPage() {
       startsOn: startsOn || undefined,
       pickupPhotoUrl: pickupPhotoUrl ?? undefined,
       dropoffPhotoUrl: dropoffPhotoUrl ?? undefined,
+      promoCode: promoCode.trim() || undefined,
+      loyaltyPointsToRedeem: Number(loyaltyPointsToRedeem) || 0,
     };
 
     const res = await subscriptionService.create(payload);
@@ -853,8 +912,81 @@ export default function NewSubscriptionPage() {
     <div className="space-y-6">
       <FormSection
         title={SUBSCRIPTION_STEP_COPY[3]?.title ?? 'Price & add-ons'}
-        description="We calculate distance across all selected service days. Add optional extras, then calculate your total."
+        description="We calculate distance across all selected service days. Add optional extras, apply a promo code, then calculate your total."
       >
+        <Input
+          label="Promo code"
+          placeholder="e.g. FAMOUS20 (optional)"
+          value={promoCode}
+          onChange={(e) => setPromoCode(e.target.value.toUpperCase())}
+          helpText="Percentage discount applies before loyalty points"
+        />
+
+        {quote?.loyalty && (
+          <div className="rounded-xl border border-purple-100 bg-purple-50/40 p-4 space-y-3">
+            <div>
+              <p className="text-sm font-semibold text-gray-900">Loyalty points</p>
+              <p className="text-sm text-gray-600 mt-1">
+                You have <strong>{quote.loyalty.availablePoints}</strong> points available.
+                Use points to reduce your subscription price.
+              </p>
+            </div>
+            {!quote.loyalty.redemptionEnabled ? (
+              <p className="text-sm text-amber-700">
+                Redemption is not available yet — your balance is tracked for future rewards.
+              </p>
+            ) : quote.loyalty.availablePoints < quote.loyalty.minimumPointsToRedeem ? (
+              <p className="text-sm text-amber-700">
+                You need at least {quote.loyalty.minimumPointsToRedeem} points to redeem.
+              </p>
+            ) : (
+              <>
+                <Input
+                  label="Points to redeem"
+                  type="number"
+                  min={0}
+                  max={quote.loyalty.maxRedeemablePoints}
+                  placeholder={`Min ${quote.loyalty.minimumPointsToRedeem}`}
+                  value={loyaltyPointsToRedeem}
+                  onChange={(e) => setLoyaltyPointsToRedeem(e.target.value.replace(/[^\d]/g, ''))}
+                  helpText={`${quote.loyalty.pointsPerSar} points = SAR 1 · Max discount SAR ${quote.loyalty.maxDiscountSar.toFixed(2)}`}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setLoyaltyPointsToRedeem(String(quote.loyalty!.maxRedeemablePoints))}
+                >
+                  Use maximum available
+                </Button>
+                {(quote.loyaltyPointsUsed ?? 0) > 0 && (
+                  <p className="text-xs text-purple-800">
+                    Using {quote.loyaltyPointsUsed} points → SAR {quote.loyaltyDiscountSar?.toFixed(2)} off ·{' '}
+                    {quote.loyalty.remainingPoints} points remaining after payment
+                  </p>
+                )}
+              </>
+            )}
+          </div>
+        )}
+
+        {!quote?.loyalty && availableLoyaltyPoints > 0 && (
+          <div className="rounded-xl border border-purple-100 bg-purple-50/40 p-4 space-y-3">
+            <p className="text-sm font-semibold text-gray-900">Loyalty points</p>
+            <p className="text-sm text-gray-600">
+              You have <strong>{availableLoyaltyPoints}</strong> points. Enter points below, then calculate price.
+            </p>
+            <Input
+              label="Points to redeem"
+              type="number"
+              min={0}
+              value={loyaltyPointsToRedeem}
+              onChange={(e) => setLoyaltyPointsToRedeem(e.target.value.replace(/[^\d]/g, ''))}
+              helpText="Use points to reduce your subscription price (applied after promo discount)."
+            />
+          </div>
+        )}
+
         <div className="relative group">
           <Button
             type="button"

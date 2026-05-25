@@ -1,6 +1,6 @@
 'use client';
 
-import { Package, Puzzle } from 'lucide-react';
+import { Package as PackageIcon, Puzzle, Tag } from 'lucide-react';
 import { useEffect, useState, useCallback } from 'react';
 import { adminPackageService, adminAddOnService } from '@/services/adminService';
 import { Button, Alert, Input, Textarea, ErrorState } from '@/components/ui';
@@ -22,6 +22,7 @@ import {
   AdminSectionLoading,
 } from '@/components/admin/AdminUI';
 import { formatSar } from '@/lib/ui/adminCurrency';
+import { PromoCodesPanel } from './PromoCodesPanel';
 
 interface Package {
   id: string;
@@ -46,7 +47,7 @@ interface AddOn {
   _count?: { subscriptionAddOns: number };
 }
 
-type ActiveTab = 'packages' | 'addons';
+type ActiveTab = 'packages' | 'addons' | 'promos';
 
 export function PackagesSection() {
   const [tab, setTab] = useState<ActiveTab>('packages');
@@ -94,16 +95,18 @@ export function PackagesSection() {
         count={tab === 'packages' ? packages.length : addOns.length}
         countLabel={tab === 'packages' ? 'packages' : 'add-ons'}
         primaryAction={
+          tab === 'promos' ? undefined : (
           <Button variant="primary" size="sm" onClick={() => { setShowCreate(true); setEditId(null); }} className="min-h-[44px]">
             + New {tab === 'packages' ? 'Package' : 'Add-on'}
           </Button>
+          )
         }
       />
 
       <AdminMetricGrid
         columns={3}
         items={[
-          { label: 'Active Packages', value: activePackages, icon: Package, color: '#059669' },
+          { label: 'Active Packages', value: activePackages, icon: PackageIcon, color: '#059669' },
           { label: 'Active Add-ons', value: activeAddons, icon: Puzzle, color: '#6366F1' },
           { label: 'Inactive Items', value: inactiveCount, color: '#9CA3AF' },
         ]}
@@ -113,11 +116,16 @@ export function PackagesSection() {
         tabs={[
           { label: 'Packages', value: 'packages', count: packages.length },
           { label: 'Add-ons', value: 'addons', count: addOns.length },
+          { label: 'Promo codes', value: 'promos' },
         ]}
         active={tab}
         onChange={(v) => { setTab(v as ActiveTab); setShowCreate(false); setEditId(null); setPage(1); }}
       />
 
+      {tab === 'promos' ? (
+        <PromoCodesPanel />
+      ) : (
+      <>
       <AdminToolbar
         actions={
           <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer min-h-[44px]">
@@ -163,6 +171,8 @@ export function PackagesSection() {
           onLimitChange={(l) => { setLimit(l); setPage(1); }}
           className="mt-5"
         />
+      )}
+      </>
       )}
     </div>
   );
@@ -226,7 +236,7 @@ function PackagesTab({
       )}
 
       {packages.length === 0 ? (
-        <AdminEmptyState icon={Package} title="No packages" description="Create your first subscription package." />
+        <AdminEmptyState icon={PackageIcon} title="No packages" description="Create your first subscription package." />
       ) : (
         <div className="grid gap-3 sm:grid-cols-2">
           {packages.map((pkg) => (

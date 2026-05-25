@@ -11,7 +11,8 @@
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-export type DistanceProvider = 'OPENROUTESERVICE' | 'GOOGLE_MAPS' | 'MAPBOX';
+export type DistanceProvider = 'OPENROUTESERVICE' | 'OSRM_FREE' | 'HAVERSINE_ESTIMATE' | 'GOOGLE_MAPS' | 'MAPBOX';
+export type DistanceProviderMode = 'OPENROUTESERVICE' | 'OSRM' | 'AUTO';
 export type TripDirection = 'ONE_WAY' | 'ROUND_TRIP';
 
 export interface Coordinates {
@@ -28,18 +29,23 @@ export interface GeocodedLocation {
 export interface RouteDistanceResult {
   oneWayDistanceKm: number;
   providerUsed: DistanceProvider;
+  /** True when ORS routing was unavailable and haversine × road factor was used. */
+  approximateRoute?: boolean;
   pickupCoordinates: Coordinates;
   dropoffCoordinates: Coordinates;
   normalizedPickupLabel: string;
   normalizedDropoffLabel: string;
 }
 
+/** Geocode search provider tag returned to clients. */
+export type GeocodeProviderTag = 'openrouteservice' | 'nominatim';
+
 /** Normalized result from geocode search — returned by /api/maps/geocode. */
 export interface GeocodeSearchResult {
   label: string;
   latitude: number;
   longitude: number;
-  provider: 'openrouteservice';
+  provider: GeocodeProviderTag;
   providerPlaceId?: string;
 }
 
@@ -60,9 +66,29 @@ export class DistanceError extends Error {
 
 // ─── Config helpers ───────────────────────────────────────────────────────────
 
+function getProviderMode(): DistanceProviderMode {
+  const p = (process.env.DISTANCE_PROVIDER ?? 'AUTO').toUpperCase();
+  if (p === 'OPENROUTESERVICE' || p === 'OSRM' || p === 'AUTO') {
+    return p as DistanceProviderMode;
+  }
+  return 'AUTO';
+}
+
+function getFallbackRoadFactor(): number {
+  const n = Number(process.env.DISTANCE_FALLBACK_ROAD_FACTOR ?? '1.35');
+  return Number.isFinite(n) && n > 0 ? n : 1.35;
+}
+
+function getOsrmBaseUrl(): string {
+  return (process.env.OSRM_BASE_URL ?? 'https://router.project-osrm.org').replace(/\/$/, '');
+}
+
 function getProvider(): DistanceProvider {
-  const p = (process.env.DISTANCE_PROVIDER ?? 'OPENROUTESERVICE').toUpperCase();
-  if (p === 'OPENROUTESERVICE' || p === 'GOOGLE_MAPS' || p === 'MAPBOX') {
+  const p = (process.env.DISTANCE_PROVIDER ?? 'AUTO').toUpperCase();
+  if (p === 'OPENROUTESERVICE' || p === 'OSRM' || p === 'AUTO') {
+    return 'OPENROUTESERVICE';
+  }
+  if (p === 'GOOGLE_MAPS' || p === 'MAPBOX') {
     return p as DistanceProvider;
   }
   return 'OPENROUTESERVICE';
@@ -87,6 +113,205 @@ export function isDistanceConfigured(): boolean {
 // ─── OpenRouteService implementation ─────────────────────────────────────────
 
 const ORS_BASE = 'https://api.openrouteservice.org';
+const NOMINATIM_BASE = 'https://nominatim.openstreetmap.org';
+
+/** Urban road distance ≈ straight-line × configured factor when routing unavailable. */
+function getRoadDistanceFactor(): number {
+  return getFallbackRoadFactor();
+}
+
+let lastOsrmCallAt = 0;
+const OSRM_MIN_INTERVAL_MS = 1000;
+
+async function rateLimitOsrm(): Promise<void> {
+  const now = Date.now();
+  const wait = OSRM_MIN_INTERVAL_MS - (now - lastOsrmCallAt);
+  if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+  lastOsrmCallAt = Date.now();
+}
+
+export function approximateRoadKm(pickup: Coordinates, dropoff: Coordinates): number {
+  return round2(haversineKm(pickup, dropoff) * getRoadDistanceFactor());
+}
+
+async function routeOsrm(
+  pickup: { lat: number; lng: number; label: string },
+  dropoff: { lat: number; lng: number; label: string },
+): Promise<RouteDistanceResult> {
+  await rateLimitOsrm();
+  const base = getOsrmBaseUrl();
+  const path = `${pickup.lng},${pickup.lat};${dropoff.lng},${dropoff.lat}`;
+  const url = `${base}/route/v1/driving/${path}?overview=false`;
+
+  const res = await fetch(url, {
+    headers: { Accept: 'application/json' },
+    cache: 'no-store',
+    signal: AbortSignal.timeout(8000),
+  });
+  if (!res.ok) {
+    throw new DistanceError('OSRM routing failed.', 'ROUTE_FAILED');
+  }
+
+  const json = (await res.json()) as { routes?: { distance?: number }[] };
+  const distanceMeters = json.routes?.[0]?.distance;
+  if (typeof distanceMeters !== 'number' || distanceMeters <= 0) {
+    throw new DistanceError('OSRM returned no route.', 'ROUTE_FAILED');
+  }
+
+  return {
+    oneWayDistanceKm: round2(distanceMeters / 1000),
+    providerUsed: 'OSRM_FREE',
+    approximateRoute: false,
+    pickupCoordinates: { lat: pickup.lat, lng: pickup.lng },
+    dropoffCoordinates: { lat: dropoff.lat, lng: dropoff.lng },
+    normalizedPickupLabel: pickup.label,
+    normalizedDropoffLabel: dropoff.label,
+  };
+}
+
+function haversineRouteResult(
+  pickup: { lat: number; lng: number; label: string },
+  dropoff: { lat: number; lng: number; label: string },
+): RouteDistanceResult {
+  const oneWayDistanceKm = approximateRoadKm(pickup, dropoff);
+  return {
+    oneWayDistanceKm,
+    providerUsed: 'HAVERSINE_ESTIMATE',
+    approximateRoute: true,
+    pickupCoordinates: { lat: pickup.lat, lng: pickup.lng },
+    dropoffCoordinates: { lat: dropoff.lat, lng: dropoff.lng },
+    normalizedPickupLabel: pickup.label,
+    normalizedDropoffLabel: dropoff.label,
+  };
+}
+
+export const APPROXIMATE_DISTANCE_WARNING =
+  'Approximate distance. Final price may be reviewed by admin.';
+
+export function haversineKm(a: Coordinates, b: Coordinates): number {
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const dLat = toRad(b.lat - a.lat);
+  const dLng = toRad(b.lng - a.lng);
+  const lat1 = toRad(a.lat);
+  const lat2 = toRad(b.lat);
+  const h =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
+  return 6371 * 2 * Math.asin(Math.sqrt(h));
+}
+
+async function resolveRouteFromCoords(
+  pickup: { lat: number; lng: number; label: string },
+  dropoff: { lat: number; lng: number; label: string },
+): Promise<RouteDistanceResult> {
+  const mode = getProviderMode();
+
+  if (mode === 'OPENROUTESERVICE' || mode === 'AUTO') {
+    if (isDistanceConfigured()) {
+      try {
+        const apiKey = getOrsApiKey();
+        return await _orsDirections(apiKey, pickup, dropoff);
+      } catch {
+        if (mode === 'OPENROUTESERVICE') throw new DistanceError('Routing service unavailable.', 'ROUTE_FAILED');
+      }
+    } else if (mode === 'OPENROUTESERVICE') {
+      throw new DistanceError(
+        'Automatic distance calculation is not configured. Please contact the administrator.',
+        'NOT_CONFIGURED',
+      );
+    }
+  }
+
+  if (mode === 'OSRM' || mode === 'AUTO') {
+    try {
+      return await routeOsrm(pickup, dropoff);
+    } catch {
+      if (mode === 'OSRM') {
+        // fall through to haversine
+      }
+    }
+  }
+
+  const result = haversineRouteResult(pickup, dropoff);
+  if (result.oneWayDistanceKm <= 0) {
+    throw new DistanceError(
+      'We could not calculate a route between these locations. Please select different pickup/drop-off points.',
+      'ROUTE_FAILED',
+    );
+  }
+  return result;
+}
+
+async function searchLocationsNominatim(
+  query: string,
+  options?: { lang?: string },
+): Promise<GeocodeSearchResult[]> {
+  const url = new URL(`${NOMINATIM_BASE}/search`);
+  url.searchParams.set('q', query.trim());
+  url.searchParams.set('format', 'json');
+  url.searchParams.set('addressdetails', '0');
+  url.searchParams.set('limit', '5');
+  url.searchParams.set('countrycodes', 'sa');
+  if (options?.lang === 'ar') url.searchParams.set('accept-language', 'ar');
+
+  const res = await fetch(url.toString(), {
+    headers: { Accept: 'application/json', 'User-Agent': 'FizzaWeb/1.0 (school transport)' },
+    cache: 'no-store',
+  });
+  if (!res.ok) return [];
+
+  const rows = (await res.json()) as { lat?: string; lon?: string; display_name?: string; place_id?: number }[];
+  return rows
+    .filter((r) => r.lat && r.lon)
+    .map((r) => ({
+      label: r.display_name ?? query.trim(),
+      latitude: Number(r.lat),
+      longitude: Number(r.lon),
+      provider: 'nominatim' as const,
+      providerPlaceId: r.place_id != null ? String(r.place_id) : undefined,
+    }));
+}
+
+async function searchLocationsOrs(
+  query: string,
+  options?: { lang?: string },
+): Promise<GeocodeSearchResult[]> {
+  const apiKey = getOrsApiKey();
+  const url = new URL(`${ORS_BASE}/geocode/search`);
+  url.searchParams.set('api_key', apiKey);
+  url.searchParams.set('text', query.trim());
+  url.searchParams.set('size', '5');
+  url.searchParams.set('boundary.country', 'SA');
+  if (options?.lang === 'ar') {
+    url.searchParams.set('boundary.rect.min_lon', '34.5');
+    url.searchParams.set('boundary.rect.min_lat', '16.0');
+    url.searchParams.set('boundary.rect.max_lon', '55.7');
+    url.searchParams.set('boundary.rect.max_lat', '32.2');
+  }
+
+  const res = await fetch(url.toString(), {
+    headers: { Accept: 'application/json' },
+    cache: 'no-store',
+  });
+  if (!res.ok) throw new DistanceError('Geocoding service returned an error.', 'GEOCODE_FAILED');
+
+  const json = (await res.json()) as { features?: unknown[] };
+  const features = json.features ?? [];
+  return features.map((f) => {
+    const feature = f as {
+      geometry: { coordinates: [number, number] };
+      properties: { label?: string; id?: string; name?: string };
+    };
+    const [lng, lat] = feature.geometry.coordinates;
+    return {
+      label: feature.properties.label ?? feature.properties.name ?? 'Unknown location',
+      latitude: lat,
+      longitude: lng,
+      provider: 'openrouteservice' as const,
+      providerPlaceId: feature.properties.id ?? undefined,
+    };
+  });
+}
 
 /**
  * Search for locations using ORS Geocoding Search. Returns up to 5 suggestions.
@@ -103,55 +328,20 @@ export async function searchLocations(query: string, options?: { lang?: string }
     );
   }
 
-  const apiKey = getOrsApiKey();
-  const url = new URL(`${ORS_BASE}/geocode/search`);
-  url.searchParams.set('api_key', apiKey);
-  url.searchParams.set('text', query.trim());
-  url.searchParams.set('size', '5');
-  url.searchParams.set('boundary.country', 'SA');
-  if (options?.lang === 'ar') {
-    url.searchParams.set('boundary.rect.min_lon', '34.5');
-    url.searchParams.set('boundary.rect.min_lat', '16.0');
-    url.searchParams.set('boundary.rect.max_lon', '55.7');
-    url.searchParams.set('boundary.rect.max_lat', '32.2');
+  if (isDistanceConfigured()) {
+    try {
+      const results = await searchLocationsOrs(query, options);
+      if (results.length) return results;
+    } catch {
+      // fall through to Nominatim (free OSM geocoder)
+    }
   }
 
-  let res: Response;
   try {
-    res = await fetch(url.toString(), {
-      headers: { Accept: 'application/json' },
-      cache: 'no-store',
-    });
+    return await searchLocationsNominatim(query, options);
   } catch {
     throw new DistanceError('Could not reach geocoding service. Please try again.', 'GEOCODE_FAILED');
   }
-
-  if (!res.ok) {
-    throw new DistanceError('Geocoding service returned an error. Please try again.', 'GEOCODE_FAILED');
-  }
-
-  let json: unknown;
-  try {
-    json = await res.json();
-  } catch {
-    throw new DistanceError('Geocoding service returned an invalid response.', 'GEOCODE_FAILED');
-  }
-
-  const features = (json as { features?: unknown[] }).features ?? [];
-  return features.map((f) => {
-    const feature = f as {
-      geometry: { coordinates: [number, number] };
-      properties: { label?: string; id?: string; name?: string };
-    };
-    const [lng, lat] = feature.geometry.coordinates;
-    return {
-      label: feature.properties.label ?? feature.properties.name ?? 'Unknown location',
-      latitude: lat,
-      longitude: lng,
-      provider: 'openrouteservice' as const,
-      providerPlaceId: feature.properties.id ?? undefined,
-    };
-  });
 }
 
 /**
@@ -237,16 +427,14 @@ export async function calculateRouteDistanceKmFromCoords(
   dropoff: { lat: number; lng: number; label: string },
 ): Promise<RouteDistanceResult> {
   const provider = getProvider();
-
   if (provider === 'GOOGLE_MAPS' || provider === 'MAPBOX') {
     throw new DistanceError(
-      `Provider ${provider} is not implemented yet. Please configure OPENROUTESERVICE.`,
+      `Provider ${provider} is not implemented yet. Please configure OPENROUTESERVICE or OSRM.`,
       'PROVIDER_NOT_IMPLEMENTED',
     );
   }
 
-  const apiKey = getOrsApiKey();
-  return _orsDirections(apiKey, pickup, dropoff);
+  return resolveRouteFromCoords(pickup, dropoff);
 }
 
 /**

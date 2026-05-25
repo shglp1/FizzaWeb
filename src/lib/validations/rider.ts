@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { uploadedOrHttpUrl } from './upload.ts';
 
 const optionalText = z.string().max(2000).optional().nullable();
 const optionalShort = z.string().max(200).optional().nullable();
@@ -21,7 +22,7 @@ export const riderCreateSchema = z.object({
   emergencyContactPhone: optionalShort,
   authorizedPickupPersons: optionalText,
   preferredLanguage: z.enum(['ar', 'en']).optional().nullable(),
-  avatarUrl: z.string().url().optional().nullable().or(z.literal('')),
+  avatarUrl: uploadedOrHttpUrl.optional().nullable().or(z.literal('')),
   notes: optionalText,
 });
 
@@ -44,7 +45,7 @@ export const riderUpdateSchema = z.object({
   emergencyContactPhone: optionalShort,
   authorizedPickupPersons: optionalText,
   preferredLanguage: z.enum(['ar', 'en']).optional().nullable(),
-  avatarUrl: z.string().url().optional().nullable().or(z.literal('')),
+  avatarUrl: uploadedOrHttpUrl.optional().nullable().or(z.literal('')),
   notes: optionalText,
   isActive: z.boolean().optional(),
 });
