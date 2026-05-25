@@ -22,11 +22,11 @@ import { tripService } from '@/services/tripService';
 import { walletService } from '@/services/walletService';
 import { subscriptionService } from '@/services/subscriptionService';
 import { riderService } from '@/services/riderService';
-import { TRIP_STATUS_LABEL, type TripStatus } from '@/lib/trips/tripLifecycle';
-import { formatSarParent, formatTripDateTime, formatDriverSummary, formatVehicleSummary, getTrackingAvailability, trackingAvailabilityLabel } from '@/lib/parent/parentFormatters';
+import { formatSarParent, formatTripDateTime, formatDriverSummary, formatVehicleSummary, getTrackingAvailability, trackingAvailabilityLabel, pickNextTrip } from '@/lib/parent/parentFormatters';
+import { TRIP_STATUS_LABEL, type TripStatus, isTrackableStatus } from '@/lib/trips/tripLifecycle';
 import { emergencyContactComplete, hasSpecialNeedsIndicator, riderProfileComplete } from '@/lib/riders/riderExposure';
 import {
-  Bell, CalendarDays, Car, ClipboardList, CreditCard, MapPin, MessageSquare, Shield, UserPlus, Users, Wallet,
+  Bell, CalendarDays, Car, ClipboardList, CreditCard, Gift, MapPin, MessageSquare, Shield, UserPlus, Users, Wallet,
 } from 'lucide-react';
 
 type Trip = {
@@ -41,7 +41,7 @@ type Trip = {
   vehicle?: { model?: string | null; color?: string | null; plateNumber?: string | null; capacity?: number | null } | null;
 };
 
-type Wallet = { balanceSar: number | string; updatedAt?: string };
+type Wallet = { balanceSar: number | string; updatedAt?: string; loyaltyPoints?: number };
 type Subscription = { id: string; status: string; paymentStatus?: string; package?: { name: string } };
 type Rider = {
   id: string; name: string; isActive: boolean; school?: string | null;
@@ -63,6 +63,7 @@ export default function DashboardPage() {
   const [wallet, setWallet] = useState<Wallet | null>(null);
   const [subs, setSubs] = useState<Subscription[]>([]);
   const [riders, setRiders] = useState<Rider[]>([]);
+  const [loyaltyPoints, setLoyaltyPoints] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -79,17 +80,22 @@ export default function DashboardPage() {
       }
       const results = await Promise.allSettled([
         tripService.list('upcoming'),
+        tripService.list('active'),
         walletService.getWallet(),
         subscriptionService.list(),
         riderService.list(),
       ]);
       if (cancelled) return;
-      const [t, w, s, r] = results.map((x) => (x.status === 'fulfilled' ? x.value : null));
-      if (t?.data) setTrips(Array.isArray(t.data) ? t.data.slice(0, 8) : []);
+      const [upcomingRes, activeRes, w, s, r] = results.map((x) => (x.status === 'fulfilled' ? x.value : null));
+      const upcoming = Array.isArray(upcomingRes?.data) ? upcomingRes.data as Trip[] : [];
+      const active = Array.isArray(activeRes?.data) ? activeRes.data as Trip[] : [];
+      const merged = [...active, ...upcoming.filter((t) => !active.some((a) => a.id === t.id))];
+      if (merged.length) setTrips(merged.slice(0, 12));
       if (w?.data?.wallet) setWallet(w.data.wallet);
+      if (typeof w?.data?.loyaltyPoints === 'number') setLoyaltyPoints(w.data.loyaltyPoints);
       if (s?.data) setSubs(Array.isArray(s.data) ? s.data : []);
       if (r?.data) setRiders(Array.isArray(r.data) ? r.data : []);
-      if (!(t?.data || w?.data || s?.data || r?.data)) setError('Failed to load dashboard data.');
+      if (!(merged.length || w?.data || s?.data || r?.data)) setError('Failed to load dashboard data.');
       setLoading(false);
     })().catch(() => { if (!cancelled) { setError('Unable to connect.'); setLoading(false); } });
     return () => { cancelled = true; };
@@ -99,8 +105,8 @@ export default function DashboardPage() {
   const activeSub = subs.find((s) => s.status === 'ACTIVE' || s.status === 'active');
   const pendingSub = subs.find((s) => s.paymentStatus === 'PENDING' || s.status === 'PENDING');
   const activeRiders = riders.filter((r) => r.isActive);
-  const nextTrip = trips[0] ?? null;
-  const trackable = nextTrip && ['PRE_TRIP', 'ON_THE_WAY', 'PICKED_UP', 'EN_ROUTE_DROPOFF', 'DRIVER_ASSIGNED'].includes(nextTrip.status);
+  const nextTrip = pickNextTrip(trips);
+  const trackable = nextTrip && isTrackableStatus(nextTrip.status as TripStatus);
   const nextDriver = formatDriverSummary(nextTrip?.driver);
   const tracking = nextTrip
     ? getTrackingAvailability(nextTrip.status, nextTrip.scheduledPickupTime ?? null, Boolean(nextTrip.driver), 20)
@@ -174,7 +180,7 @@ export default function DashboardPage() {
                 <p>Pickup: {nextTrip.pickupLocation ?? '—'}</p>
                 <p>Drop-off: {nextTrip.dropoffLocation ?? '—'}</p>
                 {nextTrip.driver ? (
-                  <ParentDriverBlock name={nextDriver.name} rating={nextDriver.rating} avatarUrl={nextDriver.avatarUrl} />
+                  <ParentDriverBlock name={nextDriver.name} rating={nextDriver.rating} avatarUrl={nextDriver.avatarUrl} onDark />
                 ) : (
                   <p className="text-white/90">Driver is being assigned</p>
                 )}
@@ -185,20 +191,21 @@ export default function DashboardPage() {
             actions={nextTrip ? (
               <>
                 {trackable && (
-                  <Link href={`/tracking/${nextTrip.id}`}><Button variant="secondary" size="sm">Track trip</Button></Link>
+                  <Link href={`/tracking/${nextTrip.id}`}><Button variant="inverse" size="sm">Track trip</Button></Link>
                 )}
-                <Link href={`/tracking/${nextTrip.id}?chat=1`}><Button variant="outline" size="sm" className="border-white/40 text-white hover:bg-white/10"><MessageSquare className="h-4 w-4 mr-1 inline" />Message driver</Button></Link>
-                <Link href="/trips"><Button variant="outline" size="sm" className="border-white/40 text-white hover:bg-white/10">View trip</Button></Link>
+                <Link href={`/tracking/${nextTrip.id}?chat=1`}><Button variant="inverse" size="sm"><MessageSquare className="h-4 w-4 mr-1 inline" />Message driver</Button></Link>
+                <Link href="/trips"><Button variant="inverse" size="sm">View trip</Button></Link>
               </>
             ) : (
               <Link href="/subscriptions/new"><Button variant="primary" size="sm">Create subscription</Button></Link>
             )}
           />
 
-          <ParentKpiGrid columns={4}>
+          <ParentKpiGrid columns={5}>
             <ParentKpiCard label="Wallet balance" value={formatSarParent(wallet?.balanceSar)} icon={Wallet} />
             <ParentKpiCard label="Active riders" value={activeRiders.length} helper="Family members" icon={Users} color="#14A34A" />
-            <ParentKpiCard label="Upcoming trips" value={trips.length} helper="Scheduled" icon={CalendarDays} color="#1D4ED8" />
+            <ParentKpiCard label="Loyalty points" value={loyaltyPoints} helper="Earn on subscriptions · redemption coming soon" icon={Gift} color="#7C3AED" />
+            <ParentKpiCard label="Upcoming trips" value={trips.filter((t) => ['SCHEDULED', 'DRIVER_ASSIGNED'].includes(t.status)).length} helper="Scheduled" icon={CalendarDays} color="#1D4ED8" />
             <ParentKpiCard label="Active plan" value={activeSub?.package?.name ?? 'None'} helper={activeSub ? 'Subscribed' : 'No active plan'} icon={ClipboardList} />
           </ParentKpiGrid>
 

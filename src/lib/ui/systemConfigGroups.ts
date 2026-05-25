@@ -103,6 +103,20 @@ export const CONFIG_FIELD_META: Record<string, ConfigFieldMeta> = {
     defaultValue: 50,
     recommended: '50',
   },
+  loyaltyRedemptionEnabled: {
+    label: 'Loyalty Redemption Enabled',
+    type: 'boolean',
+    hint: 'When true, parents can redeem points at checkout. Not yet implemented in the app — keep false until redemption ships.',
+    defaultValue: false,
+    recommended: 'false',
+  },
+  loyaltyRedemptionPointsPerSar: {
+    label: 'Points Required per SAR Discount',
+    type: 'number',
+    hint: 'Future setting: how many points equal SAR 1 off at checkout. Redemption UI is not live yet.',
+    defaultValue: 100,
+    recommended: '100',
+  },
   driverPayRatePerKmSar: {
     label: 'Driver pay rate per km (SAR)',
     type: 'number',
@@ -203,7 +217,7 @@ export const CONFIG_GROUPS: ConfigGroup[] = [
     id: 'payment',
     label: 'Payment',
     description: 'Loyalty rewards tied to payments.',
-    keys: ['loyaltyPointsPerSar', 'loyaltyPointsOnSafetyApproval'],
+    keys: ['loyaltyPointsPerSar', 'loyaltyPointsOnSafetyApproval', 'loyaltyRedemptionEnabled', 'loyaltyRedemptionPointsPerSar'],
   },
   {
     id: 'payroll',

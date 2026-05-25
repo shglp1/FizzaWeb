@@ -6,15 +6,42 @@ export function formatSarParent(amount: number | string | null | undefined): str
   return `SAR ${Number.isFinite(n) ? n.toFixed(2) : '0.00'}`;
 }
 
+const RIYADH_TZ = 'Asia/Riyadh';
+
 export function formatTripDateTime(iso: string | null | undefined): string {
   if (!iso) return '—';
   return new Date(iso).toLocaleString('en-SA', {
+    timeZone: RIYADH_TZ,
     weekday: 'short',
     month: 'short',
     day: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
   });
+}
+
+const ACTIVE_TRIP_STATUSES = new Set([
+  'PRE_TRIP', 'ON_THE_WAY', 'ARRIVED_PICKUP', 'PICKED_UP', 'EN_ROUTE_DROPOFF', 'ARRIVED_DROPOFF',
+]);
+
+function tripSortTime(trip: { scheduledPickupTime?: string | null; scheduledDate?: string | null }): number {
+  if (trip.scheduledPickupTime) return new Date(trip.scheduledPickupTime).getTime();
+  if (trip.scheduledDate) return new Date(`${trip.scheduledDate}T00:00:00`).getTime();
+  return Number.MAX_SAFE_INTEGER;
+}
+
+/** Pick the trip parents care about most: in-progress first, then nearest upcoming. */
+export function pickNextTrip<T extends { status: string; scheduledPickupTime?: string | null; scheduledDate?: string | null }>(
+  trips: T[],
+): T | null {
+  if (!trips.length) return null;
+  const active = trips.filter((t) => ACTIVE_TRIP_STATUSES.has(t.status));
+  if (active.length) {
+    return [...active].sort((a, b) => tripSortTime(a) - tripSortTime(b))[0] ?? null;
+  }
+  const upcoming = trips.filter((t) => ['SCHEDULED', 'DRIVER_ASSIGNED'].includes(t.status));
+  if (!upcoming.length) return null;
+  return [...upcoming].sort((a, b) => tripSortTime(a) - tripSortTime(b))[0] ?? null;
 }
 
 export function formatDriverSummary(driver: {

@@ -9,6 +9,20 @@ const ALLOWED_MIME: Record<string, string> = {
   'image/jpeg': '.jpg',
   'image/png': '.png',
   'image/webp': '.webp',
+  'application/pdf': '.pdf',
+};
+
+export type UploadCategory =
+  | 'profile-avatar'
+  | 'rider-avatar'
+  | 'safety-attachment'
+  | 'driver-document';
+
+const CATEGORY_MIMES: Record<UploadCategory, string[]> = {
+  'profile-avatar': ['image/jpeg', 'image/png', 'image/webp'],
+  'rider-avatar': ['image/jpeg', 'image/png', 'image/webp'],
+  'safety-attachment': ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'],
+  'driver-document': ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'],
 };
 
 export function getMaxUploadBytes(): number {
@@ -31,6 +45,33 @@ export function validateImageUpload(
     return { ok: false, error: `File exceeds maximum size of ${process.env.UPLOAD_MAX_SIZE_MB ?? '5'} MB` };
   }
   return { ok: true, ext };
+}
+
+export function validateCategoryUpload(
+  category: UploadCategory,
+  mimeType: string,
+  sizeBytes: number,
+): { ok: true; ext: string } | { ok: false; error: string } {
+  const allowed = CATEGORY_MIMES[category] ?? [];
+  if (!allowed.includes(mimeType)) {
+    return { ok: false, error: 'File type is not allowed for this upload' };
+  }
+  const ext = ALLOWED_MIME[mimeType];
+  if (!ext) return { ok: false, error: 'Unsupported file type' };
+  if (sizeBytes <= 0) return { ok: false, error: 'Empty file' };
+  if (sizeBytes > getMaxUploadBytes()) {
+    return { ok: false, error: `File exceeds maximum size of ${process.env.UPLOAD_MAX_SIZE_MB ?? '5'} MB` };
+  }
+  return { ok: true, ext };
+}
+
+export async function saveUserUpload(
+  userId: string,
+  category: UploadCategory,
+  buffer: Buffer,
+  ext: string,
+): Promise<string> {
+  return saveLocalImage(['users', userId, category], buffer, ext);
 }
 
 export async function saveChatImage(

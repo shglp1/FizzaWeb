@@ -23,3 +23,18 @@ export function requiresConfirmedPin(
 ): boolean {
   return hasText && !hasLatLng;
 }
+
+/** User-facing label for distance provider in quotes and tracking. */
+export function mapDistanceProviderLabel(provider: string, approximate?: boolean): string {
+  if (approximate) {
+    return 'Approximate distance (straight-line estimate × road factor)';
+  }
+  return provider.replace(/_/g, ' ').toLowerCase();
+}
+
+/** Safe display for Arabic/English geocode labels (no HTML injection). */
+export function sanitizeMapLabel(label: string, maxLen = 120): string {
+  const trimmed = label.replace(/[<>]/g, '').trim();
+  if (trimmed.length <= maxLen) return trimmed;
+  return `${trimmed.slice(0, maxLen)}…`;
+}

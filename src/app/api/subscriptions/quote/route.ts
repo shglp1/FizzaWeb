@@ -10,6 +10,7 @@ import {
   DistanceError,
 } from '@/lib/maps/distance';
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rateLimit';
+import { validatePromoCode, computePromoDiscount } from '@/lib/promo/promoCode';
 
 export async function POST(req: Request) {
   const rl = checkRateLimit(req, 'subscriptions:quote', RATE_LIMITS.subscriptionQuote);
@@ -30,7 +31,7 @@ export async function POST(req: Request) {
 
     const {
       packageId, addOnIds, pickupLocation, dropoffLocation,
-      tripDirection, riderIds, weekdays, startsOn,
+      tripDirection, riderIds, weekdays, startsOn, promoCode,
     } = parsed.data;
 
     // Validate all riderIds belong to this user
@@ -172,6 +173,23 @@ export async function POST(req: Request) {
       config,
     );
 
+    let promoDiscountSar = 0;
+    let promoMeta: { code: string; partnerName: string | null; discountPercent: number } | null = null;
+    if (promoCode?.trim()) {
+      const promoResult = await validatePromoCode(promoCode, auth.userId);
+      if (!promoResult.ok) {
+        return NextResponse.json({ data: null, error: { message: promoResult.message } }, { status: 400 });
+      }
+      promoDiscountSar = computePromoDiscount(breakdown.finalPriceSar, promoResult.promo.discountPercent);
+      promoMeta = {
+        code: promoResult.promo.code,
+        partnerName: promoResult.promo.partnerName,
+        discountPercent: promoResult.promo.discountPercent,
+      };
+    }
+    const subtotalSar = breakdown.finalPriceSar;
+    const finalPriceSar = round2(Math.max(0, subtotalSar - promoDiscountSar));
+
     return NextResponse.json({
       data: {
         quote: {
@@ -195,9 +213,13 @@ export async function POST(req: Request) {
           extraRiderCount,
           extraRiderSameDropoffMultiplier: config.extraRiderSameDropoffMultiplier,
           extraRiderChargeSar: breakdown.extraRidersPriceSar,
-          finalPriceSar: breakdown.finalPriceSar,
+          subtotalSar,
+          promoDiscountSar,
+          promo: promoMeta,
+          finalPriceSar,
           // ── Meta ─────────────────────────────────────────────────────────────
           distanceProvider: providerUsed,
+          distanceApproximate: routeResult.approximateRoute ?? false,
           pickupCoordinates,
           dropoffCoordinates,
           normalizedPickupLabel,

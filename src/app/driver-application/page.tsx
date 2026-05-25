@@ -8,6 +8,7 @@ import {
   PageHeader, Card, Input, Textarea, Button, Alert, StatusBadge, LoadingState,
 } from '@/components/ui';
 import { driverApplicationService } from '@/services/driverApplicationService';
+import { FileUploadField } from '@/components/upload/FileUploadField';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { DRIVER_APPLICATION_LOGIN_PATH } from '@/lib/driverAuthFlow';
 import type { LucideIcon } from 'lucide-react';
@@ -249,7 +250,7 @@ export default function DriverApplicationPage() {
   const [formError, setFormError]       = useState('');
   const [formSuccess, setFormSuccess]   = useState('');
 
-  const { register, handleSubmit, reset, formState: { errors } } = useForm<FormValues>();
+  const { register, handleSubmit, reset, watch, setValue, formState: { errors } } = useForm<FormValues>();
 
   const loadApplication = () => {
     setLoading(true);
@@ -604,11 +605,26 @@ export default function DriverApplicationPage() {
           {/* Documents */}
           <Card>
             <h2 className="text-base font-semibold text-gray-900 mb-1">Documents</h2>
-            <p className="text-sm text-gray-400 mb-4">Upload links to your documents (optional).</p>
-            <div className="grid sm:grid-cols-2 gap-4">
-              <Input label="Driver License URL" type="url" placeholder="https://…" {...register('driverLicenseUrl')} />
-              <Input label="Vehicle Registration URL" type="url" placeholder="https://…" {...register('vehicleRegistrationUrl')} />
-              <Input label="National ID URL" type="url" placeholder="https://…" {...register('nationalIdUrl')} />
+            <p className="text-sm text-gray-400 mb-4">Upload your license, registration, and ID (JPEG, PNG, WebP, or PDF).</p>
+            <div className="grid sm:grid-cols-1 gap-4">
+              <FileUploadField
+                category="driver-document"
+                label="Driving license"
+                value={watch('driverLicenseUrl') || null}
+                onChange={(url) => setValue('driverLicenseUrl', url ?? '', { shouldDirty: true })}
+              />
+              <FileUploadField
+                category="driver-document"
+                label="Vehicle registration"
+                value={watch('vehicleRegistrationUrl') || null}
+                onChange={(url) => setValue('vehicleRegistrationUrl', url ?? '', { shouldDirty: true })}
+              />
+              <FileUploadField
+                category="driver-document"
+                label="National ID / Iqama"
+                value={watch('nationalIdUrl') || null}
+                onChange={(url) => setValue('nationalIdUrl', url ?? '', { shouldDirty: true })}
+              />
             </div>
           </Card>
 

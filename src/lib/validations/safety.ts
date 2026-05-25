@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { uploadedOrHttpUrl } from '@/lib/validations/upload';
 
 export const SAFETY_CATEGORIES = [
   'UNSAFE_DRIVING',
@@ -16,12 +17,12 @@ export const safetyReportCreateSchema = z.object({
   category: z.enum(SAFETY_CATEGORIES),
   description: z.string().min(20, 'Description must be at least 20 characters').max(5000),
   tripId: z.string().uuid().optional(),
-  attachmentUrls: z.array(z.string().url('Each attachment must be a valid URL')).max(10).optional(),
+  attachmentUrls: z.array(uploadedOrHttpUrl).max(10).optional(),
 });
 
 export const safetyReportUpdateSchema = z.object({
   description: z.string().min(20).max(5000).optional(),
-  attachmentUrls: z.array(z.string().url()).max(10).optional(),
+  attachmentUrls: z.array(uploadedOrHttpUrl).max(10).optional(),
 });
 
 export const adminSafetyReviewSchema = z

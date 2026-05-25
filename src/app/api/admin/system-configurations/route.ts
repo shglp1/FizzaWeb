@@ -15,6 +15,8 @@ const ALLOWED_KEYS = [
   'notificationLeadTimeMinutes',
   'loyaltyPointsPerSar',
   'loyaltyPointsOnSafetyApproval',
+  'loyaltyRedemptionEnabled',
+  'loyaltyRedemptionPointsPerSar',
   'driverPayRatePerKmSar',
   'driverPlatformFeePercent',
   'chatOpenMinutesBeforePickup',

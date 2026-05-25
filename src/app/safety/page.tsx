@@ -17,6 +17,7 @@ import {
 } from '@/components/ui';
 import { safetyService } from '@/services/safetyService';
 import { tripService } from '@/services/tripService';
+import { FileUploadField } from '@/components/upload/FileUploadField';
 import {
   DriverCommandHeader,
   DriverSafetyHero,
@@ -323,13 +324,10 @@ function SafetyPageContent() {
               </div>
             )}
             <div className="field">
-              <label className="label">Attachment URL <span className="text-gray-400 font-normal">(optional)</span></label>
-              <input
-                type="url"
-                value={form.attachmentUrl}
-                onChange={(e) => setForm((p) => ({ ...p, attachmentUrl: e.target.value }))}
-                placeholder="https://…"
-                className="input"
+              <FileUploadField
+                category="safety-attachment"
+                value={form.attachmentUrl || null}
+                onChange={(url) => setForm((p) => ({ ...p, attachmentUrl: url ?? '' }))}
               />
             </div>
           </div>

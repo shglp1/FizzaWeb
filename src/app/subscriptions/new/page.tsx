@@ -21,6 +21,7 @@ import {
   SUBSCRIPTION_WIZARD_STEP_COUNT,
 } from '@/lib/ui/subscriptionWizard';
 import { Check } from 'lucide-react';
+import { mapDistanceProviderLabel } from '@/lib/ui/mapLocation';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -50,9 +51,13 @@ type PriceQuote = {
   extraRiderCount: number;
   extraRiderSameDropoffMultiplier: number;
   extraRiderChargeSar: number;
+  subtotalSar?: number;
+  promoDiscountSar?: number;
+  promo?: { code: string; partnerName: string | null; discountPercent: number } | null;
   finalPriceSar: number;
   // ── Meta ─────────────────────────────────────────────────────────────────────
   distanceProvider: string;
+  distanceApproximate?: boolean;
   normalizedPickupLabel: string;
   normalizedDropoffLabel: string;
   packageName: string | null;
@@ -88,6 +93,7 @@ function makeQuoteKey(
   direction: TripDirection,
   weekdays: number[],
   startsOn: string,
+  promoCode: string,
 ): string {
   return [
     packageId ?? '',
@@ -98,6 +104,7 @@ function makeQuoteKey(
     direction,
     [...weekdays].sort().join(','),
     startsOn,
+    promoCode.trim().toUpperCase(),
   ].join('|');
 }
 
@@ -273,13 +280,28 @@ function QuoteBreakdown({ quote }: { quote: PriceQuote }) {
         </div>
       )}
 
+      {(quote.promoDiscountSar ?? 0) > 0 && (
+        <div className="flex justify-between text-emerald-700">
+          <span>
+            Promo {quote.promo?.code}
+            {quote.promo?.discountPercent ? ` (${quote.promo.discountPercent}% off)` : ''}
+          </span>
+          <span className="font-medium">− SAR {quote.promoDiscountSar!.toFixed(2)}</span>
+        </div>
+      )}
+
       <div className="border-t border-emerald-200 pt-2 flex justify-between font-bold text-base">
         <span className="text-emerald-800">Total ({quote.billingCycle})</span>
         <span className="text-emerald-700">SAR {quote.finalPriceSar.toFixed(2)}</span>
       </div>
 
       <p className="text-xs text-gray-400 pt-1">
-        Calculated via {quote.distanceProvider.replace('_', ' ').toLowerCase()}.
+        Calculated via {mapDistanceProviderLabel(quote.distanceProvider, quote.distanceApproximate)}.
+        {quote.distanceApproximate && (
+          <span className="block text-amber-700 mt-1">
+            Road routing was unavailable — price uses an approximate distance. Admin can configure OPENROUTESERVICE_API_KEY for precise routing.
+          </span>
+        )}
         {quote.tripDirection === 'ROUND_TRIP' ? ' Round-trip counts both directions.' : ''}
       </p>
     </Card>
@@ -319,6 +341,7 @@ export default function NewSubscriptionPage() {
   const [returnTime, setReturnTime] = useState('15:00');
   const [femaleDriver, setFemaleDriver] = useState(false);
   const [selectedAddOnIds, setSelectedAddOnIds] = useState<string[]>([]);
+  const [promoCode, setPromoCode] = useState('');
 
   // ── Quote state ──
   const [quote, setQuote] = useState<PriceQuote | null>(null);
@@ -350,6 +373,7 @@ export default function NewSubscriptionPage() {
     tripDirection,
     weekdays,
     startsOn,
+    promoCode,
   );
 
   useEffect(() => {
@@ -405,6 +429,7 @@ export default function NewSubscriptionPage() {
           riderIds: selectedRiderIds,
           weekdays,
           startsOn: startsOn || undefined,
+          promoCode: promoCode.trim() || undefined,
         }),
       });
 
@@ -423,7 +448,7 @@ export default function NewSubscriptionPage() {
     }
   }, [
     pickupLocation, dropoffLocation, selectedRiderIds, selectedPackageId,
-    selectedAddOnIds, tripDirection, weekdays, startsOn, currentQuoteKey,
+    selectedAddOnIds, tripDirection, weekdays, startsOn, currentQuoteKey, promoCode,
   ]);
 
   // ── Form helpers ──
@@ -531,6 +556,7 @@ export default function NewSubscriptionPage() {
       startsOn: startsOn || undefined,
       pickupPhotoUrl: pickupPhotoUrl ?? undefined,
       dropoffPhotoUrl: dropoffPhotoUrl ?? undefined,
+      promoCode: promoCode.trim() || undefined,
     };
 
     const res = await subscriptionService.create(payload);
@@ -853,8 +879,15 @@ export default function NewSubscriptionPage() {
     <div className="space-y-6">
       <FormSection
         title={SUBSCRIPTION_STEP_COPY[3]?.title ?? 'Price & add-ons'}
-        description="We calculate distance across all selected service days. Add optional extras, then calculate your total."
+        description="We calculate distance across all selected service days. Add optional extras, apply a promo code, then calculate your total."
       >
+        <Input
+          label="Promo code"
+          placeholder="e.g. FAMOUS20 (optional)"
+          value={promoCode}
+          onChange={(e) => setPromoCode(e.target.value.toUpperCase())}
+          helpText="Percentage discount applies to subscription checkout only"
+        />
         <div className="relative group">
           <Button
             type="button"

@@ -29,6 +29,7 @@ export type ButtonVariant =
   | 'primary'
   | 'secondary'
   | 'outline'
+  | 'inverse'
   | 'ghost'
   | 'danger'
   | 'danger-outline';
@@ -139,6 +140,7 @@ const btnVariantMap: Record<ButtonVariant, string> = {
   primary: 'btn-primary',
   secondary: 'btn-secondary',
   outline: 'btn-outline',
+  inverse: 'btn-inverse',
   ghost: 'btn-ghost',
   danger: 'btn-danger',
   'danger-outline': 'btn-danger-outline',

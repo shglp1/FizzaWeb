@@ -10,6 +10,7 @@ import {
   calculateChargeableDistanceKm,
   DistanceError,
 } from '@/lib/maps/distance';
+import { validatePromoCode, computePromoDiscount } from '@/lib/promo/promoCode';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -156,6 +157,7 @@ export async function POST(req: Request) {
       startsOn,
       pickupPhotoUrl,
       dropoffPhotoUrl,
+      promoCode,
     } = parsed.data;
 
     // Normalise location inputs — accept both coord-objects and plain strings
@@ -287,6 +289,20 @@ export async function POST(req: Request) {
       config,
     );
 
+    let promoCodeId: string | null = null;
+    let promoDiscountSar = 0;
+    const subtotalSar = pricing.finalPriceSar;
+    let finalPriceSar = subtotalSar;
+    if (promoCode?.trim()) {
+      const promoResult = await validatePromoCode(promoCode, auth.userId);
+      if (!promoResult.ok) {
+        return NextResponse.json({ data: null, error: { message: promoResult.message } }, { status: 400 });
+      }
+      promoCodeId = promoResult.promo.id;
+      promoDiscountSar = computePromoDiscount(subtotalSar, promoResult.promo.discountPercent);
+      finalPriceSar = round2(Math.max(0, subtotalSar - promoDiscountSar));
+    }
+
     // Primary rider = first in list (backward compat riderId field)
     const primaryRiderId = resolvedRiderIds[0] ?? null;
 
@@ -333,7 +349,10 @@ export async function POST(req: Request) {
           addOnsPriceSar: pricing.addOnsPriceSar,
           distancePriceSar: pricing.distancePriceSar,
           extraRidersPriceSar: pricing.extraRidersPriceSar,
-          finalPriceSar: pricing.finalPriceSar,
+          subtotalSar,
+          promoCodeId,
+          promoDiscountSar,
+          finalPriceSar,
           schedules: {
             create: weekdays.map((day) => ({
               weekday: day,
@@ -365,7 +384,9 @@ export async function POST(req: Request) {
           title: 'Subscription Created',
           message: `Your ${subscriptionType} subscription has been created and is pending payment. ${
             tripDirection === 'ROUND_TRIP' ? 'Round-trip' : 'One-way'
-          }, ${serviceDays.actualServiceDays} service days (${totalChargeableDistanceKm} km total). Final price: SAR ${pricing.finalPriceSar.toFixed(2)}.`,
+          }, ${serviceDays.actualServiceDays} service days (${totalChargeableDistanceKm} km total).${
+            promoDiscountSar > 0 ? ` Promo discount: SAR ${promoDiscountSar.toFixed(2)}.` : ''
+          } Final price: SAR ${finalPriceSar.toFixed(2)}.`,
           type: 'SUBSCRIPTION',
         },
       });

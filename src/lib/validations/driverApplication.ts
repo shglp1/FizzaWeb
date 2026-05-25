@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { uploadedOrHttpUrl } from '@/lib/validations/upload';
 
 const VEHICLE_TYPES = ['ECONOMY', 'COMFORT', 'FAMILY', 'VAN', 'BUS', 'PREMIUM'] as const;
 
@@ -16,9 +17,9 @@ export const driverApplicationSchema = z.object({
   vehicleColor: z.string().min(1, 'Vehicle color is required'),
   vehicleCapacity: z.number().int().min(1).max(60),
   licenseNumber: z.string().min(3, 'License number is required'),
-  driverLicenseUrl: z.string().url().optional().or(z.literal('')),
-  vehicleRegistrationUrl: z.string().url().optional().or(z.literal('')),
-  nationalIdUrl: z.string().url().optional().or(z.literal('')),
+  driverLicenseUrl: uploadedOrHttpUrl.optional().or(z.literal('')),
+  vehicleRegistrationUrl: uploadedOrHttpUrl.optional().or(z.literal('')),
+  nationalIdUrl: uploadedOrHttpUrl.optional().or(z.literal('')),
   driverNotes: z.string().optional(),
   city: z.string().min(1, 'City is required'),
   serviceArea: z.string().min(1, 'Service area is required'),

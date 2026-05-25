@@ -3,6 +3,8 @@ import { randomUUID } from 'crypto';
 import { prisma } from '@/lib/prisma';
 import { requireAuth } from '@/lib/session';
 import { paySubscriptionSchema } from '@/lib/validations/wallet';
+import { awardLoyaltyPointsForPayment } from '@/lib/loyalty/awardLoyaltyPoints';
+import { recordPromoRedemption } from '@/lib/promo/promoCode';
 
 export async function POST(request: NextRequest) {
   try {
@@ -34,7 +36,14 @@ export async function POST(request: NextRequest) {
     // Find subscription belonging to this user
     const subscription = await prisma.userSubscription.findFirst({
       where: { id: subscriptionId, userId },
-      select: { id: true, paymentStatus: true, finalPriceSar: true },
+      select: {
+        id: true,
+        paymentStatus: true,
+        finalPriceSar: true,
+        subtotalSar: true,
+        promoDiscountSar: true,
+        promoCodeId: true,
+      },
     });
 
     if (!subscription) {
@@ -89,6 +98,7 @@ export async function POST(request: NextRequest) {
     }
 
     let newBalance = 0;
+    let paymentId = randomUUID();
 
     await prisma.$transaction(async (tx) => {
       // Re-read wallet inside tx for pessimistic check
@@ -115,7 +125,7 @@ export async function POST(request: NextRequest) {
 
       await tx.payment.create({
         data: {
-          id: randomUUID(),
+          id: paymentId,
           userId,
           subscriptionId,
           amountSar: total,
@@ -130,12 +140,30 @@ export async function POST(request: NextRequest) {
         data: { paymentStatus: 'PAID', status: 'ACTIVE' },
       });
 
+      if (subscription.promoCodeId) {
+        const subtotal = Number(subscription.subtotalSar ?? subscription.finalPriceSar);
+        const discount = Number(subscription.promoDiscountSar ?? 0);
+        await recordPromoRedemption(tx, {
+          promoCodeId: subscription.promoCodeId,
+          userId,
+          subscriptionId,
+          paymentId,
+          subtotalSar: subtotal,
+          discountSar: discount,
+          finalSar: total,
+        });
+      }
+
+      const points = await awardLoyaltyPointsForPayment(tx, userId, total, 'Subscription payment (wallet)');
+
       await tx.notification.create({
         data: {
           id: randomUUID(),
           userId,
           title: 'Subscription Paid',
-          message: 'Your subscription has been activated.',
+          message: points > 0
+            ? `Your subscription has been activated. You earned ${points} loyalty points.`
+            : 'Your subscription has been activated.',
           type: 'SUBSCRIPTION_PAYMENT',
         },
       });
