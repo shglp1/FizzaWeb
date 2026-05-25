@@ -43,6 +43,11 @@ type Application = {
   vehicleColor: string;
   vehicleCapacity: number;
   licenseNumber: string;
+  driverLicenseUrl?: string | null;
+  vehicleRegistrationUrl?: string | null;
+  nationalIdUrl?: string | null;
+  vehicleInsuranceUrl?: string | null;
+  vehiclePhotoUrl?: string | null;
   city: string;
   serviceArea: string;
   femaleDriver: boolean;
@@ -63,6 +68,8 @@ type FormValues = {
   driverLicenseUrl: string;
   vehicleRegistrationUrl: string;
   nationalIdUrl: string;
+  vehicleInsuranceUrl: string;
+  vehiclePhotoUrl: string;
   city: string;
   serviceArea: string;
   femaleDriver: boolean;
@@ -278,9 +285,11 @@ export default function DriverApplicationPage() {
           serviceArea:             app.serviceArea,
           femaleDriver:            app.femaleDriver,
           driverNotes:             app.driverNotes ?? '',
-          driverLicenseUrl:        '',
-          vehicleRegistrationUrl:  '',
-          nationalIdUrl:           '',
+          driverLicenseUrl:        app.driverLicenseUrl ?? '',
+          vehicleRegistrationUrl:  app.vehicleRegistrationUrl ?? '',
+          nationalIdUrl:           app.nationalIdUrl ?? '',
+          vehicleInsuranceUrl:     app.vehicleInsuranceUrl ?? '',
+          vehiclePhotoUrl:         app.vehiclePhotoUrl ?? '',
         });
       }
       setLoading(false);
@@ -333,6 +342,8 @@ export default function DriverApplicationPage() {
       driverLicenseUrl:       values.driverLicenseUrl || undefined,
       vehicleRegistrationUrl: values.vehicleRegistrationUrl || undefined,
       nationalIdUrl:          values.nationalIdUrl || undefined,
+      vehicleInsuranceUrl:    values.vehicleInsuranceUrl || undefined,
+      vehiclePhotoUrl:        values.vehiclePhotoUrl || undefined,
       driverNotes:            values.driverNotes || undefined,
       city:                   values.city,
       serviceArea:            values.serviceArea,
@@ -605,7 +616,7 @@ export default function DriverApplicationPage() {
           {/* Documents */}
           <Card>
             <h2 className="text-base font-semibold text-gray-900 mb-1">Documents</h2>
-            <p className="text-sm text-gray-400 mb-4">Upload your license, registration, and ID (JPEG, PNG, WebP, or PDF).</p>
+            <p className="text-sm text-gray-400 mb-4">Upload your license, registration, ID, insurance, and a vehicle photo (JPEG, PNG, WebP, or PDF for documents).</p>
             <div className="grid sm:grid-cols-1 gap-4">
               <FileUploadField
                 category="driver-document"
@@ -625,6 +636,21 @@ export default function DriverApplicationPage() {
                 value={watch('nationalIdUrl') || null}
                 onChange={(url) => setValue('nationalIdUrl', url ?? '', { shouldDirty: true })}
               />
+              <FileUploadField
+                category="driver-document"
+                label="Vehicle insurance (optional)"
+                value={watch('vehicleInsuranceUrl') || null}
+                onChange={(url) => setValue('vehicleInsuranceUrl', url ?? '', { shouldDirty: true })}
+              />
+              <FileUploadField
+                category="driver-vehicle-photo"
+                label="Vehicle photo (recommended)"
+                value={watch('vehiclePhotoUrl') || null}
+                onChange={(url) => setValue('vehiclePhotoUrl', url ?? '', { shouldDirty: true })}
+              />
+              <p className="text-xs text-gray-500 -mt-2">
+                Upload a clear photo of your vehicle to help admin verify it. JPEG, PNG, or WebP only.
+              </p>
             </div>
           </Card>
 

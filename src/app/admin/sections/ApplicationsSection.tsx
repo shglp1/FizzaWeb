@@ -1,11 +1,12 @@
 'use client';
 
-import { FileText, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
+import { FileText, CheckCircle, XCircle, AlertCircle, ExternalLink } from 'lucide-react';
 import { useEffect, useState, useCallback } from 'react';
 import { driverApplicationService } from '@/services/driverApplicationService';
 import { Button, Alert, Textarea, ErrorState } from '@/components/ui';
 import { AdminPagination } from '@/components/admin/AdminPagination';
 import { DEFAULT_ADMIN_PAGE_LIMIT } from '@/lib/ui/adminPagination';
+import { listDriverApplicationDocuments, isImageUrl } from '@/lib/driver/driverApplicationDocs';
 import {
   AdminSectionHeader,
   AdminTabs,
@@ -34,6 +35,11 @@ type Application = {
   vehicleColor: string;
   vehicleCapacity: number;
   licenseNumber: string;
+  driverLicenseUrl?: string | null;
+  vehicleRegistrationUrl?: string | null;
+  nationalIdUrl?: string | null;
+  vehicleInsuranceUrl?: string | null;
+  vehiclePhotoUrl?: string | null;
   city: string;
   serviceArea: string;
   femaleDriver: boolean;
@@ -234,6 +240,32 @@ export function ApplicationsSection() {
               <AdminDrawerRow label="Color" value={selected.vehicleColor} />
               <AdminDrawerRow label="Capacity" value={`${selected.vehicleCapacity} seats`} />
               <AdminDrawerRow label="License" value={selected.licenseNumber} />
+            </AdminDrawerSection>
+
+            <AdminDrawerSection title="Documents">
+              {listDriverApplicationDocuments(selected).length === 0 ? (
+                <p className="text-sm text-gray-500">No documents uploaded.</p>
+              ) : (
+                <div className="space-y-3">
+                  {listDriverApplicationDocuments(selected).map((doc) => (
+                    <div key={doc.key} className="flex flex-col sm:flex-row sm:items-center gap-2">
+                      <span className="text-sm text-gray-600 w-40 shrink-0">{doc.label}</span>
+                      {isImageUrl(doc.url) ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={doc.url} alt={doc.label} className="h-16 w-24 rounded-lg object-cover border border-gray-200" />
+                      ) : null}
+                      <a
+                        href={doc.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-sm text-emerald-700 hover:underline"
+                      >
+                        View file <ExternalLink className="h-3.5 w-3.5" aria-hidden />
+                      </a>
+                    </div>
+                  ))}
+                </div>
+              )}
             </AdminDrawerSection>
 
             <AdminDrawerSection title="Service area">

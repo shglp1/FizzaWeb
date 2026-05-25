@@ -17,6 +17,8 @@ const ALLOWED_KEYS = [
   'loyaltyPointsOnSafetyApproval',
   'loyaltyRedemptionEnabled',
   'loyaltyRedemptionPointsPerSar',
+  'loyaltyRedemptionMaxPercentOfOrder',
+  'loyaltyMinimumPointsToRedeem',
   'driverPayRatePerKmSar',
   'driverPlatformFeePercent',
   'chatOpenMinutesBeforePickup',

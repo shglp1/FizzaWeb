@@ -1,12 +1,18 @@
 import { NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/session';
-import { saveUserUpload, validateCategoryUpload, type UploadCategory } from '@/lib/storage/localUpload';
+import {
+  saveUserUpload,
+  validateCategoryUpload,
+  StorageNotConfiguredError,
+  type UploadCategory,
+} from '@/lib/storage/storageService';
 
 const ALLOWED: UploadCategory[] = [
   'profile-avatar',
   'rider-avatar',
   'safety-attachment',
   'driver-document',
+  'driver-vehicle-photo',
 ];
 
 export async function POST(req: Request) {
@@ -33,9 +39,12 @@ export async function POST(req: Request) {
       return NextResponse.json({ data: null, error: { message: validation.error } }, { status: 400 });
     }
 
-    const url = await saveUserUpload(auth.userId, category, buffer, validation.ext);
+    const url = await saveUserUpload(auth.userId, category, buffer, validation.ext, mimeType);
     return NextResponse.json({ data: { url }, error: null }, { status: 201 });
   } catch (e) {
+    if (e instanceof StorageNotConfiguredError) {
+      return NextResponse.json({ data: null, error: { message: e.message } }, { status: 503 });
+    }
     const message = e instanceof Error ? e.message : 'Internal Server Error';
     return NextResponse.json({ data: null, error: { message } }, { status: 500 });
   }

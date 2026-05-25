@@ -44,6 +44,13 @@ type Wallet = {
   transactions: Transaction[];
 };
 
+type LoyaltyTx = {
+  id: string;
+  points: number;
+  reason: string | null;
+  createdAt: string;
+};
+
 const TX_CFG: Record<TxType, { label: string; sign: string; color: string }> = {
   CREDIT:               { label: 'Credit',               sign: '+', color: 'text-emerald-600' },
   DEBIT:                { label: 'Debit',                sign: '-', color: 'text-red-600'     },
@@ -67,6 +74,7 @@ function formatTxTime(iso: string): string {
 export default function WalletPage() {
   const [wallet, setWallet] = useState<Wallet | null>(null);
   const [loyaltyPoints, setLoyaltyPoints] = useState(0);
+  const [loyaltyTransactions, setLoyaltyTransactions] = useState<LoyaltyTx[]>([]);
   const [loading, setLoading] = useState(true);
   const [pageError, setPageError] = useState('');
   const [customAmount, setCustomAmount] = useState('');
@@ -77,10 +85,14 @@ export default function WalletPage() {
 
   const loadWallet = () => {
     setLoading(true);
-    walletService.getWallet().then((res: { data?: { wallet: Wallet; loyaltyPoints?: number }; error?: { message: string } }) => {
+    walletService.getWallet().then((res: {
+      data?: { wallet: Wallet; loyaltyPoints?: number; loyaltyTransactions?: LoyaltyTx[] };
+      error?: { message: string };
+    }) => {
       if (res.data) {
         setWallet(res.data.wallet);
         setLoyaltyPoints(res.data.loyaltyPoints ?? 0);
+        setLoyaltyTransactions(res.data.loyaltyTransactions ?? []);
       }
       else setPageError(res.error?.message ?? 'Failed to load wallet.');
       setLoading(false);
@@ -152,10 +164,26 @@ export default function WalletPage() {
                 <p className="text-2xl font-bold text-gray-900">{loyaltyPoints} points</p>
                 <p className="text-sm text-gray-600 mt-1">
                   Earn points when you pay for subscriptions and when safety reports are approved.
-                  <span className="block text-amber-700 mt-1">Redeeming points for discounts is not available yet — balance is tracked for future rewards.</span>
+                  Redeem points at subscription checkout when enabled by admin.
                 </p>
               </div>
             </div>
+            {loyaltyTransactions.length > 0 && (
+              <div className="border-t border-gray-100 px-4 sm:px-5 py-3 space-y-2">
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Recent loyalty activity</p>
+                {loyaltyTransactions.map((tx) => (
+                  <div key={tx.id} className="flex justify-between text-sm">
+                    <span className="text-gray-600">
+                      {tx.reason === 'REDEEMED' ? 'Redeemed at checkout' : tx.reason ?? 'Points update'}
+                      <span className="block text-xs text-gray-400">{formatTxTime(tx.createdAt)}</span>
+                    </span>
+                    <span className={tx.points >= 0 ? 'text-emerald-600 font-medium' : 'text-purple-700 font-medium'}>
+                      {tx.points >= 0 ? '+' : ''}{tx.points}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
           </ParentSectionCard>
 
           <div ref={topUpRef} id="top-up">

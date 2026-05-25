@@ -26,7 +26,9 @@ export function requiresConfirmedPin(
 
 /** User-facing label for distance provider in quotes and tracking. */
 export function mapDistanceProviderLabel(provider: string, approximate?: boolean): string {
-  if (approximate) {
+  if (provider === 'OSRM_FREE') return 'Road route via OSRM (free demo server)';
+  if (provider === 'OPENROUTESERVICE' && !approximate) return 'Road route via OpenRouteService';
+  if (approximate || provider === 'HAVERSINE_ESTIMATE') {
     return 'Approximate distance (straight-line estimate × road factor)';
   }
   return provider.replace(/_/g, ' ').toLowerCase();

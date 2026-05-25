@@ -20,6 +20,8 @@ export const driverApplicationSchema = z.object({
   driverLicenseUrl: uploadedOrHttpUrl.optional().or(z.literal('')),
   vehicleRegistrationUrl: uploadedOrHttpUrl.optional().or(z.literal('')),
   nationalIdUrl: uploadedOrHttpUrl.optional().or(z.literal('')),
+  vehicleInsuranceUrl: uploadedOrHttpUrl.optional().or(z.literal('')),
+  vehiclePhotoUrl: uploadedOrHttpUrl.optional().or(z.literal('')),
   driverNotes: z.string().optional(),
   city: z.string().min(1, 'City is required'),
   serviceArea: z.string().min(1, 'Service area is required'),

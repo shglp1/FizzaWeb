@@ -35,6 +35,7 @@ import {
   useDebouncedValue,
 } from '@/components/admin/AdminUI';
 import { formatSar } from '@/lib/ui/adminCurrency';
+import { mapDistanceProviderLabel } from '@/lib/ui/mapLocation';
 
 type AssignedDriver = {
   id: string;
@@ -93,6 +94,8 @@ type SubDetail = SubRow & {
   femaleDriverPreference?: boolean;
   oneWayDistanceKm?: string | number | null;
   chargeableDistanceKm?: string | number | null;
+  distanceProvider?: string | null;
+  distanceApproximate?: boolean | null;
   dailyChargeableDistanceKm?: string | number | null;
   totalChargeableDistanceKm?: string | number | null;
   pricePerKmSarSnapshot?: string | number | null;
@@ -415,6 +418,15 @@ export function SubscriptionsSection() {
                     )}
                     {d.chargeableDistanceKm != null && (
                       <AdminDrawerRow label="Chargeable distance" value={`${Number(d.chargeableDistanceKm).toFixed(1)} km`} />
+                    )}
+                    {d.distanceProvider && (
+                      <AdminDrawerRow
+                        label="Distance source"
+                        value={mapDistanceProviderLabel(d.distanceProvider, d.distanceApproximate ?? false)}
+                      />
+                    )}
+                    {d.distanceApproximate && (
+                      <p className="text-xs text-amber-700">Approximate distance was used — final price may need admin review.</p>
                     )}
                     <div className="flex flex-wrap gap-3 pt-2">
                       <MapLink href={routeMapsUrl} label="Open route in Google Maps" />

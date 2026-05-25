@@ -2,6 +2,7 @@ import 'server-only';
 import { randomUUID } from 'crypto';
 import { prisma } from '@/lib/prisma';
 import { awardLoyaltyPointsForPayment } from '@/lib/loyalty/awardLoyaltyPoints';
+import { redeemLoyaltyPointsOnPayment } from '@/lib/loyalty/redeemLoyaltyPoints';
 import { recordPromoRedemption } from '@/lib/promo/promoCode';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -145,6 +146,7 @@ export async function applyPaymentOutcome(
             promoCodeId: true,
             subtotalSar: true,
             promoDiscountSar: true,
+            loyaltyPointsRedeemed: true,
             finalPriceSar: true,
           },
         });
@@ -153,6 +155,15 @@ export async function applyPaymentOutcome(
           where: { id: payment.subscriptionId },
           data: { paymentStatus: 'PAID', status: 'ACTIVE' },
         });
+
+        if (sub?.loyaltyPointsRedeemed && sub.loyaltyPointsRedeemed > 0) {
+          await redeemLoyaltyPointsOnPayment(tx, {
+            userId: payment.userId,
+            subscriptionId: sub.id,
+            paymentId: payment.id,
+            pointsToRedeem: sub.loyaltyPointsRedeemed,
+          });
+        }
 
         if (sub?.promoCodeId) {
           const subtotal = Number(sub.subtotalSar ?? sub.finalPriceSar);

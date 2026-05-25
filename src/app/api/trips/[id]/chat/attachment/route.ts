@@ -7,7 +7,7 @@ import { requireAuth } from '@/lib/session';
 import { isChatWindowOpen } from '@/lib/trips/tripLifecycle';
 import type { TripStatus } from '@/lib/trips/tripLifecycle';
 import { isUserChatBlocked } from '@/lib/trips/tripProximity';
-import { saveChatImage, validateImageUpload } from '@/lib/storage/localUpload';
+import { saveChatImage, validateImageUpload } from '@/lib/storage/storageService';
 
 function tripEndedAt(trip: { status: string; actualDropoffTime: Date | null; updatedAt: Date }): Date | null {
   if (trip.status === 'COMPLETED') return trip.actualDropoffTime;
@@ -79,7 +79,7 @@ export async function POST(
       return NextResponse.json({ data: null, error: { message: validation.error } }, { status: 400 });
     }
 
-    const attachmentUrl = await saveChatImage(id, buffer, validation.ext);
+    const attachmentUrl = await saveChatImage(id, buffer, validation.ext, mimeType);
 
     return NextResponse.json({ data: { attachmentUrl }, error: null }, { status: 201 });
   } catch {

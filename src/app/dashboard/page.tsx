@@ -204,7 +204,7 @@ export default function DashboardPage() {
           <ParentKpiGrid columns={5}>
             <ParentKpiCard label="Wallet balance" value={formatSarParent(wallet?.balanceSar)} icon={Wallet} />
             <ParentKpiCard label="Active riders" value={activeRiders.length} helper="Family members" icon={Users} color="#14A34A" />
-            <ParentKpiCard label="Loyalty points" value={loyaltyPoints} helper="Earn on subscriptions · redemption coming soon" icon={Gift} color="#7C3AED" />
+            <ParentKpiCard label="Loyalty points" value={loyaltyPoints} helper="Earn on subscriptions · redeem at checkout" icon={Gift} color="#7C3AED" />
             <ParentKpiCard label="Upcoming trips" value={trips.filter((t) => ['SCHEDULED', 'DRIVER_ASSIGNED'].includes(t.status)).length} helper="Scheduled" icon={CalendarDays} color="#1D4ED8" />
             <ParentKpiCard label="Active plan" value={activeSub?.package?.name ?? 'None'} helper={activeSub ? 'Subscribed' : 'No active plan'} icon={ClipboardList} />
           </ParentKpiGrid>

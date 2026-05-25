@@ -1,56 +1,79 @@
 # Production file storage
 
-FizzaWeb uploads (profile avatars, rider photos, safety evidence, driver documents, chat images, location photos) must **not** rely on `public/uploads/` in production.
+FizzaWeb uploads (profile avatars, rider photos, safety evidence, driver documents, vehicle photos, chat images, subscription location photos) use a storage abstraction in `src/lib/storage/storageService.ts`.
 
-## Local driver (development only)
+## Drivers
 
-| Setting | Value |
-|---------|--------|
-| `STORAGE_DRIVER` | `local` |
-| Path | `public/uploads/{category}/…` |
-| Served by | Next.js static files |
+| Driver | `STORAGE_DRIVER` | Use case |
+|--------|------------------|----------|
+| Local | `local` | Development — writes to `public/uploads/` |
+| Cloudflare R2 | `r2` | Production on Vercel |
 
-Works on a single machine. **Not suitable for Vercel/serverless** — the filesystem is ephemeral and not shared across instances.
+## Local (development)
 
-## Recommended production: Cloudflare R2
+```env
+STORAGE_DRIVER=local
+UPLOAD_MAX_SIZE_MB=5
+```
 
-R2 is S3-compatible, low cost, and works well with Vercel.
+Files are stored under `public/uploads/` with category folders:
 
-### Required environment variables (future implementation)
+- `avatars/{userId}/`
+- `riders/{userId}/`
+- `safety/{userId}/`
+- `driver-documents/{userId}/`
+- `subscription-locations/{userId}/pickup|dropoff/`
+- `chat/{tripId}/`
+
+**Not suitable for Vercel production** — ephemeral filesystem, not shared across instances.
+
+## Cloudflare R2 (production)
+
+### 1. Create R2 bucket
+
+1. Cloudflare dashboard → R2 → Create bucket (e.g. `fizza-uploads`).
+2. Enable public access via R2 custom domain or Cloudflare Workers/static site, or use a public bucket policy with a custom domain.
+
+### 2. Create API token / access keys
+
+1. R2 → Manage R2 API Tokens → Create API token with Object Read & Write on the bucket.
+2. Note: Account ID, Access Key ID, Secret Access Key.
+
+### 3. Configure public base URL
+
+Use a custom domain or R2.dev public URL, e.g. `https://uploads.yourdomain.com` (no trailing slash).
+
+### 4. Add env vars in Vercel
 
 ```env
 STORAGE_DRIVER=r2
-R2_ACCOUNT_ID=
-R2_ACCESS_KEY_ID=
-R2_SECRET_ACCESS_KEY=
+R2_ACCOUNT_ID=your_account_id
+R2_ACCESS_KEY_ID=your_access_key
+R2_SECRET_ACCESS_KEY=your_secret_key
 R2_BUCKET=fizza-uploads
 R2_PUBLIC_BASE_URL=https://uploads.yourdomain.com
 UPLOAD_MAX_SIZE_MB=5
 ```
 
-### Migration plan
+### 5. Test upload
 
-1. Implement `saveToR2()` in `src/lib/storage/r2Upload.ts` mirroring `localUpload.ts` APIs.
-2. Branch on `STORAGE_DRIVER` in `saveUserUpload`, `saveChatImage`, `saveLocationPhoto`.
-3. Return public URLs using `R2_PUBLIC_BASE_URL` + object key.
-4. One-time script: copy existing `public/uploads/**` objects to R2 and update DB URLs if any absolute paths were stored.
-5. Set `STORAGE_DRIVER=r2` in Vercel production env.
-6. Remove reliance on committed `public/uploads/` (add to `.gitignore` if not already).
+1. Deploy with R2 env configured.
+2. Upload a profile avatar or driver document in staging.
+3. Confirm the returned URL loads in the browser.
+4. If R2 env is missing while `STORAGE_DRIVER=r2`, API returns **503** with: `Production file storage is not configured.`
 
-## Security checklist (current local implementation)
+### 6. Rollback to local (dev only)
 
-- MIME type allow-list per category (server-side)
-- Max size enforced (`UPLOAD_MAX_SIZE_MB`)
-- No executable extensions (`.exe`, `.sh`, etc.)
-- UUID filenames — no user-controlled paths
-- URLs are `/uploads/users/{userId}/{category}/{uuid}.ext` — no path traversal
+Set `STORAGE_DRIVER=local` and remove R2 vars locally. Never use local storage in production.
 
-## Production blocker status
+## Security
 
-| Item | Status |
-|------|--------|
-| Local uploads for dev | ✅ Implemented |
-| R2/S3 driver | ❌ **Not implemented — P0 before production deploy** |
-| CDN public URL | ❌ Required with R2 |
+- Server-side MIME validation per category
+- Extension allow-list (no executables)
+- Max size (`UPLOAD_MAX_SIZE_MB`)
+- UUID filenames — no client-controlled paths
+- R2 secrets are server-only — never exposed to the browser
 
-Until R2 (or equivalent) ships, treat file upload as **dev/staging only**.
+## Migration from existing local files
+
+Optional one-time script: copy `public/uploads/**` to R2 and update stored URLs in the database if you have dev data to preserve.

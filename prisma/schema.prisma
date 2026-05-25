@@ -259,6 +259,9 @@ model UserSubscription {
   promoCodeId               String?             @map("promo_code_id")
   subtotalSar               Decimal?            @map("subtotal_sar") @db.Decimal(10, 2)
   promoDiscountSar          Decimal             @default(0.00) @map("promo_discount_sar") @db.Decimal(10, 2)
+  loyaltyPointsRedeemed   Int                 @default(0) @map("loyalty_points_redeemed")
+  loyaltyDiscountSar      Decimal             @default(0.00) @map("loyalty_discount_sar") @db.Decimal(10, 2)
+  distanceApproximate     Boolean             @default(false) @map("distance_approximate")
   createdAt              DateTime               @default(now()) @map("created_at")
   updatedAt              DateTime               @updatedAt @map("updated_at")
   user                   Profile                @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -532,13 +535,16 @@ model LoyaltyAccount {
 }
 
 model LoyaltyTransaction {
-  id        String         @id @default(uuid())
-  accountId String         @map("account_id")
-  points    Int
-  reason    String?
-  createdAt DateTime       @default(now()) @map("created_at")
-  account   LoyaltyAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  id             String         @id @default(uuid())
+  accountId      String         @map("account_id")
+  points         Int
+  reason         String?
+  paymentId      String?        @unique @map("payment_id")
+  subscriptionId String?        @map("subscription_id")
+  createdAt      DateTime       @default(now()) @map("created_at")
+  account        LoyaltyAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
 
+  @@index([subscriptionId])
   @@map("loyalty_transactions")
 }
 
@@ -686,6 +692,8 @@ model DriverApplication {
   driverLicenseUrl       String?                 @map("driver_license_url") @db.Text
   vehicleRegistrationUrl String?                 @map("vehicle_registration_url") @db.Text
   nationalIdUrl          String?                 @map("national_id_url") @db.Text
+  vehicleInsuranceUrl    String?                 @map("vehicle_insurance_url") @db.Text
+  vehiclePhotoUrl        String?                 @map("vehicle_photo_url") @db.Text
   driverNotes            String?                 @map("driver_notes") @db.Text
   city                   String
   serviceArea            String                  @map("service_area")

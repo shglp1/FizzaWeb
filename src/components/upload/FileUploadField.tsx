@@ -8,7 +8,8 @@ export type UploadCategory =
   | 'profile-avatar'
   | 'rider-avatar'
   | 'safety-attachment'
-  | 'driver-document';
+  | 'driver-document'
+  | 'driver-vehicle-photo';
 
 const CATEGORY_META: Record<
   UploadCategory,
@@ -36,6 +37,12 @@ const CATEGORY_META: Record<
     label: 'Document',
     accept: 'image/jpeg,image/png,image/webp,application/pdf',
     hint: 'License, ID or insurance · JPEG, PNG, WebP or PDF · max 5 MB',
+  },
+  'driver-vehicle-photo': {
+    label: 'Vehicle photo',
+    accept: 'image/jpeg,image/png,image/webp',
+    hint: 'Clear photo of your vehicle · JPEG, PNG or WebP · max 5 MB',
+    imagePreview: true,
   },
 };
 

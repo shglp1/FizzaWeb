@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma';
 import { requireAuth } from '@/lib/session';
 import { paySubscriptionSchema } from '@/lib/validations/wallet';
 import { awardLoyaltyPointsForPayment } from '@/lib/loyalty/awardLoyaltyPoints';
+import { redeemLoyaltyPointsOnPayment } from '@/lib/loyalty/redeemLoyaltyPoints';
 import { recordPromoRedemption } from '@/lib/promo/promoCode';
 
 export async function POST(request: NextRequest) {
@@ -43,6 +44,7 @@ export async function POST(request: NextRequest) {
         subtotalSar: true,
         promoDiscountSar: true,
         promoCodeId: true,
+        loyaltyPointsRedeemed: true,
       },
     });
 
@@ -151,6 +153,15 @@ export async function POST(request: NextRequest) {
           subtotalSar: subtotal,
           discountSar: discount,
           finalSar: total,
+        });
+      }
+
+      if (subscription.loyaltyPointsRedeemed && subscription.loyaltyPointsRedeemed > 0) {
+        await redeemLoyaltyPointsOnPayment(tx, {
+          userId,
+          subscriptionId,
+          paymentId,
+          pointsToRedeem: subscription.loyaltyPointsRedeemed,
         });
       }
 

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/session';
-import { saveLocationPhoto, validateImageUpload } from '@/lib/storage/localUpload';
+import { saveLocationPhoto, validateImageUpload, StorageNotConfiguredError } from '@/lib/storage/storageService';
 
 export async function POST(req: Request) {
   try {
@@ -23,9 +23,12 @@ export async function POST(req: Request) {
       return NextResponse.json({ data: null, error: { message: validated.error } }, { status: 400 });
     }
 
-    const url = await saveLocationPhoto(auth.userId, kind, buffer, validated.ext);
+    const url = await saveLocationPhoto(auth.userId, kind, buffer, validated.ext, file.type);
     return NextResponse.json({ data: { url }, error: null }, { status: 201 });
-  } catch {
+  } catch (e) {
+    if (e instanceof StorageNotConfiguredError) {
+      return NextResponse.json({ data: null, error: { message: e.message } }, { status: 503 });
+    }
     return NextResponse.json({ data: null, error: { message: 'Upload failed' } }, { status: 500 });
   }
 }

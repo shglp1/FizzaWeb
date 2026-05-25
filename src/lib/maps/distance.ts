@@ -11,7 +11,8 @@
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-export type DistanceProvider = 'OPENROUTESERVICE' | 'GOOGLE_MAPS' | 'MAPBOX';
+export type DistanceProvider = 'OPENROUTESERVICE' | 'OSRM_FREE' | 'HAVERSINE_ESTIMATE' | 'GOOGLE_MAPS' | 'MAPBOX';
+export type DistanceProviderMode = 'OPENROUTESERVICE' | 'OSRM' | 'AUTO';
 export type TripDirection = 'ONE_WAY' | 'ROUND_TRIP';
 
 export interface Coordinates {
@@ -65,9 +66,29 @@ export class DistanceError extends Error {
 
 // ─── Config helpers ───────────────────────────────────────────────────────────
 
+function getProviderMode(): DistanceProviderMode {
+  const p = (process.env.DISTANCE_PROVIDER ?? 'AUTO').toUpperCase();
+  if (p === 'OPENROUTESERVICE' || p === 'OSRM' || p === 'AUTO') {
+    return p as DistanceProviderMode;
+  }
+  return 'AUTO';
+}
+
+function getFallbackRoadFactor(): number {
+  const n = Number(process.env.DISTANCE_FALLBACK_ROAD_FACTOR ?? '1.35');
+  return Number.isFinite(n) && n > 0 ? n : 1.35;
+}
+
+function getOsrmBaseUrl(): string {
+  return (process.env.OSRM_BASE_URL ?? 'https://router.project-osrm.org').replace(/\/$/, '');
+}
+
 function getProvider(): DistanceProvider {
-  const p = (process.env.DISTANCE_PROVIDER ?? 'OPENROUTESERVICE').toUpperCase();
-  if (p === 'OPENROUTESERVICE' || p === 'GOOGLE_MAPS' || p === 'MAPBOX') {
+  const p = (process.env.DISTANCE_PROVIDER ?? 'AUTO').toUpperCase();
+  if (p === 'OPENROUTESERVICE' || p === 'OSRM' || p === 'AUTO') {
+    return 'OPENROUTESERVICE';
+  }
+  if (p === 'GOOGLE_MAPS' || p === 'MAPBOX') {
     return p as DistanceProvider;
   }
   return 'OPENROUTESERVICE';
@@ -93,8 +114,79 @@ export function isDistanceConfigured(): boolean {
 
 const ORS_BASE = 'https://api.openrouteservice.org';
 const NOMINATIM_BASE = 'https://nominatim.openstreetmap.org';
-/** Urban road distance ≈ straight-line × this factor (Saudi cities). */
-const ROAD_DISTANCE_FACTOR = 1.35;
+
+/** Urban road distance ≈ straight-line × configured factor when routing unavailable. */
+function getRoadDistanceFactor(): number {
+  return getFallbackRoadFactor();
+}
+
+let lastOsrmCallAt = 0;
+const OSRM_MIN_INTERVAL_MS = 1000;
+
+async function rateLimitOsrm(): Promise<void> {
+  const now = Date.now();
+  const wait = OSRM_MIN_INTERVAL_MS - (now - lastOsrmCallAt);
+  if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+  lastOsrmCallAt = Date.now();
+}
+
+export function approximateRoadKm(pickup: Coordinates, dropoff: Coordinates): number {
+  return round2(haversineKm(pickup, dropoff) * getRoadDistanceFactor());
+}
+
+async function routeOsrm(
+  pickup: { lat: number; lng: number; label: string },
+  dropoff: { lat: number; lng: number; label: string },
+): Promise<RouteDistanceResult> {
+  await rateLimitOsrm();
+  const base = getOsrmBaseUrl();
+  const path = `${pickup.lng},${pickup.lat};${dropoff.lng},${dropoff.lat}`;
+  const url = `${base}/route/v1/driving/${path}?overview=false`;
+
+  const res = await fetch(url, {
+    headers: { Accept: 'application/json' },
+    cache: 'no-store',
+    signal: AbortSignal.timeout(8000),
+  });
+  if (!res.ok) {
+    throw new DistanceError('OSRM routing failed.', 'ROUTE_FAILED');
+  }
+
+  const json = (await res.json()) as { routes?: { distance?: number }[] };
+  const distanceMeters = json.routes?.[0]?.distance;
+  if (typeof distanceMeters !== 'number' || distanceMeters <= 0) {
+    throw new DistanceError('OSRM returned no route.', 'ROUTE_FAILED');
+  }
+
+  return {
+    oneWayDistanceKm: round2(distanceMeters / 1000),
+    providerUsed: 'OSRM_FREE',
+    approximateRoute: false,
+    pickupCoordinates: { lat: pickup.lat, lng: pickup.lng },
+    dropoffCoordinates: { lat: dropoff.lat, lng: dropoff.lng },
+    normalizedPickupLabel: pickup.label,
+    normalizedDropoffLabel: dropoff.label,
+  };
+}
+
+function haversineRouteResult(
+  pickup: { lat: number; lng: number; label: string },
+  dropoff: { lat: number; lng: number; label: string },
+): RouteDistanceResult {
+  const oneWayDistanceKm = approximateRoadKm(pickup, dropoff);
+  return {
+    oneWayDistanceKm,
+    providerUsed: 'HAVERSINE_ESTIMATE',
+    approximateRoute: true,
+    pickupCoordinates: { lat: pickup.lat, lng: pickup.lng },
+    dropoffCoordinates: { lat: dropoff.lat, lng: dropoff.lng },
+    normalizedPickupLabel: pickup.label,
+    normalizedDropoffLabel: dropoff.label,
+  };
+}
+
+export const APPROXIMATE_DISTANCE_WARNING =
+  'Approximate distance. Final price may be reviewed by admin.';
 
 export function haversineKm(a: Coordinates, b: Coordinates): number {
   const toRad = (d: number) => (d * Math.PI) / 180;
@@ -108,8 +200,46 @@ export function haversineKm(a: Coordinates, b: Coordinates): number {
   return 6371 * 2 * Math.asin(Math.sqrt(h));
 }
 
-export function approximateRoadKm(pickup: Coordinates, dropoff: Coordinates): number {
-  return round2(haversineKm(pickup, dropoff) * ROAD_DISTANCE_FACTOR);
+async function resolveRouteFromCoords(
+  pickup: { lat: number; lng: number; label: string },
+  dropoff: { lat: number; lng: number; label: string },
+): Promise<RouteDistanceResult> {
+  const mode = getProviderMode();
+
+  if (mode === 'OPENROUTESERVICE' || mode === 'AUTO') {
+    if (isDistanceConfigured()) {
+      try {
+        const apiKey = getOrsApiKey();
+        return await _orsDirections(apiKey, pickup, dropoff);
+      } catch {
+        if (mode === 'OPENROUTESERVICE') throw new DistanceError('Routing service unavailable.', 'ROUTE_FAILED');
+      }
+    } else if (mode === 'OPENROUTESERVICE') {
+      throw new DistanceError(
+        'Automatic distance calculation is not configured. Please contact the administrator.',
+        'NOT_CONFIGURED',
+      );
+    }
+  }
+
+  if (mode === 'OSRM' || mode === 'AUTO') {
+    try {
+      return await routeOsrm(pickup, dropoff);
+    } catch {
+      if (mode === 'OSRM') {
+        // fall through to haversine
+      }
+    }
+  }
+
+  const result = haversineRouteResult(pickup, dropoff);
+  if (result.oneWayDistanceKm <= 0) {
+    throw new DistanceError(
+      'We could not calculate a route between these locations. Please select different pickup/drop-off points.',
+      'ROUTE_FAILED',
+    );
+  }
+  return result;
 }
 
 async function searchLocationsNominatim(
@@ -297,40 +427,14 @@ export async function calculateRouteDistanceKmFromCoords(
   dropoff: { lat: number; lng: number; label: string },
 ): Promise<RouteDistanceResult> {
   const provider = getProvider();
-
   if (provider === 'GOOGLE_MAPS' || provider === 'MAPBOX') {
     throw new DistanceError(
-      `Provider ${provider} is not implemented yet. Please configure OPENROUTESERVICE.`,
+      `Provider ${provider} is not implemented yet. Please configure OPENROUTESERVICE or OSRM.`,
       'PROVIDER_NOT_IMPLEMENTED',
     );
   }
 
-  if (isDistanceConfigured()) {
-    try {
-      const apiKey = getOrsApiKey();
-      return await _orsDirections(apiKey, pickup, dropoff);
-    } catch {
-      // fall through to approximate distance
-    }
-  }
-
-  const oneWayDistanceKm = approximateRoadKm(pickup, dropoff);
-  if (oneWayDistanceKm <= 0) {
-    throw new DistanceError(
-      'We could not calculate a route between these locations. Please select different pickup/drop-off points.',
-      'ROUTE_FAILED',
-    );
-  }
-
-  return {
-    oneWayDistanceKm,
-    providerUsed: 'OPENROUTESERVICE',
-    approximateRoute: true,
-    pickupCoordinates: { lat: pickup.lat, lng: pickup.lng },
-    dropoffCoordinates: { lat: dropoff.lat, lng: dropoff.lng },
-    normalizedPickupLabel: pickup.label,
-    normalizedDropoffLabel: dropoff.label,
-  };
+  return resolveRouteFromCoords(pickup, dropoff);
 }
 
 /**

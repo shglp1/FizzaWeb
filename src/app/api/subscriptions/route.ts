@@ -11,6 +11,7 @@ import {
   DistanceError,
 } from '@/lib/maps/distance';
 import { validatePromoCode, computePromoDiscount } from '@/lib/promo/promoCode';
+import { resolveLoyaltyRedemptionForQuote } from '@/lib/loyalty/resolveLoyaltyQuote';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -158,6 +159,7 @@ export async function POST(req: Request) {
       pickupPhotoUrl,
       dropoffPhotoUrl,
       promoCode,
+      loyaltyPointsToRedeem,
     } = parsed.data;
 
     // Normalise location inputs — accept both coord-objects and plain strings
@@ -230,22 +232,22 @@ export async function POST(req: Request) {
     let normalizedPickupLabel: string | null = null;
     let normalizedDropoffLabel: string | null = null;
 
+    let distanceApproximate = false;
     try {
       let routeResult;
       if (pickup.hasCoords && dropoff.hasCoords) {
-        // New flow: user selected precise locations via LocationPicker
         routeResult = await calculateRouteDistanceKmFromCoords(
           { lat: pickup.lat!, lng: pickup.lng!, label: pickup.label },
           { lat: dropoff.lat!, lng: dropoff.lng!, label: dropoff.label },
         );
       } else {
-        // Legacy flow: geocode plain text addresses
         routeResult = await calculateRouteDistanceKm(pickup.label, dropoff.label);
       }
 
       oneWayDistanceKm = routeResult.oneWayDistanceKm;
       chargeableDistanceKm = calculateChargeableDistanceKm(oneWayDistanceKm, tripDirection);
       distanceProvider = routeResult.providerUsed;
+      distanceApproximate = routeResult.approximateRoute ?? false;
       pickupLat = routeResult.pickupCoordinates.lat;
       pickupLng = routeResult.pickupCoordinates.lng;
       dropoffLat = routeResult.dropoffCoordinates.lat;
@@ -292,7 +294,6 @@ export async function POST(req: Request) {
     let promoCodeId: string | null = null;
     let promoDiscountSar = 0;
     const subtotalSar = pricing.finalPriceSar;
-    let finalPriceSar = subtotalSar;
     if (promoCode?.trim()) {
       const promoResult = await validatePromoCode(promoCode, auth.userId);
       if (!promoResult.ok) {
@@ -300,8 +301,21 @@ export async function POST(req: Request) {
       }
       promoCodeId = promoResult.promo.id;
       promoDiscountSar = computePromoDiscount(subtotalSar, promoResult.promo.discountPercent);
-      finalPriceSar = round2(Math.max(0, subtotalSar - promoDiscountSar));
     }
+
+    const loyaltyResult = await resolveLoyaltyRedemptionForQuote({
+      userId: auth.userId,
+      subtotalSar,
+      promoDiscountSar,
+      pointsToRedeem: loyaltyPointsToRedeem ?? 0,
+    });
+    if (!loyaltyResult.ok) {
+      return NextResponse.json({ data: null, error: { message: loyaltyResult.message } }, { status: 400 });
+    }
+
+    const loyaltyPointsRedeemed = loyaltyResult.pointsUsed;
+    const loyaltyDiscountSar = loyaltyResult.loyaltyDiscountSar;
+    const finalPriceSar = loyaltyResult.finalPriceSar;
 
     // Primary rider = first in list (backward compat riderId field)
     const primaryRiderId = resolvedRiderIds[0] ?? null;
@@ -331,6 +345,7 @@ export async function POST(req: Request) {
           oneWayDistanceKm,
           chargeableDistanceKm: totalChargeableDistanceKm, // total across all service days
           distanceProvider,
+          distanceApproximate,
           pickupLat,
           pickupLng,
           dropoffLat,
@@ -352,6 +367,8 @@ export async function POST(req: Request) {
           subtotalSar,
           promoCodeId,
           promoDiscountSar,
+          loyaltyPointsRedeemed,
+          loyaltyDiscountSar,
           finalPriceSar,
           schedules: {
             create: weekdays.map((day) => ({
@@ -386,7 +403,9 @@ export async function POST(req: Request) {
             tripDirection === 'ROUND_TRIP' ? 'Round-trip' : 'One-way'
           }, ${serviceDays.actualServiceDays} service days (${totalChargeableDistanceKm} km total).${
             promoDiscountSar > 0 ? ` Promo discount: SAR ${promoDiscountSar.toFixed(2)}.` : ''
-          } Final price: SAR ${finalPriceSar.toFixed(2)}.`,
+          } Final price: SAR ${finalPriceSar.toFixed(2)}.${
+            loyaltyDiscountSar > 0 ? ` Loyalty discount: SAR ${loyaltyDiscountSar.toFixed(2)} (${loyaltyPointsRedeemed} points).` : ''
+          }`,
           type: 'SUBSCRIPTION',
         },
       });
