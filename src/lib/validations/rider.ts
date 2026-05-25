@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { uploadedOrHttpUrl } from '@/lib/validations/upload';
+import { uploadedOrHttpUrl } from './upload.ts';
 
 const optionalText = z.string().max(2000).optional().nullable();
 const optionalShort = z.string().max(200).optional().nullable();

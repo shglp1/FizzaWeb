@@ -5,10 +5,14 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 
-const ALLOWED_MIME: Record<string, string> = {
+const IMAGE_MIME: Record<string, string> = {
   'image/jpeg': '.jpg',
   'image/png': '.png',
   'image/webp': '.webp',
+};
+
+const ALLOWED_MIME: Record<string, string> = {
+  ...IMAGE_MIME,
   'application/pdf': '.pdf',
 };
 
@@ -34,7 +38,7 @@ export function validateImageUpload(
   mimeType: string,
   sizeBytes: number,
 ): { ok: true; ext: string } | { ok: false; error: string } {
-  const ext = ALLOWED_MIME[mimeType];
+  const ext = IMAGE_MIME[mimeType];
   if (!ext) {
     return { ok: false, error: 'Only JPEG, PNG, and WebP images are allowed' };
   }

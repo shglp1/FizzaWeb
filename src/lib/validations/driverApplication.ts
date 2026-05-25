@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { uploadedOrHttpUrl } from '@/lib/validations/upload';
+import { uploadedOrHttpUrl } from './upload.ts';
 
 const VEHICLE_TYPES = ['ECONOMY', 'COMFORT', 'FAMILY', 'VAN', 'BUS', 'PREMIUM'] as const;
 

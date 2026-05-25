@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { uploadedOrHttpUrl } from '@/lib/validations/upload';
+import { uploadedOrHttpUrl } from './upload.ts';
 
 export const SAFETY_CATEGORIES = [
   'UNSAFE_DRIVING',
