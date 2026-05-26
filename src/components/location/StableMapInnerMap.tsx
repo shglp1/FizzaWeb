@@ -2,12 +2,15 @@
 
 import { useEffect, useRef } from 'react';
 import { buildDivIconHtml } from '@/lib/location/stableMapPickerHelpers';
+import { getMapTileLayer, type MapTileLayerId } from '@/lib/maps/mapTiles';
 
 type StableMapInnerMapProps = {
   lat: number;
   lng: number;
   markerColor: string;
   active: boolean;
+  zoom: number;
+  tileLayerId: MapTileLayerId;
   onMove: (lat: number, lng: number) => void;
 };
 
@@ -16,16 +19,24 @@ export default function StableMapInnerMap({
   lng,
   markerColor,
   active,
+  zoom,
+  tileLayerId,
   onMove,
 }: StableMapInnerMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<import('leaflet').Map | null>(null);
   const markerRef = useRef<import('leaflet').Marker | null>(null);
+  const tileLayerRef = useRef<import('leaflet').TileLayer | null>(null);
   const onMoveRef = useRef(onMove);
+  const tileLayerIdRef = useRef(tileLayerId);
 
   useEffect(() => {
     onMoveRef.current = onMove;
   }, [onMove]);
+
+  useEffect(() => {
+    tileLayerIdRef.current = tileLayerId;
+  }, [tileLayerId]);
 
   useEffect(() => {
     if (!active || !containerRef.current) return;
@@ -39,18 +50,23 @@ export default function StableMapInnerMap({
         mapRef.current.remove();
         mapRef.current = null;
         markerRef.current = null;
+        tileLayerRef.current = null;
       }
 
+      const tileConfig = getMapTileLayer(tileLayerIdRef.current);
       const map = L.map(containerRef.current, {
         center: [lat, lng],
-        zoom: 15,
+        zoom,
+        minZoom: tileConfig.minZoom,
+        maxZoom: tileConfig.maxZoom,
         zoomControl: true,
         attributionControl: true,
       });
 
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-        maxZoom: 19,
+      tileLayerRef.current = L.tileLayer(tileConfig.url, {
+        attribution: tileConfig.attribution,
+        maxZoom: tileConfig.maxZoom,
+        minZoom: tileConfig.minZoom,
       }).addTo(map);
 
       const icon = L.divIcon({
@@ -87,6 +103,7 @@ export default function StableMapInnerMap({
         mapRef.current.remove();
         mapRef.current = null;
         markerRef.current = null;
+        tileLayerRef.current = null;
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -95,8 +112,31 @@ export default function StableMapInnerMap({
   useEffect(() => {
     if (!mapRef.current || !markerRef.current) return;
     markerRef.current.setLatLng([lat, lng]);
-    mapRef.current.setView([lat, lng], mapRef.current.getZoom(), { animate: false });
+    const currentZoom = mapRef.current.getZoom();
+    mapRef.current.setView([lat, lng], currentZoom, { animate: false });
   }, [lat, lng]);
+
+  useEffect(() => {
+    if (!mapRef.current) return;
+    mapRef.current.setZoom(zoom, { animate: false });
+  }, [zoom]);
+
+  useEffect(() => {
+    if (!mapRef.current) return;
+
+    void import('leaflet').then((L) => {
+      if (!mapRef.current) return;
+      const tileConfig = getMapTileLayer(tileLayerId);
+      if (tileLayerRef.current) {
+        mapRef.current.removeLayer(tileLayerRef.current);
+      }
+      tileLayerRef.current = L.tileLayer(tileConfig.url, {
+        attribution: tileConfig.attribution,
+        maxZoom: tileConfig.maxZoom,
+        minZoom: tileConfig.minZoom,
+      }).addTo(mapRef.current);
+    });
+  }, [tileLayerId]);
 
   useEffect(() => {
     if (!active || !mapRef.current) return;

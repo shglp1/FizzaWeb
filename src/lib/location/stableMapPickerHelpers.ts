@@ -21,14 +21,22 @@ export type StableMapLocationValue = {
 
 export type GeocodeSuggestion = {
   label: string;
+  title?: string;
+  subtitle?: string;
   latitude: number;
   longitude: number;
   provider: string;
   providerPlaceId?: string;
+  neighborhood?: string;
+  city?: string;
+  region?: string;
+  country?: string;
 };
 
-/** Default map centre (Riyadh) when search/geolocation unavailable. */
+/** Default map centre (Riyadh) — Saudi Arabia focus when no user location. */
 export const DEFAULT_MAP_CENTER = { lat: 24.7136, lng: 46.6753 };
+export const DEFAULT_MAP_ZOOM_COUNTRY = 6;
+export const DEFAULT_MAP_ZOOM_PLACE = 16;
 
 const COPY = {
   en: {
@@ -46,7 +54,16 @@ const COPY = {
     confirmed: 'Location confirmed',
     editLabel: 'Edit location label',
     manualPin: 'Place pin on map manually',
-    searchHint: 'Type at least 3 characters to search.',
+    searchHint: 'Search by district, school, mosque, university, landmark, or street.',
+    searchHelper:
+      'Search by district, school, mosque, university, landmark, or street.',
+    selectedPlace: 'Selected place',
+    resolvingPlace: 'Identifying place name…',
+    reverseGeocodeFailed:
+      'We could not identify the place name. You can edit the label manually.',
+    mapLayerStandard: 'Standard',
+    mapLayerDetailed: 'Detailed',
+    providerSa: 'SA',
     refineHint: 'Drag the marker or tap the map to refine the exact spot.',
     searchUnavailable: 'Search is unavailable. You can still move the pin manually.',
     noResults: 'No locations found.',
@@ -71,6 +88,15 @@ const COPY = {
     editLabel: 'تعديل وصف الموقع',
     manualPin: 'تحديد الدبوس على الخريطة يدوياً',
     searchHint: 'اكتب 3 أحرف على الأقل للبحث.',
+    searchHelper:
+      'ابحث باسم الحي، المدرسة، المسجد، الجامعة، المعلم، أو الشارع.',
+    selectedPlace: 'المكان المحدد',
+    resolvingPlace: 'جاري تحديد اسم المكان…',
+    reverseGeocodeFailed:
+      'تعذر تحديد اسم المكان. يمكنك تعديل الوصف يدوياً.',
+    mapLayerStandard: 'عادي',
+    mapLayerDetailed: 'تفصيلي',
+    providerSa: 'SA',
     refineHint: 'اسحب الدبوس أو انقر على الخريطة لتحديد الموقع بدقة.',
     searchUnavailable: 'البحث غير متاح. يمكنك تحريك الدبوس يدوياً.',
     noResults: 'لم يتم العثور على مواقع.',
@@ -141,4 +167,32 @@ export function fromSelectedLocation(
     lng: v.longitude,
     photoUrl: photoUrl ?? null,
   };
+}
+
+export function suggestionDisplayTitle(s: GeocodeSuggestion): string {
+  return (s.title?.trim() || s.label.trim());
+}
+
+export function suggestionDisplaySubtitle(s: GeocodeSuggestion): string {
+  if (s.subtitle?.trim()) return s.subtitle.trim();
+  const parts = [s.neighborhood, s.city, s.region, s.country ?? 'Saudi Arabia'].filter(Boolean);
+  return parts.slice(0, 3).join(' · ') || 'Saudi Arabia';
+}
+
+export function providerBadgeLabel(provider: string): string {
+  if (provider === 'openrouteservice' || provider === 'ORS') return 'ORS';
+  return 'OSM';
+}
+
+export function confirmedLabelFromReverse(result: {
+  label: string;
+  landmark?: string | null;
+  road?: string | null;
+  neighborhood?: string | null;
+  city?: string | null;
+}): string {
+  const label = result.label.trim();
+  if (label.length >= 3) return label;
+  const parts = [result.landmark, result.road, result.neighborhood, result.city].filter(Boolean);
+  return parts.join(', ').trim() || label;
 }

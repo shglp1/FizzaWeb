@@ -17,8 +17,10 @@ const isProd = process.env.NODE_ENV === 'production';
 //   - Loads tiles from *.mapbox.com  →  img-src / connect-src
 //
 // Leaflet + OpenStreetMap (StableMapPicker):
-//   - Tile PNGs from {a,b,c}.tile.openstreetmap.org  →  img-src
-//   - Geocode/route calls stay server-side via /api/maps/* (connect-src 'self')
+//   - Standard tiles: {a,b,c}.tile.openstreetmap.org
+//   - HOT/detailed tiles: {a,b,c}.tile.openstreetmap.fr  →  img-src
+//   - Geocode/reverse/route stay server-side via /api/maps/* (connect-src 'self')
+//   - Optional NEXT_PUBLIC_MAP_TILE_URL / NEXT_PUBLIC_MAP_ATTRIBUTION for custom tiles
 //
 // MyFatoorah:
 //   - Payment redirect is a full-page navigation (no XHR), so it only needs
@@ -41,6 +43,10 @@ const cspDirectives = [
     'https://b.tile.openstreetmap.org',
     'https://c.tile.openstreetmap.org',
     'https://*.openstreetmap.org',
+    'https://*.tile.openstreetmap.fr',
+    'https://a.tile.openstreetmap.fr',
+    'https://b.tile.openstreetmap.fr',
+    'https://c.tile.openstreetmap.fr',
   ].join(' '),
   [
     "connect-src 'self'",

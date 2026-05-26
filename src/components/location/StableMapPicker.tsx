@@ -7,15 +7,22 @@ import { buildGoogleMapsPlaceUrl } from '@/lib/maps/googleMapsLink';
 import { mapGeoErrorMessage } from '@/lib/ui/mapLocation';
 import {
   DEFAULT_MAP_CENTER,
+  DEFAULT_MAP_ZOOM_COUNTRY,
+  DEFAULT_MAP_ZOOM_PLACE,
+  confirmedLabelFromReverse,
   mapPickerCopy,
   mapPickerMarkerColor,
   mapPickerSectionTitle,
+  providerBadgeLabel,
   sanitizeManualLabel,
+  suggestionDisplaySubtitle,
+  suggestionDisplayTitle,
   type GeocodeSuggestion,
   type MapPickerLanguage,
   type MapPickerMode,
   type StableMapLocationValue,
 } from '@/lib/location/stableMapPickerHelpers';
+import type { MapTileLayerId } from '@/lib/maps/mapTiles';
 
 const StableMapInnerMap = dynamic(() => import('./StableMapInnerMap'), { ssr: false });
 
@@ -39,6 +46,10 @@ type DraftState = {
   lng: number;
   fromDevice: boolean;
   photoUrl?: string | null;
+  neighborhood?: string | null;
+  city?: string | null;
+  reverseLoading?: boolean;
+  reverseFailed?: boolean;
 };
 
 export function StableMapPicker({
@@ -68,8 +79,13 @@ export function StableMapPicker({
   const [geoMessage, setGeoMessage] = useState('');
   const [photoUploading, setPhotoUploading] = useState(false);
   const [editingLabel, setEditingLabel] = useState(false);
+  const [mapZoom, setMapZoom] = useState(DEFAULT_MAP_ZOOM_COUNTRY);
+  const [tileLayerId, setTileLayerId] = useState<MapTileLayerId>('standard');
+  const [mapFocus, setMapFocus] = useState(DEFAULT_MAP_CENTER);
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reverseDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const labelEditedRef = useRef(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -81,8 +97,73 @@ export function StableMapPicker({
       setSearchError('');
       setGeoMessage('');
       setEditingLabel(false);
+      setMapZoom(DEFAULT_MAP_ZOOM_COUNTRY);
+      labelEditedRef.current = false;
     }
   }, [expanded]);
+
+  const reverseGeocode = useCallback(
+    async (lat: number, lng: number) => {
+      setDraft((d) => (d ? { ...d, reverseLoading: true, reverseFailed: false } : d));
+      try {
+        const res = await fetch(
+          `/api/maps/reverse?lat=${encodeURIComponent(String(lat))}&lng=${encodeURIComponent(String(lng))}&language=${language}`,
+        );
+        const json = (await res.json()) as {
+          data?: {
+            label: string;
+            neighborhood?: string;
+            city?: string;
+            landmark?: string;
+            road?: string;
+          };
+        };
+        if (json.data && !labelEditedRef.current) {
+          const label = confirmedLabelFromReverse(json.data);
+          setDraft((d) =>
+            d
+              ? {
+                  ...d,
+                  label,
+                  neighborhood: json.data!.neighborhood ?? null,
+                  city: json.data!.city ?? null,
+                  reverseLoading: false,
+                  reverseFailed: false,
+                }
+              : d,
+          );
+        } else if (!json.data) {
+          setDraft((d) =>
+            d ? { ...d, reverseLoading: false, reverseFailed: true } : d,
+          );
+        } else {
+          setDraft((d) => (d ? { ...d, reverseLoading: false } : d));
+        }
+      } catch {
+        setDraft((d) =>
+          d ? { ...d, reverseLoading: false, reverseFailed: true } : d,
+        );
+      }
+    },
+    [language],
+  );
+
+  const scheduleReverseGeocode = useCallback(
+    (lat: number, lng: number) => {
+      if (reverseDebounceRef.current) clearTimeout(reverseDebounceRef.current);
+      reverseDebounceRef.current = setTimeout(() => void reverseGeocode(lat, lng), 450);
+    },
+    [reverseGeocode],
+  );
+
+  const handleMapMove = useCallback(
+    (lat: number, lng: number) => {
+      setMapFocus({ lat, lng });
+      setDraft((d) => (d ? { ...d, lat, lng } : d));
+      scheduleReverseGeocode(lat, lng);
+    },
+    [scheduleReverseGeocode],
+  );
 
   useEffect(() => {
     function onDown(e: MouseEvent) {
@@ -105,8 +186,12 @@ export function StableMapPicker({
       setSearching(true);
       setSearchError('');
       try {
+        const focus =
+          mapFocus.lat != null && mapFocus.lng != null
+            ? `&lat=${encodeURIComponent(String(mapFocus.lat))}&lng=${encodeURIComponent(String(mapFocus.lng))}`
+            : '';
         const res = await fetch(
-          `/api/maps/geocode?q=${encodeURIComponent(q.trim())}&lang=${language}`,
+          `/api/maps/geocode?q=${encodeURIComponent(q.trim())}&lang=${language}${focus}`,
         );
         const json = (await res.json()) as {
           data?: GeocodeSuggestion[];
@@ -129,10 +214,13 @@ export function StableMapPicker({
         setSearching(false);
       }
     },
-    [language, copy.searchUnavailable],
+    [language, copy.searchUnavailable, mapFocus.lat, mapFocus.lng],
   );
 
   const startManualDraft = () => {
+    labelEditedRef.current = false;
+    setMapZoom(DEFAULT_MAP_ZOOM_COUNTRY);
+    setMapFocus(DEFAULT_MAP_CENTER);
     setDraft({
       label: mode === 'pickup' ? copy.pickupTitle : copy.dropoffTitle,
       lat: DEFAULT_MAP_CENTER.lat,
@@ -141,15 +229,24 @@ export function StableMapPicker({
       photoUrl: value?.photoUrl ?? null,
     });
     setSearchError('');
+    scheduleReverseGeocode(DEFAULT_MAP_CENTER.lat, DEFAULT_MAP_CENTER.lng);
   };
 
   const handleSelectSuggestion = (s: GeocodeSuggestion) => {
+    const title = suggestionDisplayTitle(s);
+    labelEditedRef.current = false;
+    setMapZoom(DEFAULT_MAP_ZOOM_PLACE);
+    setMapFocus({ lat: s.latitude, lng: s.longitude });
     setDraft({
-      label: s.label,
+      label: title,
       lat: s.latitude,
       lng: s.longitude,
       fromDevice: false,
       photoUrl: value?.photoUrl ?? null,
+      neighborhood: s.neighborhood ?? null,
+      city: s.city ?? null,
+      reverseLoading: false,
+      reverseFailed: false,
     });
     setQuery('');
     setSuggestions([]);
@@ -165,14 +262,21 @@ export function StableMapPicker({
     setGeoMessage('');
     navigator.geolocation.getCurrentPosition(
       (pos) => {
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        labelEditedRef.current = false;
+        setMapZoom(DEFAULT_MAP_ZOOM_PLACE);
+        setMapFocus({ lat, lng });
         setDraft({
           label: language === 'ar' ? 'موقعي الحالي' : 'My current location',
-          lat: pos.coords.latitude,
-          lng: pos.coords.longitude,
+          lat,
+          lng,
           fromDevice: true,
           photoUrl: value?.photoUrl ?? null,
+          reverseLoading: true,
         });
         setLocating(false);
+        scheduleReverseGeocode(lat, lng);
       },
       (err) => {
         setLocating(false);
@@ -402,11 +506,24 @@ export function StableMapPicker({
                           e.preventDefault();
                           handleSelectSuggestion(s);
                         }}
-                        className={`w-full px-4 py-3 text-sm text-left hover:bg-emerald-50 break-words ${
+                        className={`w-full px-4 py-3 text-sm hover:bg-emerald-50 break-words ${
                           i === activeIndex ? 'bg-emerald-50' : ''
                         } ${isRtl ? 'text-right' : 'text-left'}`}
                       >
-                        {s.label}
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0 flex-1">
+                            <p className="font-medium text-gray-900">{suggestionDisplayTitle(s)}</p>
+                            <p className="text-xs text-gray-500 mt-0.5">{suggestionDisplaySubtitle(s)}</p>
+                          </div>
+                          <span className="shrink-0 inline-flex items-center gap-1">
+                            <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-800">
+                              {copy.providerSa}
+                            </span>
+                            <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-600">
+                              {providerBadgeLabel(s.provider)}
+                            </span>
+                          </span>
+                        </div>
                       </button>
                     </li>
                   ))
@@ -414,7 +531,8 @@ export function StableMapPicker({
               </ul>
             )}
 
-            <p className="text-xs text-gray-500">{copy.searchHint}</p>
+            <p className="text-xs text-gray-500">{copy.searchHelper}</p>
+            <p className="text-xs text-gray-400">{copy.searchHint}</p>
 
             <button
               type="button"
@@ -430,24 +548,44 @@ export function StableMapPicker({
         {draft && (
           <>
             <div className="space-y-2">
+              <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                {copy.selectedPlace}
+              </p>
               {editingLabel ? (
                 <input
                   type="text"
                   value={draft.label}
-                  onChange={(e) => setDraft({ ...draft, label: e.target.value })}
+                  onChange={(e) => {
+                    labelEditedRef.current = true;
+                    setDraft({ ...draft, label: e.target.value });
+                  }}
                   className="input w-full"
                   aria-label={copy.editLabel}
                 />
               ) : (
                 <p className="text-sm font-medium text-gray-900 break-words">{draft.label}</p>
               )}
+              {(draft.neighborhood || draft.city) && (
+                <p className="text-xs text-gray-600">
+                  {[draft.neighborhood, draft.city].filter(Boolean).join(' · ')}
+                </p>
+              )}
               <button
                 type="button"
-                onClick={() => setEditingLabel((v) => !v)}
-                className="text-xs font-medium text-emerald-700 hover:underline"
+                onClick={() => {
+                  setEditingLabel((v) => !v);
+                  if (!editingLabel) labelEditedRef.current = true;
+                }}
+                className="text-xs font-medium text-emerald-700 hover:underline min-h-[44px]"
               >
                 {copy.editLabel}
               </button>
+              {draft.reverseLoading && (
+                <p className="text-xs text-gray-500" role="status">{copy.resolvingPlace}</p>
+              )}
+              {draft.reverseFailed && !draft.reverseLoading && (
+                <p className="text-xs text-amber-800" role="status">{copy.reverseGeocodeFailed}</p>
+              )}
               <p className="text-xs font-mono text-gray-500">
                 {copy.coordinates}: {draft.lat.toFixed(6)}, {draft.lng.toFixed(6)}
               </p>
@@ -455,13 +593,32 @@ export function StableMapPicker({
 
             <p className="text-xs text-gray-600">{copy.refineHint}</p>
 
+            <div className="flex flex-wrap gap-2">
+              {(['standard', 'detailed'] as MapTileLayerId[]).map((id) => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => setTileLayerId(id)}
+                  className={`rounded-lg px-3 py-1.5 text-xs font-medium min-h-[36px] ${
+                    tileLayerId === id
+                      ? 'bg-emerald-600 text-white'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  {id === 'standard' ? copy.mapLayerStandard : copy.mapLayerDetailed}
+                </button>
+              ))}
+            </div>
+
             <div className="stable-map-shell relative z-0">
               <StableMapInnerMap
                 lat={draft.lat}
                 lng={draft.lng}
                 markerColor={markerColor}
                 active={expanded}
-                onMove={(lat, lng) => setDraft((d) => (d ? { ...d, lat, lng } : d))}
+                zoom={mapZoom}
+                tileLayerId={tileLayerId}
+                onMove={handleMapMove}
               />
             </div>
             <p className="text-xs text-gray-500 text-center py-1">

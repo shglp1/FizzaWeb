@@ -19,6 +19,7 @@ import {
   buildSubscriptionQuotePayload,
   mapQuoteValidationError,
 } from '@/lib/subscriptions/quotePayload';
+import { locationsWithinMeters } from '@/lib/location/locationDistance';
 
 export type { SelectedLocation };
 import {
@@ -377,6 +378,7 @@ export default function NewSubscriptionPage() {
   const [dropoffPhotoUrl, setDropoffPhotoUrl] = useState<string | null>(null);
   const [mapLanguage, setMapLanguage] = useState<MapPickerLanguage>('en');
   const [openMapPicker, setOpenMapPicker] = useState<'pickup' | 'dropoff' | null>('pickup');
+  const [closeLocationsAcknowledged, setCloseLocationsAcknowledged] = useState(false);
   const [pickupTime, setPickupTime] = useState('07:00');
   const [returnTime, setReturnTime] = useState('15:00');
   const [femaleDriver, setFemaleDriver] = useState(false);
@@ -436,6 +438,24 @@ export default function NewSubscriptionPage() {
     else if (!dropoffLocation) setOpenMapPicker('dropoff');
     else setOpenMapPicker(null);
   }, [step, pickupLocation, dropoffLocation]);
+
+  const locationsTooClose = locationsWithinMeters(
+    pickupLocation
+      ? { lat: pickupLocation.latitude, lng: pickupLocation.longitude }
+      : null,
+    dropoffLocation
+      ? { lat: dropoffLocation.latitude, lng: dropoffLocation.longitude }
+      : null,
+  );
+
+  useEffect(() => {
+    setCloseLocationsAcknowledged(false);
+  }, [
+    pickupLocation?.latitude,
+    pickupLocation?.longitude,
+    dropoffLocation?.latitude,
+    dropoffLocation?.longitude,
+  ]);
 
   // ── Calculate Price ──
   const canCalculate =
@@ -539,6 +559,18 @@ export default function NewSubscriptionPage() {
       }
       if (!dropoffLocation) {
         setStepError('Please confirm the exact drop-off pin on the map.');
+        return false;
+      }
+      if (pickupLocation.label.trim().length < 3) {
+        setStepError('Pickup location needs a clearer place name (at least 3 characters).');
+        return false;
+      }
+      if (dropoffLocation.label.trim().length < 3) {
+        setStepError('Drop-off location needs a clearer place name (at least 3 characters).');
+        return false;
+      }
+      if (locationsTooClose && !closeLocationsAcknowledged) {
+        setStepError('Pickup and drop-off are very close. Please confirm this is correct.');
         return false;
       }
     }
@@ -952,6 +984,23 @@ export default function NewSubscriptionPage() {
             <p className="text-xs text-amber-700 mt-4">
               Confirm both pickup and drop-off on the map to continue to pricing.
             </p>
+          )}
+
+          {subscriptionStepRequiresLocations(pickupStable, dropoffStable) && locationsTooClose && (
+            <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 space-y-3">
+              <p className="text-sm text-amber-900">
+                Pickup and drop-off are very close. Please confirm this is correct.
+              </p>
+              <label className="flex items-start gap-2 text-sm text-amber-900 cursor-pointer min-h-[44px]">
+                <input
+                  type="checkbox"
+                  checked={closeLocationsAcknowledged}
+                  onChange={(e) => setCloseLocationsAcknowledged(e.target.checked)}
+                  className="mt-1 rounded accent-amber-600"
+                />
+                <span>I confirm pickup and drop-off are at different nearby spots.</span>
+              </label>
+            </div>
           )}
         </FormSection>
       </div>
