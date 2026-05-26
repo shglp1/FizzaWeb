@@ -156,14 +156,47 @@ export function SystemConfigSection() {
           </div>
         )}
 
+        {activeGroup === 'payroll' && (() => {
+          const driverRate = parseFloat(form.driverPayRatePerKmSar ?? '');
+          const parentRate = parseFloat(form.pricePerKmSar ?? '');
+          if (Number.isFinite(driverRate) && Number.isFinite(parentRate) && driverRate > parentRate) {
+            return (
+              <div className="mb-5">
+                <Alert variant="warning">
+                  Warning: Driver pay rate per km is higher than the parent distance charge per km. The package fee must cover the difference to keep this subscription profitable.
+                </Alert>
+              </div>
+            );
+          }
+          return null;
+        })()}
+
         {activeGroup === 'pricing' && (
-          <div className="mb-5 rounded-xl border border-amber-100 bg-amber-50/50 p-4">
-            <p className="text-xs font-semibold text-amber-800 mb-2">Pricing formula reference</p>
-            <div className="space-y-1 text-xs text-amber-700 font-mono">
-              <p>chargeableKm = oneWayKm x 2 (ROUND_TRIP) or x 1 (ONE_WAY)</p>
-              <p>primaryPrice = packagePrice + addOns + (chargeableKm x pricePerKmSar)</p>
-              <p>finalPrice = primaryPrice + (numExtraRiders x primaryPrice x extraRiderMultiplier)</p>
+          <div className="mb-5 space-y-3">
+            <div className="rounded-xl border border-amber-100 bg-amber-50/50 p-4">
+              <p className="text-xs font-semibold text-amber-800 mb-2">Pricing formula reference</p>
+              <div className="space-y-1 text-xs text-amber-700 font-mono">
+                <p>chargeableKm = oneWayKm x 2 (ROUND_TRIP) or x 1 (ONE_WAY)</p>
+                <p>primaryPrice = packagePrice + addOns + (chargeableKm x pricePerKmSar)</p>
+                <p>finalPrice = primaryPrice + (numExtraRiders x primaryPrice x extraRiderMultiplier)</p>
+              </div>
             </div>
+            {(() => {
+              const driverRate = parseFloat(form.driverPayRatePerKmSar ?? '');
+              const parentRate = parseFloat(form.pricePerKmSar ?? '');
+              if (
+                Number.isFinite(driverRate)
+                && Number.isFinite(parentRate)
+                && driverRate > parentRate
+              ) {
+                return (
+                  <Alert variant="warning">
+                    Warning: Driver pay rate per km is higher than the parent distance charge per km. The package fee must cover the difference to keep this subscription profitable.
+                  </Alert>
+                );
+              }
+              return null;
+            })()}
           </div>
         )}
 
