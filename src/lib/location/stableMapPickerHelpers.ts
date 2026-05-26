@@ -60,8 +60,8 @@ const COPY = {
   en: {
     pickupTitle: 'Pickup location',
     dropoffTitle: 'Drop-off location',
-    searchPlaceholderPickup: 'Search home, district, or landmark…',
-    searchPlaceholderDropoff: 'Search school, university, or landmark…',
+    searchPlaceholderPickup: 'Search school, district, mosque, landmark, or street',
+    searchPlaceholderDropoff: 'Search school, district, mosque, landmark, or street',
     useCurrentLocation: 'Use my current location',
     locating: 'Getting your location…',
     confirm: 'Confirm location',
@@ -78,8 +78,11 @@ const COPY = {
     manualPlace: 'Manual location',
     confirmPinCarefully: 'Please confirm the pin carefully.',
     showVerifiedPlaces: 'Show verified places',
+    verifiedPlacesHelp:
+      'Verified places are trusted Fizza pickup and drop-off spots — schools, districts, and landmarks we have checked.',
     nearestVerified: 'Nearest verified place',
-    noMatchingPlace: 'No matching place found. You can place the pin manually.',
+    noMatchingPlace: 'No matching places. Try another spelling or place the pin manually.',
+    searchingPlaces: 'Searching places…',
     selectedPlace: 'Selected place',
     resolvingPlace: 'Identifying place name…',
     reverseGeocodeFailed:
@@ -98,8 +101,8 @@ const COPY = {
   ar: {
     pickupTitle: 'موقع الالتقاط',
     dropoffTitle: 'موقع الوصول',
-    searchPlaceholderPickup: 'ابحث عن المنزل أو الحي أو معلم…',
-    searchPlaceholderDropoff: 'ابحث عن المدرسة أو الجامعة أو معلم…',
+    searchPlaceholderPickup: 'ابحث عن مدرسة، حي، مسجد، معلم، أو شارع',
+    searchPlaceholderDropoff: 'ابحث عن مدرسة، حي، مسجد، معلم، أو شارع',
     useCurrentLocation: 'استخدم موقعي الحالي',
     locating: 'جاري تحديد موقعك…',
     confirm: 'تأكيد الموقع',
@@ -116,8 +119,11 @@ const COPY = {
     manualPlace: 'موقع يدوي',
     confirmPinCarefully: 'يرجى التأكد من موضع الدبوس بدقة.',
     showVerifiedPlaces: 'إظهار الأماكن الموثّقة',
+    verifiedPlacesHelp:
+      'الأماكن الموثّقة هي نقاط التقاط ووصول معتمدة من Fizza — مدارس وأحياء ومعالم تم التحقق منها.',
     nearestVerified: 'أقرب مكان موثّق',
-    noMatchingPlace: 'لم يتم العثور على مكان مطابق. يمكنك تحديد الدبوس يدوياً.',
+    noMatchingPlace: 'لا توجد أماكن مطابقة. جرّب كتابة مختلفة أو حدّد الدبوس يدوياً.',
+    searchingPlaces: 'جاري البحث عن الأماكن…',
     selectedPlace: 'المكان المحدد',
     resolvingPlace: 'جاري تحديد اسم المكان…',
     reverseGeocodeFailed:

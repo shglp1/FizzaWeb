@@ -31,12 +31,13 @@ import {
 } from '@/components/ui';
 import { FormSection, ActionBar, EnterpriseCard } from '@/components/ui/enterprise';
 import { SubscriptionSummaryPanel } from '@/components/subscriptions/SubscriptionSummaryPanel';
+import { SubscriptionWizardStepper } from '@/components/subscriptions/SubscriptionWizardStepper';
+import { LocationStepGuide } from '@/components/subscriptions/LocationStepGuide';
 import {
-  SUBSCRIPTION_WIZARD_STEPS,
   SUBSCRIPTION_STEP_COPY,
   SUBSCRIPTION_WIZARD_STEP_COUNT,
 } from '@/lib/ui/subscriptionWizard';
-import { Check } from 'lucide-react';
+import { AlertCircle, Check, RefreshCw } from 'lucide-react';
 import { mapDistanceProviderLabel } from '@/lib/ui/mapLocation';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -107,11 +108,6 @@ const WEEKDAYS = [
 
 const TOTAL_STEPS = SUBSCRIPTION_WIZARD_STEP_COUNT;
 
-const STEP_META = SUBSCRIPTION_WIZARD_STEPS.map((label, i) => ({
-  label,
-  number: i + 1,
-}));
-
 // ─── Quote key helper ─────────────────────────────────────────────────────────
 
 function makeQuoteKey(
@@ -138,65 +134,6 @@ function makeQuoteKey(
     promoCode.trim().toUpperCase(),
     String(loyaltyPoints),
   ].join('|');
-}
-
-// ─── Stepper ──────────────────────────────────────────────────────────────────
-
-function Stepper({ step }: { step: number }) {
-  return (
-    <nav aria-label="Progress" className="mb-8 -mx-1 overflow-x-auto pb-1">
-      <ol className="flex items-center gap-0 min-w-[520px] sm:min-w-0">
-        {STEP_META.map((s, i) => {
-          const isCompleted = i < step;
-          const isCurrent = i === step;
-
-          return (
-            <li key={s.label} className="flex items-center flex-1 last:flex-none">
-              <div className="flex flex-col items-center gap-1.5 min-w-0">
-                <div
-                  className={[
-                    'flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-2 text-sm font-bold transition-all',
-                    isCompleted
-                      ? 'border-emerald-500 bg-emerald-500 text-white'
-                      : isCurrent
-                      ? 'border-emerald-500 bg-white text-emerald-600 shadow-sm shadow-emerald-100'
-                      : 'border-gray-200 bg-white text-gray-400',
-                  ].join(' ')}
-                  aria-current={isCurrent ? 'step' : undefined}
-                >
-                  {isCompleted ? (
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                      <polyline points="20 6 9 17 4 12" />
-                    </svg>
-                  ) : (
-                    s.number
-                  )}
-                </div>
-                <span
-                  className={[
-                    'text-[10px] sm:text-xs font-medium text-center max-w-[4.5rem] sm:max-w-none leading-tight',
-                    isCurrent ? 'text-emerald-600' : isCompleted ? 'text-emerald-500' : 'text-gray-400',
-                  ].join(' ')}
-                >
-                  {s.label}
-                </span>
-              </div>
-
-              {i < STEP_META.length - 1 && (
-                <div
-                  className={[
-                    'h-0.5 flex-1 mx-2 mb-5 rounded-full transition-colors',
-                    isCompleted ? 'bg-emerald-400' : 'bg-gray-200',
-                  ].join(' ')}
-                  aria-hidden="true"
-                />
-              )}
-            </li>
-          );
-        })}
-      </ol>
-    </nav>
-  );
 }
 
 // ─── Day-of-week label helper ─────────────────────────────────────────────────
@@ -947,9 +884,16 @@ export default function NewSubscriptionPage() {
 
     return (
       <div className="space-y-5 max-w-full overflow-x-hidden">
+        <LocationStepGuide
+          pickupConfirmed={!!pickupLocation}
+          dropoffConfirmed={!!dropoffLocation}
+          activeTarget={openMapPicker}
+          language={mapLanguage}
+        />
+
         <FormSection
           title={SUBSCRIPTION_STEP_COPY[2]?.title ?? 'Pickup & drop-off'}
-          description="Search or use your current location, refine the pin on the map, then confirm each stop."
+          description="Search for a place, use your current location, or drop a pin on the map. Confirm pickup first, then drop-off."
         >
           <div className="flex justify-end mb-3">
             <span className="inline-flex rounded-lg border border-gray-200 overflow-hidden text-xs">
@@ -999,9 +943,15 @@ export default function NewSubscriptionPage() {
           </div>
 
           {!subscriptionStepRequiresLocations(pickupStable, dropoffStable) && (
-            <p className="text-xs text-amber-700 mt-4">
-              Confirm both pickup and drop-off on the map to continue to pricing.
-            </p>
+            <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 flex gap-3">
+              <AlertCircle className="h-5 w-5 text-amber-700 shrink-0 mt-0.5" aria-hidden />
+              <div>
+                <p className="text-sm font-medium text-amber-950">Locations required</p>
+                <p className="text-xs text-amber-800 mt-1">
+                  Confirm both pickup and drop-off on the map to continue to pricing.
+                </p>
+              </div>
+            </div>
           )}
 
           {subscriptionStepRequiresLocations(pickupStable, dropoffStable) && locationsTooClose && (
@@ -1116,18 +1066,51 @@ export default function NewSubscriptionPage() {
           >
             {quoteLoading ? 'Calculating route distance and subscription price…' : quote ? 'Recalculate price' : 'Calculate price'}
           </Button>
-          {!canCalculate && (
-            <p className="text-xs text-gray-500 mt-2 text-center">
-              Confirm pickup, drop-off, and riders on previous steps first.
-            </p>
-          )}
         </div>
 
         {quote && quoteKey && currentQuoteKey !== quoteKey && (
           <Alert variant="warning">Route or add-ons changed. Please recalculate before continuing.</Alert>
         )}
-        {quoteError && <Alert variant="error">{quoteError}</Alert>}
-        {quote && currentQuoteKey === quoteKey && <QuoteBreakdown quote={quote} />}
+        {quoteLoading && (
+          <div className="rounded-xl border border-emerald-100 bg-emerald-50/50 p-4 space-y-3" role="status">
+            <p className="text-sm font-medium text-emerald-800">Calculating route distance and subscription price…</p>
+            <div className="h-2 rounded-full bg-emerald-100 overflow-hidden">
+              <div className="h-full w-2/3 bg-emerald-500 animate-pulse rounded-full" />
+            </div>
+          </div>
+        )}
+
+        {quoteError && (
+          <Alert variant="error">
+            <div className="space-y-2">
+              <p>{quoteError}</p>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="gap-1.5 min-h-[44px]"
+                onClick={() => void handleCalculatePrice()}
+                disabled={quoteLoading || !canCalculate}
+              >
+                <RefreshCw className="h-3.5 w-3.5" aria-hidden />
+                Try again
+              </Button>
+            </div>
+          </Alert>
+        )}
+
+        {!canCalculate && step === 3 && (
+          <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 flex gap-3">
+            <AlertCircle className="h-5 w-5 text-gray-500 shrink-0 mt-0.5" aria-hidden />
+            <p className="text-sm text-gray-700">
+              {!pickupLocation || !dropoffLocation
+                ? 'Confirm pickup and drop-off locations on the previous step before calculating price.'
+                : 'Select at least one rider before calculating price.'}
+            </p>
+          </div>
+        )}
+
+        {quote && currentQuoteKey === quoteKey && !quoteLoading && <QuoteBreakdown quote={quote} />}
       </FormSection>
 
       <div>
@@ -1293,7 +1276,7 @@ export default function NewSubscriptionPage() {
 
       <div className="grid lg:grid-cols-3 gap-6 lg:gap-8 items-start">
         <EnterpriseCard className="lg:col-span-2" padding="lg">
-          <Stepper step={step} />
+          <SubscriptionWizardStepper step={step} />
 
           {steps[step]?.()}
 

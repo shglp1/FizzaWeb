@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /** Local maps diagnostics — run: npm run check:maps */
 
-import { runMapDiagnostics } from '../src/lib/maps/diagnostics.ts';
+import { runMapDiagnostics } from '../src/lib/maps/diagnosticsCore.ts';
+import { prisma } from '../src/lib/prisma.ts';
 
 const d = await runMapDiagnostics();
 
@@ -21,3 +22,5 @@ console.log(`Route provider mode: ${d.mapRouteProvider}`);
 if (!d.osmTileCspConfigured || !d.nominatimReachable) {
   process.exitCode = 1;
 }
+
+await prisma.$disconnect();

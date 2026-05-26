@@ -406,27 +406,48 @@ export function StableMapPicker({
   // ── Collapsed: confirmed card ──
   if (!expanded && value) {
     const mapsUrl = buildGoogleMapsPlaceUrl(value.lat, value.lng, value.label);
+    const isLowConfidence = value.confidence === 'LOW' || value.isManual;
     return (
       <div
-        className="rounded-2xl border-2 border-emerald-400 bg-emerald-50/80 p-4"
+        className="rounded-2xl border-2 border-emerald-400 bg-emerald-50/80 p-4 shadow-sm"
         dir={isRtl ? 'rtl' : 'ltr'}
       >
         <div className="flex items-start gap-3">
           <span
-            className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-white ${
+            className={`mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-white ${
               mode === 'pickup' ? 'bg-emerald-600' : 'bg-red-600'
             }`}
           >
             <MapPin className="h-4 w-4" aria-hidden />
           </span>
           <div className="min-w-0 flex-1">
-            <p className="text-xs font-semibold text-emerald-800">{copy.confirmed}</p>
-            {value.isVerifiedPlace && (
-              <span className="mt-1 inline-flex rounded bg-emerald-200 px-2 py-0.5 text-[10px] font-semibold text-emerald-900">
-                {copy.verifiedPlace}
-              </span>
+            <p className="text-xs font-semibold uppercase tracking-wide text-emerald-800">{copy.confirmed}</p>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {value.isVerifiedPlace && (
+                <span className="inline-flex rounded-md bg-emerald-200 px-2 py-0.5 text-[10px] font-semibold text-emerald-900">
+                  {copy.verifiedPlace}
+                </span>
+              )}
+              {value.isManual && (
+                <span className="inline-flex rounded-md bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-900">
+                  {copy.manualPlace}
+                </span>
+              )}
+              {!value.isVerifiedPlace && !value.isManual && value.source && value.source !== 'LOCAL' && (
+                <span className="inline-flex rounded-md bg-gray-200 px-2 py-0.5 text-[10px] font-semibold text-gray-800">
+                  {copy.externalPlace}
+                </span>
+              )}
+              {!value.isVerifiedPlace && !value.isManual && value.source === 'LOCAL' && (
+                <span className="inline-flex rounded-md bg-teal-100 px-2 py-0.5 text-[10px] font-semibold text-teal-900">
+                  {copy.nearestVerified}
+                </span>
+              )}
+            </div>
+            {isLowConfidence && (
+              <p className="mt-2 text-xs text-amber-800 font-medium">{copy.confirmPinCarefully}</p>
             )}
-            <p className="mt-1 text-sm font-medium text-gray-900 break-words">{value.label}</p>
+            <p className="mt-2 text-sm font-medium text-gray-900 break-words">{value.label}</p>
             <p className="mt-1 text-xs font-mono text-gray-500">
               {value.lat.toFixed(6)}, {value.lng.toFixed(6)}
             </p>
@@ -434,7 +455,7 @@ export function StableMapPicker({
               href={mapsUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="mt-2 inline-block text-xs font-medium text-emerald-700 hover:underline"
+              className="mt-2 inline-block text-xs font-medium text-emerald-700 hover:underline min-h-[44px] leading-[44px]"
             >
               Google Maps
             </a>
@@ -562,20 +583,30 @@ export function StableMapPicker({
               )}
             </div>
 
-            {searchError && (
-              <p className="text-xs text-amber-800" role="alert">
+            {searching && (
+              <p className="text-xs text-gray-600 flex items-center gap-2" role="status">
+                <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-emerald-600 border-t-transparent shrink-0" />
+                {copy.searchingPlaces}
+              </p>
+            )}
+
+            {searchError && !searching && (
+              <p className="text-xs text-amber-800 rounded-lg bg-amber-50 border border-amber-100 px-3 py-2" role="alert">
                 {searchError}
               </p>
             )}
 
-            {showResults && (
+            {showResults && !searching && (
               <ul
                 id={listId}
                 role="listbox"
                 className="max-h-52 overflow-y-auto rounded-xl border border-gray-200 bg-white shadow-md"
               >
                 {suggestions.length === 0 ? (
-                  <li className="px-4 py-3 text-sm text-gray-500">{copy.noMatchingPlace}</li>
+                  <li className="px-4 py-4 text-sm text-gray-600">
+                    <p className="font-medium text-gray-800">{copy.noMatchingPlace}</p>
+                    <p className="text-xs text-gray-500 mt-1">{copy.searchHint}</p>
+                  </li>
                 ) : (
                   suggestions.map((s, i) => (
                     <li key={`${s.placeId ?? s.label}-${i}`} role="option" aria-selected={i === activeIndex}>
@@ -701,7 +732,9 @@ export function StableMapPicker({
                 <p className="text-xs text-gray-500" role="status">{copy.resolvingPlace}</p>
               )}
               {draft.reverseFailed && !draft.reverseLoading && (
-                <p className="text-xs text-amber-800" role="status">{copy.reverseGeocodeFailed}</p>
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2" role="status">
+                  <p className="text-xs text-amber-900 font-medium">{copy.reverseGeocodeFailed}</p>
+                </div>
               )}
               <p className="text-xs font-mono text-gray-500">
                 {copy.coordinates}: {draft.lat.toFixed(6)}, {draft.lng.toFixed(6)}
@@ -710,30 +743,35 @@ export function StableMapPicker({
 
             <p className="text-xs text-gray-600">{copy.refineHint}</p>
 
-            <div className="flex flex-wrap items-center gap-3">
-              <label className="flex items-center gap-2 text-xs text-gray-700 min-h-[36px]">
-                <input
-                  type="checkbox"
-                  checked={showVerifiedPlaces}
-                  onChange={(e) => setShowVerifiedPlaces(e.target.checked)}
-                  className="rounded accent-emerald-600"
-                />
-                {copy.showVerifiedPlaces}
-              </label>
-              {(['standard', 'detailed'] as MapTileLayerId[]).map((id) => (
-                <button
-                  key={id}
-                  type="button"
-                  onClick={() => setTileLayerId(id)}
-                  className={`rounded-lg px-3 py-1.5 text-xs font-medium min-h-[36px] ${
-                    tileLayerId === id
-                      ? 'bg-emerald-600 text-white'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
-                >
-                  {id === 'standard' ? copy.mapLayerStandard : copy.mapLayerDetailed}
-                </button>
-              ))}
+            <div className="space-y-3">
+              <div className="rounded-xl border border-emerald-100 bg-emerald-50/40 p-3 space-y-2">
+                <label className="flex items-center gap-3 text-sm text-gray-800 cursor-pointer min-h-[44px]">
+                  <input
+                    type="checkbox"
+                    checked={showVerifiedPlaces}
+                    onChange={(e) => setShowVerifiedPlaces(e.target.checked)}
+                    className="h-4 w-4 rounded accent-emerald-600 shrink-0"
+                  />
+                  <span className="font-medium">{copy.showVerifiedPlaces}</span>
+                </label>
+                <p className="text-xs text-gray-600 leading-relaxed ps-7">{copy.verifiedPlacesHelp}</p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                {(['standard', 'detailed'] as MapTileLayerId[]).map((id) => (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => setTileLayerId(id)}
+                    className={`rounded-lg px-3 py-1.5 text-xs font-medium min-h-[36px] ${
+                      tileLayerId === id
+                        ? 'bg-emerald-600 text-white'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
+                  >
+                    {id === 'standard' ? copy.mapLayerStandard : copy.mapLayerDetailed}
+                  </button>
+                ))}
+              </div>
             </div>
 
             <div className="stable-map-shell relative z-0">
