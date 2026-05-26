@@ -8,9 +8,16 @@ const TIME_REGEX = /^\d{2}:\d{2}$/;
 /**
  * Location object produced by the LocationPicker component.
  * Requires both a human-readable label and precise coordinates.
- * This prevents raw free-text from reaching the distance calculation engine.
+ * Accepts latitude/longitude or lat/lng aliases from StableMapPicker.
  */
-export const locationInputSchema = z.object({
+export const locationInputSchema = z.preprocess((val) => {
+  if (val && typeof val === 'object' && !Array.isArray(val)) {
+    const o = val as Record<string, unknown>;
+    if (o.latitude == null && o.lat != null) o.latitude = o.lat;
+    if (o.longitude == null && o.lng != null) o.longitude = o.lng;
+  }
+  return val;
+}, z.object({
   label: z.string().min(3, 'Location label must be at least 3 characters').max(500),
   latitude: z
     .number({ required_error: 'Latitude is required' })
@@ -20,7 +27,7 @@ export const locationInputSchema = z.object({
     .number({ required_error: 'Longitude is required' })
     .min(-180, 'Longitude must be between -180 and 180')
     .max(180, 'Longitude must be between -180 and 180'),
-});
+}));
 
 export type LocationInput = z.infer<typeof locationInputSchema>;
 

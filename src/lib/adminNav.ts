@@ -7,6 +7,7 @@ export type AdminSection =
   | 'drivers'
   | 'applications'
   | 'packages'
+  | 'promo-codes'
   | 'subscriptions'
   | 'trips'
   | 'financials'
@@ -28,6 +29,7 @@ export const ADMIN_SECTIONS: AdminNavItem[] = [
   { label: 'Drivers',             section: 'drivers',       icon: 'trips' },
   { label: 'Driver Applications', section: 'applications',  icon: 'driverApp' },
   { label: 'Packages & Add-ons',  section: 'packages',      icon: 'subscriptions' },
+  { label: 'Promo Codes',         section: 'promo-codes',   icon: 'ticket' },
   { label: 'Subscriptions',       section: 'subscriptions', icon: 'subscriptions' },
   { label: 'Trips',               section: 'trips',         icon: 'trips' },
   { label: 'Financials',          section: 'financials',    icon: 'wallet' },
@@ -44,6 +46,7 @@ export const ADMIN_SECTION_LABELS: Record<AdminSection, string> = {
   drivers: 'Drivers',
   applications: 'Driver Applications',
   packages: 'Packages & Add-ons',
+  'promo-codes': 'Promo Codes',
   subscriptions: 'Subscriptions',
   trips: 'Trips',
   financials: 'Financials',

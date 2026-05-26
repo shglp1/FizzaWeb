@@ -1,6 +1,6 @@
 'use client';
 
-import { Package as PackageIcon, Puzzle, Tag } from 'lucide-react';
+import { Package as PackageIcon, Puzzle } from 'lucide-react';
 import { useEffect, useState, useCallback } from 'react';
 import { adminPackageService, adminAddOnService } from '@/services/adminService';
 import { Button, Alert, Input, Textarea, ErrorState } from '@/components/ui';
@@ -22,7 +22,7 @@ import {
   AdminSectionLoading,
 } from '@/components/admin/AdminUI';
 import { formatSar } from '@/lib/ui/adminCurrency';
-import { PromoCodesPanel } from './PromoCodesPanel';
+import { adminSectionHref } from '@/lib/adminNav';
 
 interface Package {
   id: string;
@@ -47,7 +47,7 @@ interface AddOn {
   _count?: { subscriptionAddOns: number };
 }
 
-type ActiveTab = 'packages' | 'addons' | 'promos';
+type ActiveTab = 'packages' | 'addons';
 
 export function PackagesSection() {
   const [tab, setTab] = useState<ActiveTab>('packages');
@@ -95,11 +95,9 @@ export function PackagesSection() {
         count={tab === 'packages' ? packages.length : addOns.length}
         countLabel={tab === 'packages' ? 'packages' : 'add-ons'}
         primaryAction={
-          tab === 'promos' ? undefined : (
           <Button variant="primary" size="sm" onClick={() => { setShowCreate(true); setEditId(null); }} className="min-h-[44px]">
             + New {tab === 'packages' ? 'Package' : 'Add-on'}
           </Button>
-          )
         }
       />
 
@@ -116,15 +114,19 @@ export function PackagesSection() {
         tabs={[
           { label: 'Packages', value: 'packages', count: packages.length },
           { label: 'Add-ons', value: 'addons', count: addOns.length },
-          { label: 'Promo codes', value: 'promos' },
         ]}
         active={tab}
         onChange={(v) => { setTab(v as ActiveTab); setShowCreate(false); setEditId(null); setPage(1); }}
       />
 
-      {tab === 'promos' ? (
-        <PromoCodesPanel />
-      ) : (
+      <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 px-4 py-3 mb-5 text-sm text-emerald-900">
+        Promo codes are managed on the dedicated{' '}
+        <a href={adminSectionHref('promo-codes')} className="font-semibold underline hover:text-emerald-700">
+          Promo Codes
+        </a>{' '}
+        page in the sidebar.
+      </div>
+
       <>
       <AdminToolbar
         actions={
@@ -173,7 +175,6 @@ export function PackagesSection() {
         />
       )}
       </>
-      )}
     </div>
   );
 }

@@ -202,7 +202,10 @@ export function StableMapPicker({
   const handleConfirm = () => {
     if (!draft) return;
     const label = sanitizeManualLabel(draft.label);
-    if (!label) return;
+    if (!label || label.length < 3) {
+      setSearchError(copy.searchHint);
+      return;
+    }
     onConfirm({
       label,
       lat: draft.lat,
@@ -461,6 +464,18 @@ export function StableMapPicker({
                 onMove={(lat, lng) => setDraft((d) => (d ? { ...d, lat, lng } : d))}
               />
             </div>
+            <p className="text-xs text-gray-500 text-center py-1">
+              Map data ©{' '}
+              <a
+                href="https://www.openstreetmap.org/copyright"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-emerald-700 hover:underline"
+              >
+                OpenStreetMap
+              </a>{' '}
+              contributors
+            </p>
 
             {allowPhoto && (
               <div className="space-y-2">

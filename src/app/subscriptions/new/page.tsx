@@ -15,6 +15,10 @@ import {
   type SelectedLocation,
   type StableMapLocationValue,
 } from '@/lib/location/stableMapPickerHelpers';
+import {
+  buildSubscriptionQuotePayload,
+  mapQuoteValidationError,
+} from '@/lib/subscriptions/quotePayload';
 
 export type { SelectedLocation };
 import {
@@ -442,16 +446,21 @@ export default function NewSubscriptionPage() {
   const handleCalculatePrice = useCallback(async () => {
     setQuoteError('');
 
-    if (!pickupLocation) {
-      setQuoteError('Please confirm the exact pickup pin on the map.');
-      return;
-    }
-    if (!dropoffLocation) {
-      setQuoteError('Please confirm the exact drop-off pin on the map.');
-      return;
-    }
-    if (selectedRiderIds.length === 0) {
-      setQuoteError('Please select at least one rider before calculating price.');
+    const built = buildSubscriptionQuotePayload({
+      packageId: selectedPackageId,
+      addOnIds: selectedAddOnIds,
+      pickupLocation,
+      dropoffLocation,
+      tripDirection,
+      riderIds: selectedRiderIds,
+      weekdays,
+      startsOn,
+      promoCode,
+      loyaltyPointsToRedeem: Number(loyaltyPointsToRedeem) || 0,
+    });
+
+    if (!built.ok) {
+      setQuoteError(built.message);
       return;
     }
 
@@ -462,26 +471,7 @@ export default function NewSubscriptionPage() {
       const res = await fetch('/api/subscriptions/quote', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          packageId: selectedPackageId ?? undefined,
-          addOnIds: selectedAddOnIds,
-          pickupLocation: {
-            label: pickupLocation.label,
-            latitude: pickupLocation.latitude,
-            longitude: pickupLocation.longitude,
-          },
-          dropoffLocation: {
-            label: dropoffLocation.label,
-            latitude: dropoffLocation.latitude,
-            longitude: dropoffLocation.longitude,
-          },
-          tripDirection,
-          riderIds: selectedRiderIds,
-          weekdays,
-          startsOn: startsOn || undefined,
-          promoCode: promoCode.trim() || undefined,
-          loyaltyPointsToRedeem: Number(loyaltyPointsToRedeem) || 0,
-        }),
+        body: JSON.stringify(built.payload),
       });
 
       const json = await res.json();
@@ -490,7 +480,9 @@ export default function NewSubscriptionPage() {
         setQuote(json.data.quote as PriceQuote);
         setQuoteKey(currentQuoteKey);
       } else {
-        setQuoteError(json.error?.message ?? 'Could not calculate price. Please try again.');
+        setQuoteError(
+          mapQuoteValidationError(json.error?.message ?? 'Could not calculate price. Please try again.'),
+        );
       }
     } catch {
       setQuoteError('Could not reach the pricing service. Check your connection and try again.');

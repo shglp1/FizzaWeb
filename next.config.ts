@@ -13,10 +13,12 @@ const isProd = process.env.NODE_ENV === 'production';
 //
 // 'unsafe-eval' is only allowed in development (Next.js hot-reload requires it).
 //
-// Mapbox GL JS:
+// Mapbox GL JS (legacy):
 //   - Loads tiles from *.mapbox.com  →  img-src / connect-src
-//   - Spawns web workers via blob: URLs  →  worker-src blob:
-//   - Sends telemetry to events.mapbox.com  →  connect-src
+//
+// Leaflet + OpenStreetMap (StableMapPicker):
+//   - Tile PNGs from {a,b,c}.tile.openstreetmap.org  →  img-src
+//   - Geocode/route calls stay server-side via /api/maps/* (connect-src 'self')
 //
 // MyFatoorah:
 //   - Payment redirect is a full-page navigation (no XHR), so it only needs
@@ -30,7 +32,16 @@ const cspDirectives = [
   "default-src 'self'",
   `script-src ${scriptSrc}`,
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob: https://*.mapbox.com",
+  [
+    "img-src 'self' data: blob:",
+    'https://*.mapbox.com',
+    'https://*.tile.openstreetmap.org',
+    'https://tile.openstreetmap.org',
+    'https://a.tile.openstreetmap.org',
+    'https://b.tile.openstreetmap.org',
+    'https://c.tile.openstreetmap.org',
+    'https://*.openstreetmap.org',
+  ].join(' '),
   [
     "connect-src 'self'",
     'https://*.mapbox.com',
