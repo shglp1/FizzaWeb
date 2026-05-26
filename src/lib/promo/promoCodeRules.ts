@@ -8,6 +8,11 @@ export function computePromoDiscount(subtotalSar: number, discountPercent: numbe
   return Math.round(subtotalSar * (pct / 100) * 100) / 100;
 }
 
+export function remainingPromoUses(promo: { maxUses: number | null; useCount: number }): number | null {
+  if (promo.maxUses == null) return null;
+  return Math.max(0, promo.maxUses - promo.useCount);
+}
+
 export function evaluatePromoEligibility(
   promo: {
     isActive: boolean;
