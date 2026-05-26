@@ -57,11 +57,34 @@ For full commercial-grade basemaps and autocomplete, providers such as **Google 
 - King Fahad Road
 - Emaar Taibah Hotel
 
-## Result badges (parent UI)
+## Verified place overlay (Task 16.4)
 
-| Badge | Meaning |
-|-------|---------|
-| **Verified** | Admin-verified local registry entry |
-| **Local** | Local registry entry (not yet verified) |
-| **ORS** | OpenRouteService geocoder |
-| **OSM** | OpenStreetMap / Nominatim |
+When zoom ≥ 14 in the subscription map picker, **verified registry places** appear as labeled markers inside the current map bounds. This reduces reliance on OSM tile labels.
+
+- Toggle: **Show verified places** (default on)
+- Click a label to select that place as pickup/drop-off
+- API: `GET /api/maps/places?bbox=minLng,minLat,maxLng,maxLat`
+
+## Scale & performance
+
+- Local search uses **DB-level** `WHERE` + `LIMIT` on normalized name/alias columns
+- Admin list is **paginated** (`page`, `limit`)
+- External geocode/reverse results are **cached** (`MapGeocodeCache`) for 14 days by default
+
+## Confidence & admin review
+
+Geocode results include `confidenceLevel` (`HIGH` | `MEDIUM` | `LOW`) and `needsAdminReview`.
+
+When parents confirm external or manual locations, the system creates **MapLocationReview** items. Admins can convert them into verified `MapPlace` entries from **Map Places → Unverified locations from subscriptions**.
+
+## Diagnostics
+
+- Admin: **System Config → Tracking → Maps & Location Diagnostics**
+- Dev CLI: `npm run check:maps`
+- API: `GET /api/admin/maps/diagnostics`
+
+## Provider architecture
+
+`MAP_SEARCH_PROVIDER=AUTO` resolves: local registry → ORS (if key) → Nominatim.
+
+Future providers (Google, Mapbox, MapTiler, HERE) are documented in `src/lib/maps/providers/types.ts` without SDK integration yet.

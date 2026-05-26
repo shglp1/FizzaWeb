@@ -31,6 +31,18 @@ export const locationInputSchema = z.preprocess((val) => {
 
 export type LocationInput = z.infer<typeof locationInputSchema>;
 
+const locationMetaSchema = z
+  .object({
+    source: z.enum(['LOCAL', 'ORS', 'NOMINATIM', 'MANUAL']).optional(),
+    confidence: z.enum(['HIGH', 'MEDIUM', 'LOW']).optional(),
+    placeId: z.string().uuid().optional().nullable(),
+    isVerifiedPlace: z.boolean().optional(),
+    isManual: z.boolean().optional(),
+  })
+  .optional();
+
+export type LocationMetaInput = z.infer<typeof locationMetaSchema>;
+
 /**
  * Union field that accepts either a coordinate-object (new LocationPicker flow)
  * or a plain string (legacy backward-compat). The API normalises whichever
@@ -70,6 +82,8 @@ export const subscriptionCreateSchema = z.object({
   dropoffPhotoUrl: z.string().url().optional().nullable(),
   promoCode: z.string().trim().min(3).max(32).optional(),
   loyaltyPointsToRedeem: z.number().int().min(0).optional().default(0),
+  pickupLocationMeta: locationMetaSchema,
+  dropoffLocationMeta: locationMetaSchema,
 });
 
 export const subscriptionUpdateSchema = z.object({

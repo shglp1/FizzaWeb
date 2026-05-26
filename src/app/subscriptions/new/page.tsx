@@ -633,6 +633,24 @@ export default function NewSubscriptionPage() {
       dropoffPhotoUrl: dropoffPhotoUrl ?? undefined,
       promoCode: promoCode.trim() || undefined,
       loyaltyPointsToRedeem: Number(loyaltyPointsToRedeem) || 0,
+      pickupLocationMeta: pickupLocation
+        ? {
+            source: (pickupLocation.source as 'LOCAL' | 'ORS' | 'NOMINATIM' | 'MANUAL' | undefined) ?? undefined,
+            confidence: pickupLocation.confidence ?? undefined,
+            placeId: pickupLocation.placeId ?? undefined,
+            isVerifiedPlace: pickupLocation.isVerifiedPlace,
+            isManual: pickupLocation.isManual,
+          }
+        : undefined,
+      dropoffLocationMeta: dropoffLocation
+        ? {
+            source: (dropoffLocation.source as 'LOCAL' | 'ORS' | 'NOMINATIM' | 'MANUAL' | undefined) ?? undefined,
+            confidence: dropoffLocation.confidence ?? undefined,
+            placeId: dropoffLocation.placeId ?? undefined,
+            isVerifiedPlace: dropoffLocation.isVerifiedPlace,
+            isManual: dropoffLocation.isManual,
+          }
+        : undefined,
     };
 
     const res = await subscriptionService.create(payload);

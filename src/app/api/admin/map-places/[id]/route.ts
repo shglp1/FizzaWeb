@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireRole } from '@/lib/session';
 import { mapPlaceUpdateSchema } from '@/lib/validations/mapPlace';
+import { buildMapPlaceUpdateData } from '@/lib/maps/mapPlaceAdminHelpers';
 
 export async function GET(
   _req: Request,
@@ -45,25 +46,9 @@ export async function PATCH(
       );
     }
 
-    const d = parsed.data;
     const updated = await prisma.mapPlace.update({
       where: { id },
-      data: {
-        ...(d.nameAr != null ? { nameAr: d.nameAr } : {}),
-        ...(d.nameEn != null ? { nameEn: d.nameEn } : {}),
-        ...(d.type != null ? { type: d.type } : {}),
-        ...(d.city != null ? { city: d.city } : {}),
-        ...(d.region !== undefined ? { region: d.region?.trim() || null } : {}),
-        ...(d.country != null ? { country: d.country } : {}),
-        ...(d.latitude != null ? { latitude: d.latitude } : {}),
-        ...(d.longitude != null ? { longitude: d.longitude } : {}),
-        ...(d.aliasesAr !== undefined ? { aliasesAr: d.aliasesAr ?? [] } : {}),
-        ...(d.aliasesEn !== undefined ? { aliasesEn: d.aliasesEn ?? [] } : {}),
-        ...(d.isActive != null ? { isActive: d.isActive } : {}),
-        ...(d.isVerified != null ? { isVerified: d.isVerified } : {}),
-        ...(d.notes !== undefined ? { notes: d.notes?.trim() || null } : {}),
-        updatedById: auth.userId,
-      },
+      data: buildMapPlaceUpdateData(parsed.data, auth.userId, existing),
     });
 
     return NextResponse.json({ data: updated, error: null });

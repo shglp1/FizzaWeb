@@ -19,7 +19,6 @@ import {
   DEFAULT_MAP_ZOOM_VERIFIED,
   isLocalGeocodeSuggestion,
   isVerifiedGeocodeSuggestion,
-  mapPlaceTypeIcon,
   providerBadgeLabel,
   suggestionProviderBadge,
   toSelectedLocation,
@@ -150,7 +149,11 @@ describe('StableMapPicker badges and zoom', () => {
     assert.equal(DEFAULT_MAP_ZOOM_PLACE, 16);
     assert.equal(isVerifiedGeocodeSuggestion(localResult()), true);
     assert.equal(isLocalGeocodeSuggestion(localResult()), true);
-    assert.equal(mapPlaceTypeIcon('UNIVERSITY'), '🎓');
+  });
+
+  it('uses MapPlaceTypeIcon component in picker', () => {
+    const picker = readFileSync(join(ROOT, 'src', 'components', 'location', 'StableMapPicker.tsx'), 'utf8');
+    assert.match(picker, /MapPlaceTypeIcon/);
   });
 
   it('removes duplicate search helper text', () => {

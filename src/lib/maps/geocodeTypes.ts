@@ -16,6 +16,8 @@ export type LocalMapPlaceHit = {
 
 export type GeocodeSource = 'LOCAL' | 'ORS' | 'NOMINATIM';
 
+export type LocationConfidenceLevel = 'HIGH' | 'MEDIUM' | 'LOW';
+
 export type GeocodeProviderBadge = 'Verified' | 'Local' | 'ORS' | 'OSM';
 
 export type GeocodeProviderTag = 'local' | 'openrouteservice' | 'nominatim';
@@ -49,6 +51,8 @@ export interface GeocodeSearchResult {
   region?: string;
   country?: string;
   confidence?: number;
+  confidenceLevel?: LocationConfidenceLevel;
+  needsAdminReview?: boolean;
   isVerified?: boolean;
 }
 
@@ -71,4 +75,6 @@ export interface ReverseGeocodeResult {
   isVerified?: boolean;
   isLocalSnap?: boolean;
   distanceMeters?: number;
+  confidenceLevel?: LocationConfidenceLevel;
+  needsAdminReview?: boolean;
 }

@@ -5,6 +5,7 @@ import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { MapPin, Navigation, Search, X } from 'lucide-react';
 import { buildGoogleMapsPlaceUrl } from '@/lib/maps/googleMapsLink';
 import { mapGeoErrorMessage } from '@/lib/ui/mapLocation';
+import { MapPlaceTypeIcon } from './MapPlaceTypeIcon';
 import {
   DEFAULT_MAP_CENTER,
   DEFAULT_MAP_ZOOM_COUNTRY,
@@ -13,7 +14,6 @@ import {
   confirmedLabelFromReverse,
   isLocalGeocodeSuggestion,
   isVerifiedGeocodeSuggestion,
-  mapPlaceTypeIcon,
   mapPickerCopy,
   mapPickerMarkerColor,
   mapPickerSectionTitle,
@@ -58,6 +58,8 @@ type DraftState = {
   isVerifiedPlace?: boolean;
   source?: string | null;
   isLocalSnap?: boolean;
+  confidence?: 'HIGH' | 'MEDIUM' | 'LOW' | null;
+  isManual?: boolean;
 };
 
 export function StableMapPicker({
@@ -90,6 +92,7 @@ export function StableMapPicker({
   const [mapZoom, setMapZoom] = useState(DEFAULT_MAP_ZOOM_COUNTRY);
   const [tileLayerId, setTileLayerId] = useState<MapTileLayerId>('standard');
   const [mapFocus, setMapFocus] = useState(DEFAULT_MAP_CENTER);
+  const [showVerifiedPlaces, setShowVerifiedPlaces] = useState(true);
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reverseDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -128,7 +131,7 @@ export function StableMapPicker({
             isVerified?: boolean;
             isLocalSnap?: boolean;
             source?: string;
-            providerBadge?: string;
+            confidenceLevel?: 'HIGH' | 'MEDIUM' | 'LOW';
           };
         };
         if (json.data && !labelEditedRef.current) {
@@ -144,6 +147,8 @@ export function StableMapPicker({
                   isVerifiedPlace: json.data!.isVerified ?? json.data!.isLocalSnap ?? false,
                   source: json.data!.source ?? null,
                   isLocalSnap: json.data!.isLocalSnap ?? false,
+                  confidence: json.data!.confidenceLevel ?? (json.data!.isVerified ? 'HIGH' : 'MEDIUM'),
+                  isManual: false,
                   reverseLoading: false,
                   reverseFailed: false,
                 }
@@ -252,6 +257,9 @@ export function StableMapPicker({
       lng: DEFAULT_MAP_CENTER.lng,
       fromDevice: false,
       photoUrl: value?.photoUrl ?? null,
+      isManual: true,
+      confidence: 'LOW',
+      source: 'MANUAL',
     });
     setSearchError('');
     scheduleReverseGeocode(DEFAULT_MAP_CENTER.lat, DEFAULT_MAP_CENTER.lng);
@@ -276,6 +284,8 @@ export function StableMapPicker({
       isVerifiedPlace: verified,
       source: s.source ?? s.provider ?? null,
       isLocalSnap: local,
+      confidence: s.confidenceLevel ?? (verified ? 'HIGH' : local ? 'MEDIUM' : 'LOW'),
+      isManual: false,
       reverseLoading: false,
       reverseFailed: false,
     });
@@ -283,6 +293,33 @@ export function StableMapPicker({
     setSuggestions([]);
     setShowResults(false);
     setSearchError('');
+  };
+
+  const handleSelectOverlayPlace = (place: {
+    id: string;
+    label: string;
+    latitude: number;
+    longitude: number;
+    type: string;
+  }) => {
+    labelEditedRef.current = false;
+    setMapZoom(DEFAULT_MAP_ZOOM_VERIFIED);
+    setMapFocus({ lat: place.latitude, lng: place.longitude });
+    setDraft((d) => ({
+      label: place.label,
+      lat: place.latitude,
+      lng: place.longitude,
+      fromDevice: false,
+      photoUrl: d?.photoUrl ?? value?.photoUrl ?? null,
+      placeId: place.id,
+      isVerifiedPlace: true,
+      source: 'LOCAL',
+      isLocalSnap: false,
+      confidence: 'HIGH',
+      isManual: false,
+      reverseLoading: false,
+      reverseFailed: false,
+    }));
   };
 
   const handleUseCurrentLocation = () => {
@@ -349,7 +386,9 @@ export function StableMapPicker({
       photoUrl: draft.photoUrl ?? null,
       placeId: draft.placeId ?? null,
       isVerifiedPlace: draft.isVerifiedPlace ?? false,
-      source: draft.source ?? null,
+      source: draft.isManual ? 'MANUAL' : draft.source ?? null,
+      confidence: draft.confidence ?? (draft.isManual || labelEditedRef.current ? 'LOW' : 'MEDIUM'),
+      isManual: draft.isManual || labelEditedRef.current,
     });
   };
 
@@ -553,9 +592,7 @@ export function StableMapPicker({
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-1.5">
-                              <span className="text-base leading-none" aria-hidden>
-                                {mapPlaceTypeIcon(s.type)}
-                              </span>
+                              <MapPlaceTypeIcon type={s.type} className="h-4 w-4 shrink-0 text-emerald-700" />
                               <p className="font-medium text-gray-900">{suggestionDisplayTitle(s)}</p>
                             </div>
                             <p className="text-xs text-gray-500 mt-0.5 ms-6">{suggestionDisplaySubtitle(s)}</p>
@@ -617,12 +654,20 @@ export function StableMapPicker({
                     {copy.verifiedPlace}
                   </span>
                 )}
-                {!draft.isVerifiedPlace && draft.source && draft.source !== 'LOCAL' && (
+                {!draft.isVerifiedPlace && draft.isManual && (
+                  <span className="rounded bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-900">
+                    {copy.manualPlace}
+                  </span>
+                )}
+                {!draft.isVerifiedPlace && !draft.isManual && draft.source && draft.source !== 'LOCAL' && (
                   <span className="rounded bg-gray-100 px-2 py-0.5 text-[10px] font-semibold text-gray-700">
                     {copy.externalPlace}
                   </span>
                 )}
               </div>
+              {(draft.confidence === 'LOW' || draft.isManual) && (
+                <p className="text-xs text-amber-800">{copy.confirmPinCarefully}</p>
+              )}
               {editingLabel ? (
                 <input
                   type="text"
@@ -665,7 +710,16 @@ export function StableMapPicker({
 
             <p className="text-xs text-gray-600">{copy.refineHint}</p>
 
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap items-center gap-3">
+              <label className="flex items-center gap-2 text-xs text-gray-700 min-h-[36px]">
+                <input
+                  type="checkbox"
+                  checked={showVerifiedPlaces}
+                  onChange={(e) => setShowVerifiedPlaces(e.target.checked)}
+                  className="rounded accent-emerald-600"
+                />
+                {copy.showVerifiedPlaces}
+              </label>
               {(['standard', 'detailed'] as MapTileLayerId[]).map((id) => (
                 <button
                   key={id}
@@ -690,7 +744,10 @@ export function StableMapPicker({
                 active={expanded}
                 zoom={mapZoom}
                 tileLayerId={tileLayerId}
+                showVerifiedPlaces={showVerifiedPlaces}
+                overlayLanguage={language}
                 onMove={handleMapMove}
+                onSelectOverlayPlace={handleSelectOverlayPlace}
               />
             </div>
             <p className="text-xs text-gray-500 text-center py-1">

@@ -10,6 +10,11 @@ export type SelectedLocation = {
   latitude: number;
   longitude: number;
   provider?: string;
+  placeId?: string | null;
+  isVerifiedPlace?: boolean;
+  source?: string | null;
+  confidence?: 'HIGH' | 'MEDIUM' | 'LOW' | null;
+  isManual?: boolean;
 };
 
 export type StableMapLocationValue = {
@@ -20,6 +25,8 @@ export type StableMapLocationValue = {
   placeId?: string | null;
   isVerifiedPlace?: boolean;
   source?: string | null;
+  confidence?: 'HIGH' | 'MEDIUM' | 'LOW' | null;
+  isManual?: boolean;
 };
 
 export type GeocodeSuggestion = {
@@ -39,6 +46,8 @@ export type GeocodeSuggestion = {
   region?: string;
   country?: string;
   isVerified?: boolean;
+  confidenceLevel?: 'HIGH' | 'MEDIUM' | 'LOW';
+  needsAdminReview?: boolean;
 };
 
 /** Default map centre (Riyadh) — Saudi Arabia focus when no user location. */
@@ -64,8 +73,11 @@ const COPY = {
     editLabel: 'Edit location label',
     manualPin: 'Place pin on map manually',
     searchHint: 'Search by district, school, mosque, university, landmark, or street.',
-    verifiedPlace: 'Verified place',
-    externalPlace: 'External map result',
+    verifiedPlace: 'Verified location',
+    externalPlace: 'Map provider result',
+    manualPlace: 'Manual location',
+    confirmPinCarefully: 'Please confirm the pin carefully.',
+    showVerifiedPlaces: 'Show verified places',
     nearestVerified: 'Nearest verified place',
     noMatchingPlace: 'No matching place found. You can place the pin manually.',
     selectedPlace: 'Selected place',
@@ -99,8 +111,11 @@ const COPY = {
     editLabel: 'تعديل وصف الموقع',
     manualPin: 'تحديد الدبوس على الخريطة يدوياً',
     searchHint: 'ابحث باسم الحي، المدرسة، المسجد، الجامعة، المعلم، أو الشارع.',
-    verifiedPlace: 'مكان موثّق',
-    externalPlace: 'نتيجة خريطة خارجية',
+    verifiedPlace: 'موقع موثّق',
+    externalPlace: 'نتيجة مزود الخريطة',
+    manualPlace: 'موقع يدوي',
+    confirmPinCarefully: 'يرجى التأكد من موضع الدبوس بدقة.',
+    showVerifiedPlaces: 'إظهار الأماكن الموثّقة',
     nearestVerified: 'أقرب مكان موثّق',
     noMatchingPlace: 'لم يتم العثور على مكان مطابق. يمكنك تحديد الدبوس يدوياً.',
     selectedPlace: 'المكان المحدد',
@@ -166,11 +181,16 @@ export function toSelectedLocation(v: StableMapLocationValue) {
     latitude: v.lat,
     longitude: v.lng,
     provider: v.source ?? 'stable-map-picker',
+    placeId: v.placeId ?? null,
+    isVerifiedPlace: v.isVerifiedPlace ?? false,
+    source: v.source ?? null,
+    confidence: v.confidence ?? null,
+    isManual: v.isManual ?? false,
   };
 }
 
 export function fromSelectedLocation(
-  v: { label: string; latitude: number; longitude: number; provider?: string } | null,
+  v: SelectedLocation | null,
   photoUrl?: string | null,
 ): StableMapLocationValue | null {
   if (!v) return null;
@@ -179,7 +199,11 @@ export function fromSelectedLocation(
     lat: v.latitude,
     lng: v.longitude,
     photoUrl: photoUrl ?? null,
-    source: v.provider ?? null,
+    placeId: v.placeId ?? null,
+    isVerifiedPlace: v.isVerifiedPlace ?? false,
+    source: v.source ?? v.provider ?? null,
+    confidence: v.confidence ?? null,
+    isManual: v.isManual ?? false,
   };
 }
 
@@ -204,24 +228,6 @@ export function suggestionProviderBadge(s: GeocodeSuggestion): string {
   return s.providerBadge ?? providerBadgeLabel(s.provider);
 }
 
-const TYPE_ICONS: Record<string, string> = {
-  DISTRICT: '🏘️',
-  SCHOOL: '🏫',
-  UNIVERSITY: '🎓',
-  MOSQUE: '🕌',
-  HOSPITAL: '🏥',
-  LANDMARK: '📍',
-  STREET: '🛣️',
-  BUILDING: '🏢',
-  GATE: '🚪',
-  OTHER: '📌',
-};
-
-export function mapPlaceTypeIcon(type?: string): string {
-  if (!type) return '📍';
-  return TYPE_ICONS[type] ?? '📍';
-}
-
 export function isLocalGeocodeSuggestion(s: GeocodeSuggestion): boolean {
   return s.source === 'LOCAL' || s.provider === 'local';
 }
@@ -229,6 +235,13 @@ export function isLocalGeocodeSuggestion(s: GeocodeSuggestion): boolean {
 export function isVerifiedGeocodeSuggestion(s: GeocodeSuggestion): boolean {
   return s.isVerified === true || s.providerBadge === 'Verified';
 }
+
+export function buildOverlayLabelIconHtml(label: string): string {
+  const safe = label.replace(/[<>&"']/g, '').slice(0, 42);
+  return `<div style="transform:translate(-50%,-100%);white-space:nowrap;font:600 10px/1.2 system-ui,sans-serif;color:#065f46;background:rgba(255,255,255,.94);border:1px solid #6ee7b7;border-radius:6px;padding:2px 6px;box-shadow:0 1px 4px rgba(0,0,0,.15);max-width:140px;overflow:hidden;text-overflow:ellipsis;">${safe}</div>`;
+}
+
+export const MAP_OVERLAY_MIN_ZOOM = 14;
 
 export function confirmedLabelFromReverse(result: {
   label: string;

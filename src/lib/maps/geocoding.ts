@@ -8,6 +8,11 @@ import { getLocalPlaceSnapRadiusMeters } from './mapPlaceConfig.ts';
 import { mergeGeocodeResults } from './mergeGeocodeResults.ts';
 import { mapPlaceTypeLabel } from './mapPlaceTypes.ts';
 import type { MapPlaceType } from '@prisma/client';
+import {
+  confidenceForExternal,
+  confidenceForLocal,
+  needsAdminReview,
+} from './confidence.ts';
 import type {
   GeocodeFocus,
   GeocodeProviderTag,
@@ -144,6 +149,21 @@ function normalizeSearchResult(
     raw.providerBadge ??
     (source === 'LOCAL' ? (raw.isVerified ? 'Verified' : 'Local') : source === 'ORS' ? 'ORS' : 'OSM');
 
+  let confidenceLevel = raw.confidenceLevel;
+  if (!confidenceLevel) {
+    if (source === 'LOCAL') confidenceLevel = confidenceForLocal(!!raw.isVerified);
+    else if (source === 'ORS') {
+      confidenceLevel = confidenceForExternal('ORS', {
+        hasLandmark: !!raw.type,
+        hasNeighborhood: !!raw.neighborhood,
+      });
+    } else confidenceLevel = confidenceForExternal('NOMINATIM', { hasLandmark: !!raw.neighborhood });
+  }
+
+  const reviewNeeded =
+    raw.needsAdminReview ??
+    needsAdminReview(confidenceLevel, source === 'LOCAL' ? 'LOCAL' : source, raw.isVerified);
+
   return {
     ...raw,
     label: raw.label.trim() || title,
@@ -151,7 +171,9 @@ function normalizeSearchResult(
     subtitle,
     source,
     providerBadge,
-    confidence: raw.confidence ?? (source === 'LOCAL' ? (raw.isVerified ? 1 : 0.9) : 0.6),
+    confidence: raw.confidence ?? (confidenceLevel === 'HIGH' ? 1 : confidenceLevel === 'MEDIUM' ? 0.75 : 0.45),
+    confidenceLevel,
+    needsAdminReview: reviewNeeded,
   };
 }
 
@@ -184,6 +206,7 @@ function localHitToGeocodeResult(hit: LocalMapPlaceHit, lang: 'ar' | 'en'): Geoc
 
 function localHitToReverseResult(hit: LocalMapPlaceHit, lang: 'ar' | 'en'): ReverseGeocodeResult {
   const title = lang === 'ar' ? hit.nameAr : hit.nameEn;
+  const confidenceLevel = confidenceForLocal(hit.isVerified);
   return {
     label: title,
     city: hit.city,
@@ -199,6 +222,8 @@ function localHitToReverseResult(hit: LocalMapPlaceHit, lang: 'ar' | 'en'): Reve
     isLocalSnap: true,
     distanceMeters: hit.distanceMeters,
     landmark: title,
+    confidenceLevel,
+    needsAdminReview: needsAdminReview(confidenceLevel, 'LOCAL', hit.isVerified),
   };
 }
 
@@ -237,6 +262,11 @@ async function searchLocationsOrs(
   const apiKey = getOrsApiKey();
   if (!apiKey) return [];
 
+  const lang = options?.lang === 'ar' ? 'ar' : 'en';
+  const { getForwardGeocodeCache, setForwardGeocodeCache } = await import('./geocodeCache.ts');
+  const cached = await getForwardGeocodeCache(query, lang, 'ors');
+  if (cached) return cached;
+
   const url = new URL(`${ORS_BASE}/geocode/search`);
   url.searchParams.set('api_key', apiKey);
   url.searchParams.set('text', query.trim());
@@ -256,7 +286,7 @@ async function searchLocationsOrs(
   const json = (await res.json()) as { features?: unknown[] };
   const features = json.features ?? [];
 
-  return features
+  const results = features
     .map((f) => {
       const feature = f as {
         geometry: { coordinates: [number, number] };
@@ -302,6 +332,9 @@ async function searchLocationsOrs(
       });
     })
     .filter((r): r is GeocodeSearchResult => r != null);
+
+  await setForwardGeocodeCache(query, lang, 'ors', results, results.length > 0);
+  return results;
 }
 
 type NominatimAddress = {
@@ -324,6 +357,11 @@ async function searchLocationsNominatim(
   query: string,
   options?: GeocodeSearchOptions,
 ): Promise<GeocodeSearchResult[]> {
+  const lang = options?.lang === 'ar' ? 'ar' : 'en';
+  const { getForwardGeocodeCache, setForwardGeocodeCache } = await import('./geocodeCache.ts');
+  const cached = await getForwardGeocodeCache(query, lang, 'nominatim');
+  if (cached) return cached;
+
   const url = new URL(`${NOMINATIM_BASE}/search`);
   url.searchParams.set('q', query.trim());
   url.searchParams.set('format', 'jsonv2');
@@ -352,7 +390,7 @@ async function searchLocationsNominatim(
     address?: NominatimAddress;
   }[];
 
-  return rows
+  const results = rows
     .filter((r) => r.lat && r.lon)
     .map((r) => {
       const addr = r.address ?? {};
@@ -384,6 +422,9 @@ async function searchLocationsNominatim(
       });
     })
     .filter((r) => withinSaudi(r.latitude, r.longitude));
+
+  await setForwardGeocodeCache(query, lang, 'nominatim', results, results.length > 0);
+  return results;
 }
 
 /** Local-first Saudi location search with external fallback. */
@@ -446,6 +487,11 @@ function nominatimReverseToResult(
     fallback: json.display_name,
   });
 
+  const confidenceLevel = confidenceForExternal('NOMINATIM', {
+    hasLandmark: !!landmark,
+    hasNeighborhood: !!neighborhood,
+  });
+
   return {
     label: label || json.display_name || '',
     neighborhood,
@@ -459,6 +505,8 @@ function nominatimReverseToResult(
     provider: 'NOMINATIM',
     source: 'NOMINATIM',
     providerBadge: 'OSM',
+    confidenceLevel,
+    needsAdminReview: needsAdminReview(confidenceLevel, 'NOMINATIM'),
   };
 }
 
@@ -469,6 +517,11 @@ async function reverseGeocodeOrs(
 ): Promise<ReverseGeocodeResult | null> {
   const apiKey = getOrsApiKey();
   if (!apiKey) return null;
+
+  const lang = options?.lang === 'ar' ? 'ar' : 'en';
+  const { getReverseGeocodeCache, setReverseGeocodeCache } = await import('./geocodeCache.ts');
+  const cached = await getReverseGeocodeCache(lat, lng, lang, 'ors');
+  if (cached) return cached;
 
   const url = new URL(`${ORS_BASE}/geocode/reverse`);
   url.searchParams.set('api_key', apiKey);
@@ -516,7 +569,11 @@ async function reverseGeocodeOrs(
 
   if (!label || label.length < 3) return null;
 
-  return {
+  const confidenceLevel = confidenceForExternal('ORS', {
+    hasLandmark: !!feature.properties.name,
+    hasNeighborhood: !!neighborhood,
+  });
+  const result: ReverseGeocodeResult = {
     label,
     neighborhood,
     road: feature.properties.street,
@@ -529,7 +586,11 @@ async function reverseGeocodeOrs(
     provider: 'ORS',
     source: 'ORS',
     providerBadge: 'ORS',
+    confidenceLevel,
+    needsAdminReview: needsAdminReview(confidenceLevel, 'ORS'),
   };
+  await setReverseGeocodeCache(lat, lng, lang, 'ors', result, true);
+  return result;
 }
 
 async function reverseGeocodeNominatim(
@@ -537,6 +598,11 @@ async function reverseGeocodeNominatim(
   lng: number,
   options?: { lang?: string },
 ): Promise<ReverseGeocodeResult | null> {
+  const lang = options?.lang === 'ar' ? 'ar' : 'en';
+  const { getReverseGeocodeCache, setReverseGeocodeCache } = await import('./geocodeCache.ts');
+  const cached = await getReverseGeocodeCache(lat, lng, lang, 'nominatim');
+  if (cached) return cached;
+
   const url = new URL(`${NOMINATIM_BASE}/reverse`);
   url.searchParams.set('format', 'jsonv2');
   url.searchParams.set('lat', String(lat));
@@ -564,7 +630,12 @@ async function reverseGeocodeNominatim(
   if (json.error) return null;
 
   const result = nominatimReverseToResult(json, lat, lng);
-  return result.label.length >= 3 ? result : null;
+  if (result.label.length < 3) {
+    await setReverseGeocodeCache(lat, lng, lang, 'nominatim', null, false);
+    return null;
+  }
+  await setReverseGeocodeCache(lat, lng, lang, 'nominatim', result, true);
+  return result;
 }
 
 /** Reverse geocode — local snap first, then ORS/Nominatim. */

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Copy, MapPin } from 'lucide-react';
 import type { MapPlaceType } from '@prisma/client';
-import { adminMapPlaceService } from '@/services/adminService';
+import { adminMapPlaceService, adminMapLocationReviewService } from '@/services/adminService';
 import { Alert, Button, Input, Textarea } from '@/components/ui';
 import {
   AdminSectionHeader,
@@ -75,8 +75,33 @@ function aliasesFromString(v: string): string[] {
   return v.split(/[,;\n]/).map((s) => s.trim()).filter(Boolean);
 }
 
+type ListResponse = {
+  items: MapPlaceRow[];
+  total: number;
+  page: number;
+  limit: number;
+  pages: number;
+  stats?: { total: number; verified: number; inactive: number; cities: number };
+};
+
+type ReviewRow = {
+  id: string;
+  label: string;
+  locationKind: string;
+  city?: string;
+  latitude: string | number;
+  longitude: string | number;
+  source: string;
+  confidence: string;
+  status: string;
+};
+
 export function MapPlacesSection() {
   const [places, setPlaces] = useState<MapPlaceRow[]>([]);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [stats, setStats] = useState({ total: 0, verified: 0, inactive: 0, cities: 0 });
+  const [pendingReviews, setPendingReviews] = useState<ReviewRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [msg, setMsg] = useState('');
@@ -97,25 +122,30 @@ export function MapPlacesSection() {
         city: cityFilter || undefined,
         type: typeFilter || undefined,
         active: activeFilter || undefined,
+        page,
+        limit: 25,
       })
       .then((res) => {
         if (res.error) setError(res.error.message);
-        else setPlaces((res.data as MapPlaceRow[]) ?? []);
+        else {
+          const data = res.data as ListResponse;
+          setPlaces(data?.items ?? []);
+          setTotalPages(data?.pages ?? 1);
+          if (data?.stats) setStats(data.stats);
+        }
         setLoading(false);
       });
-  }, [search, cityFilter, typeFilter, activeFilter]);
+    adminMapLocationReviewService.list({ status: 'PENDING', limit: 10 }).then((res) => {
+      if (res.data) {
+        const d = res.data as { items?: ReviewRow[] };
+        setPendingReviews(d.items ?? []);
+      }
+    });
+  }, [search, cityFilter, typeFilter, activeFilter, page]);
 
   useEffect(() => { load(); }, [load]);
 
-  const kpis = useMemo(() => {
-    const cities = new Set(places.map((p) => p.city));
-    return {
-      total: places.length,
-      verified: places.filter((p) => p.isVerified).length,
-      inactive: places.filter((p) => !p.isActive).length,
-      cities: cities.size,
-    };
-  }, [places]);
+  const kpis = useMemo(() => stats, [stats]);
 
   const openCreate = () => {
     setEditingId(null);
@@ -190,7 +220,7 @@ export function MapPlacesSection() {
       <AdminSectionHeader
         title="Map Places"
         subtitle="Local Saudi location registry — improves parent search accuracy beyond OSM data."
-        count={places.length}
+        count={kpis.total}
         countLabel="places"
         primaryAction={
           <Button variant="primary" size="sm" onClick={openCreate} className="min-h-[44px]">
@@ -211,6 +241,44 @@ export function MapPlacesSection() {
           { label: 'Cities covered', value: kpis.cities, color: '#6366F1' },
         ]}
       />
+
+      {pendingReviews.length > 0 && (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50/60 p-4 space-y-3">
+          <h3 className="text-sm font-semibold text-amber-950">Unverified locations from subscriptions</h3>
+          <ul className="space-y-2">
+            {pendingReviews.map((r) => (
+              <li key={r.id} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 rounded-xl bg-white border border-amber-100 p-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-gray-900 break-words">{r.label}</p>
+                  <p className="text-xs text-gray-500">
+                    {r.locationKind} · {r.source} · {r.confidence} · {Number(r.latitude).toFixed(5)}, {Number(r.longitude).toFixed(5)}
+                  </p>
+                </div>
+                <div className="flex gap-2 shrink-0">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => void adminMapLocationReviewService.ignore(r.id).then(() => load())}
+                  >
+                    Ignore
+                  </Button>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={() =>
+                      void adminMapLocationReviewService
+                        .convert(r.id, { label: r.label, type: 'LANDMARK', city: 'Unknown' })
+                        .then(() => load())
+                    }
+                  >
+                    Save as verified place
+                  </Button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <AdminToolbar
         search={search}
@@ -317,11 +385,22 @@ export function MapPlacesSection() {
                   <Button variant="ghost" size="sm" onClick={() => void copyCoords(r)}>Copy</Button>
                 </div>
               }
-              onClick={() => openEdit(r)}
               compact
             />
           )}
         />
+      )}
+
+      {places.length > 0 && totalPages > 1 && (
+        <div className="flex items-center justify-center gap-3">
+          <Button variant="ghost" size="sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>
+            Previous
+          </Button>
+          <span className="text-xs text-gray-600">Page {page} of {totalPages}</span>
+          <Button variant="ghost" size="sm" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>
+            Next
+          </Button>
+        </div>
       )}
 
       <AdminDrawer
