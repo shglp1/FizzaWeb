@@ -1,3 +1,5 @@
+@import 'leaflet/dist/leaflet.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -74,6 +76,28 @@
   .fizza-map-marker {
     background: transparent !important;
     border: none !important;
+  }
+
+  /* Stable map picker — fixed height, no overlay blocking clicks */
+  .stable-map-shell {
+    @apply relative w-full max-w-full overflow-hidden;
+  }
+  .stable-map-canvas {
+    height: 320px;
+  }
+  @media (min-width: 640px) {
+    .stable-map-canvas {
+      height: 380px;
+    }
+  }
+  .stable-map-footer {
+    position: relative;
+    z-index: 20;
+    pointer-events: auto;
+  }
+  .stable-map-shell .leaflet-container {
+    z-index: 1;
+    font-family: inherit;
   }
 
   /* Inputs */

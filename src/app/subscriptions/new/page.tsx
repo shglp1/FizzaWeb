@@ -6,7 +6,17 @@ import { AppShell } from '@/components/layout/AppShell';
 import { subscriptionService } from '@/services/subscriptionService';
 import { riderService } from '@/services/riderService';
 import { walletService } from '@/services/walletService';
-import { MapLocationPicker, type SelectedLocation } from '@/components/location/MapLocationPicker';
+import { StableMapPicker } from '@/components/location/StableMapPicker';
+import {
+  fromSelectedLocation,
+  subscriptionStepRequiresLocations,
+  toSelectedLocation,
+  type MapPickerLanguage,
+  type SelectedLocation,
+  type StableMapLocationValue,
+} from '@/lib/location/stableMapPickerHelpers';
+
+export type { SelectedLocation };
 import {
   Alert,
   Button,
@@ -361,6 +371,8 @@ export default function NewSubscriptionPage() {
   const [dropoffLocation, setDropoffLocation] = useState<SelectedLocation | null>(null);
   const [pickupPhotoUrl, setPickupPhotoUrl] = useState<string | null>(null);
   const [dropoffPhotoUrl, setDropoffPhotoUrl] = useState<string | null>(null);
+  const [mapLanguage, setMapLanguage] = useState<MapPickerLanguage>('en');
+  const [openMapPicker, setOpenMapPicker] = useState<'pickup' | 'dropoff' | null>('pickup');
   const [pickupTime, setPickupTime] = useState('07:00');
   const [returnTime, setReturnTime] = useState('15:00');
   const [femaleDriver, setFemaleDriver] = useState(false);
@@ -413,6 +425,13 @@ export default function NewSubscriptionPage() {
       setQuoteError('');
     }
   }, [currentQuoteKey, quoteKey]);
+
+  useEffect(() => {
+    if (step !== 2) return;
+    if (!pickupLocation) setOpenMapPicker('pickup');
+    else if (!dropoffLocation) setOpenMapPicker('dropoff');
+    else setOpenMapPicker(null);
+  }, [step, pickupLocation, dropoffLocation]);
 
   // ── Calculate Price ──
   const canCalculate =
@@ -867,45 +886,85 @@ export default function NewSubscriptionPage() {
     </div>
   );
 
-  // ── Step 2: Pickup & drop-off (map) ──
-  const renderStep2 = () => (
-    <div className="space-y-5">
-      <FormSection
-        title={SUBSCRIPTION_STEP_COPY[2]?.title ?? 'Pickup & drop-off'}
-        description="Search or use your current location, then confirm the exact pin on the map for each stop."
-      >
-        <div className="rounded-2xl border border-gray-100 bg-gray-50/50 p-4 sm:p-5 space-y-5">
-          <MapLocationPicker
-            label="Pickup location"
-            value={pickupLocation}
-            onChange={setPickupLocation}
-            placeholder="Search home, district, or landmark…"
-            required
-            photoUrl={pickupPhotoUrl}
-            onPhotoChange={setPickupPhotoUrl}
-            photoKind="pickup"
-          />
-          {!pickupLocation && (
-            <p className="text-xs text-amber-700 -mt-3">Please confirm the exact pickup pin on the map.</p>
-          )}
+  // ── Step 2: Pickup & drop-off (stable map picker) ──
+  const renderStep2 = () => {
+    const pickupStable = fromSelectedLocation(pickupLocation, pickupPhotoUrl);
+    const dropoffStable = fromSelectedLocation(dropoffLocation, dropoffPhotoUrl);
 
-          <MapLocationPicker
-            label="Drop-off location"
-            value={dropoffLocation}
-            onChange={setDropoffLocation}
-            placeholder="Search school, university, or landmark…"
-            required
-            photoUrl={dropoffPhotoUrl}
-            onPhotoChange={setDropoffPhotoUrl}
-            photoKind="dropoff"
-          />
-          {!dropoffLocation && (
-            <p className="text-xs text-amber-700 -mt-3">Please confirm the exact drop-off pin on the map.</p>
+    const confirmPickup = (v: StableMapLocationValue) => {
+      setPickupLocation(toSelectedLocation(v));
+      setPickupPhotoUrl(v.photoUrl ?? null);
+      setOpenMapPicker('dropoff');
+    };
+
+    const confirmDropoff = (v: StableMapLocationValue) => {
+      setDropoffLocation(toSelectedLocation(v));
+      setDropoffPhotoUrl(v.photoUrl ?? null);
+      setOpenMapPicker(null);
+    };
+
+    return (
+      <div className="space-y-5 max-w-full overflow-x-hidden">
+        <FormSection
+          title={SUBSCRIPTION_STEP_COPY[2]?.title ?? 'Pickup & drop-off'}
+          description="Search or use your current location, refine the pin on the map, then confirm each stop."
+        >
+          <div className="flex justify-end mb-3">
+            <span className="inline-flex rounded-lg border border-gray-200 overflow-hidden text-xs">
+              <button
+                type="button"
+                className={`px-3 py-1.5 min-h-[36px] ${mapLanguage === 'en' ? 'bg-emerald-600 text-white' : 'bg-white text-gray-600'}`}
+                onClick={() => setMapLanguage('en')}
+              >
+                EN
+              </button>
+              <button
+                type="button"
+                className={`px-3 py-1.5 min-h-[36px] ${mapLanguage === 'ar' ? 'bg-emerald-600 text-white' : 'bg-white text-gray-600'}`}
+                onClick={() => setMapLanguage('ar')}
+              >
+                AR
+              </button>
+            </span>
+          </div>
+
+          <div className="space-y-4">
+            <StableMapPicker
+              mode="pickup"
+              language={mapLanguage}
+              value={pickupStable}
+              expanded={openMapPicker === 'pickup'}
+              onExpand={() => setOpenMapPicker('pickup')}
+              onConfirm={confirmPickup}
+              onCancel={() => setOpenMapPicker(pickupStable ? null : 'pickup')}
+              allowPhoto
+              disabled={openMapPicker === 'dropoff'}
+            />
+
+            <StableMapPicker
+              mode="dropoff"
+              language={mapLanguage}
+              value={dropoffStable}
+              expanded={openMapPicker === 'dropoff'}
+              onExpand={() => {
+                if (pickupLocation) setOpenMapPicker('dropoff');
+              }}
+              onConfirm={confirmDropoff}
+              onCancel={() => setOpenMapPicker(dropoffStable ? null : pickupLocation ? 'dropoff' : 'pickup')}
+              allowPhoto
+              disabled={!pickupLocation || openMapPicker === 'pickup'}
+            />
+          </div>
+
+          {!subscriptionStepRequiresLocations(pickupStable, dropoffStable) && (
+            <p className="text-xs text-amber-700 mt-4">
+              Confirm both pickup and drop-off on the map to continue to pricing.
+            </p>
           )}
-        </div>
-      </FormSection>
-    </div>
-  );
+        </FormSection>
+      </div>
+    );
+  };
 
   // ── Step 3: Price & add-ons ──
   const renderStep3 = () => (

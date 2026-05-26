@@ -2,7 +2,7 @@
 
 import { MapPin, Users, CalendarDays, CreditCard, Route } from 'lucide-react';
 import { EnterpriseCard, InfoRow } from '@/components/ui/enterprise';
-import type { SelectedLocation } from '@/components/location/MapLocationPicker';
+import type { SelectedLocation } from '@/lib/location/stableMapPickerHelpers';
 
 type TripDirection = 'ONE_WAY' | 'ROUND_TRIP';
 
