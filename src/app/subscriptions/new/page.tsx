@@ -33,6 +33,8 @@ import { FormSection, ActionBar, EnterpriseCard } from '@/components/ui/enterpri
 import { SubscriptionSummaryPanel } from '@/components/subscriptions/SubscriptionSummaryPanel';
 import { SubscriptionWizardStepper } from '@/components/subscriptions/SubscriptionWizardStepper';
 import { LocationStepGuide } from '@/components/subscriptions/LocationStepGuide';
+import { RouteDisplay } from '@/components/subscriptions/RouteDisplay';
+import { SummaryInfoRow, DetailRow } from '@/components/subscriptions/SummaryRows';
 import {
   SUBSCRIPTION_STEP_COPY,
   SUBSCRIPTION_WIZARD_STEP_COUNT,
@@ -146,132 +148,112 @@ function QuoteBreakdown({ quote }: { quote: PriceQuote }) {
   const dayLabels = quote.weekdays.map((d) => DAY_LABELS[d] ?? d).join(', ');
 
   return (
-    <Card className="!bg-emerald-50 !border-emerald-200 space-y-2 text-sm">
-      <p className="font-semibold text-emerald-800 text-base mb-3">Price Breakdown</p>
+    <Card className="!bg-emerald-50 !border-emerald-200 text-sm">
+      <p className="font-semibold text-emerald-800 text-base mb-4">Price Breakdown</p>
 
-      {/* Route summary */}
-      <div className="flex items-start gap-2 pb-3 border-b border-emerald-200">
-        <div className="min-w-0 flex-1 text-xs text-gray-500 leading-relaxed">
-          <span className="font-medium text-gray-700">{quote.normalizedPickupLabel}</span>
-          <span className="mx-1.5 text-emerald-400">→</span>
-          <span className="font-medium text-gray-700">{quote.normalizedDropoffLabel}</span>
-        </div>
+      <div className="pb-4 mb-3 border-b border-emerald-200">
+        <RouteDisplay
+          pickupLabel={quote.normalizedPickupLabel}
+          dropoffLabel={quote.normalizedDropoffLabel}
+          compact
+        />
       </div>
 
-      {/* Distance rows */}
-      <div className="flex justify-between">
-        <span className="text-gray-600">One-way distance</span>
-        <span className="font-medium">{quote.oneWayDistanceKm} km</span>
+      <div className="space-y-0.5">
+        <DetailRow label="One-way distance" value={`${quote.oneWayDistanceKm} km`} />
+        <DetailRow
+          label="Trip direction"
+          value={quote.tripDirection === 'ROUND_TRIP' ? 'Round-trip (×2)' : 'One-way'}
+        />
+        <DetailRow label="Daily chargeable distance" value={`${quote.dailyChargeableDistanceKm} km`} />
       </div>
 
-      <div className="flex justify-between">
-        <span className="text-gray-600">Trip direction</span>
-        <span className="font-medium">
-          {quote.tripDirection === 'ROUND_TRIP' ? 'Round-trip (×2)' : 'One-way'}
-        </span>
-      </div>
-
-      <div className="flex justify-between">
-        <span className="text-gray-600">Daily chargeable distance</span>
-        <span className="font-medium">{quote.dailyChargeableDistanceKm} km</span>
-      </div>
-
-      {/* Service days */}
-      <div className="border-t border-emerald-100 pt-2 space-y-1.5">
-        <div className="flex justify-between">
-          <span className="text-gray-600">Schedule</span>
-          <span className="font-medium text-right">{dayLabels}</span>
-        </div>
-        <div className="flex justify-between">
-          <span className="text-gray-600">Service period</span>
-          <span className="font-medium text-xs text-right">
-            {quote.serviceStartDate} → {quote.serviceEndDate}
-          </span>
-        </div>
-        <div className="flex justify-between">
-          <span className="text-gray-600 font-medium">Service days</span>
-          <span className="font-bold text-emerald-700">{quote.actualServiceDays} days</span>
-        </div>
-        <div className="flex justify-between">
-          <span className="text-gray-600">Total chargeable distance</span>
-          <span className="font-medium">
-            {quote.totalChargeableDistanceKm} km
-            <span className="ml-1 text-xs text-gray-400">
-              ({quote.dailyChargeableDistanceKm} × {quote.actualServiceDays})
+      <div className="border-t border-emerald-100 pt-2 mt-2 space-y-0.5">
+        <DetailRow label="Schedule" value={dayLabels} />
+        <DetailRow label="Service period" value={`${quote.serviceStartDate} → ${quote.serviceEndDate}`} />
+        <DetailRow label="Service days" value={`${quote.actualServiceDays} days`} />
+        <DetailRow
+          label="Total chargeable distance"
+          value={
+            <span>
+              {quote.totalChargeableDistanceKm} km
+              <span className="block text-xs font-normal text-gray-500 mt-0.5">
+                ({quote.dailyChargeableDistanceKm} × {quote.actualServiceDays})
+              </span>
             </span>
-          </span>
-        </div>
+          }
+        />
       </div>
 
-      {/* Price rows */}
-      <div className="border-t border-emerald-100 pt-2">
-        <div className="flex justify-between">
-          <span className="text-gray-600">
-            Distance charge
-            <span className="ml-1 text-xs text-gray-400">
-              ({quote.totalChargeableDistanceKm} km × SAR {quote.pricePerKmSar}/km)
+      <div className="border-t border-emerald-100 pt-2 mt-2 space-y-0.5">
+        <DetailRow
+          label={
+            <span>
+              Distance charge
+              <span className="block text-xs font-normal text-gray-500 mt-0.5">
+                {quote.totalChargeableDistanceKm} km × SAR {quote.pricePerKmSar}/km
+              </span>
             </span>
-          </span>
-          <span className="font-medium">SAR {quote.distanceChargeSar.toFixed(2)}</span>
-        </div>
+          }
+          value={`SAR ${quote.distanceChargeSar.toFixed(2)}`}
+        />
       </div>
 
       {quote.packagePriceSar > 0 && (
-        <div className="flex justify-between">
-          <span className="text-gray-600">
-            Package{quote.packageName ? ` (${quote.packageName})` : ''}
-          </span>
-          <span className="font-medium">SAR {quote.packagePriceSar.toFixed(2)}</span>
-        </div>
+        <DetailRow
+          label={`Package${quote.packageName ? ` (${quote.packageName})` : ''}`}
+          value={`SAR ${quote.packagePriceSar.toFixed(2)}`}
+        />
       )}
 
       {quote.addOnsPriceSar > 0 && (
-        <div className="flex justify-between">
-          <span className="text-gray-600">
-            Add-ons
-            {quote.addOns.length > 0 && (
-              <span className="ml-1 text-xs text-gray-400">
-                ({quote.addOns.map((a) => a.name).join(', ')})
-              </span>
-            )}
-          </span>
-          <span className="font-medium">SAR {quote.addOnsPriceSar.toFixed(2)}</span>
-        </div>
+        <DetailRow
+          label={
+            <span>
+              Add-ons
+              {quote.addOns.length > 0 && (
+                <span className="block text-xs font-normal text-gray-500 mt-0.5">
+                  {quote.addOns.map((a) => a.name).join(', ')}
+                </span>
+              )}
+            </span>
+          }
+          value={`SAR ${quote.addOnsPriceSar.toFixed(2)}`}
+        />
       )}
 
       {quote.extraRiderChargeSar > 0 && (
-        <div className="flex justify-between">
-          <span className="text-gray-600">
-            Extra rider{quote.extraRiderCount > 1 ? 's' : ''} ({quote.extraRiderCount} ×{' '}
-            {(quote.extraRiderSameDropoffMultiplier * 100).toFixed(0)}%)
-          </span>
-          <span className="font-medium">SAR {quote.extraRiderChargeSar.toFixed(2)}</span>
-        </div>
+        <DetailRow
+          label={`Extra rider${quote.extraRiderCount > 1 ? 's' : ''} (${quote.extraRiderCount} × ${(quote.extraRiderSameDropoffMultiplier * 100).toFixed(0)}%)`}
+          value={`SAR ${quote.extraRiderChargeSar.toFixed(2)}`}
+        />
       )}
 
       {(quote.promoDiscountSar ?? 0) > 0 && (
-        <div className="flex justify-between text-emerald-700">
-          <span>
-            Promo {quote.promo?.code}
-            {quote.promo?.discountPercent ? ` (${quote.promo.discountPercent}% off)` : ''}
-          </span>
-          <span className="font-medium">− SAR {quote.promoDiscountSar!.toFixed(2)}</span>
-        </div>
+        <DetailRow
+          className="text-emerald-700"
+          label={`Promo ${quote.promo?.code}${quote.promo?.discountPercent ? ` (${quote.promo.discountPercent}% off)` : ''}`}
+          value={`− SAR ${quote.promoDiscountSar!.toFixed(2)}`}
+        />
       )}
 
       {(quote.loyaltyDiscountSar ?? 0) > 0 && (
-        <div className="flex justify-between text-purple-700">
-          <span>Loyalty points ({quote.loyaltyPointsUsed ?? 0} pts)</span>
-          <span className="font-medium">− SAR {quote.loyaltyDiscountSar!.toFixed(2)}</span>
-        </div>
+        <DetailRow
+          className="text-purple-700"
+          label={`Loyalty points (${quote.loyaltyPointsUsed ?? 0} pts)`}
+          value={`− SAR ${quote.loyaltyDiscountSar!.toFixed(2)}`}
+        />
       )}
 
-      <div className="border-t border-emerald-200 pt-2 flex justify-between font-bold text-base">
-        <span className="text-emerald-800">Total ({quote.billingCycle})</span>
-        <span className="text-emerald-700">SAR {quote.finalPriceSar.toFixed(2)}</span>
+      <div className="border-t border-emerald-200 pt-3 mt-3">
+        <DetailRow
+          emphasis
+          label={`Total (${quote.billingCycle})`}
+          value={`SAR ${quote.finalPriceSar.toFixed(2)}`}
+        />
       </div>
 
-      <p className="text-xs text-gray-400 pt-1">
+      <p className="text-xs text-gray-400 pt-3 leading-relaxed">
         Calculated via {mapDistanceProviderLabel(quote.distanceProvider, quote.distanceApproximate)}.
         {quote.distanceApproximate && (
           <span className="block text-amber-700 mt-1">
@@ -1167,54 +1149,54 @@ export default function NewSubscriptionPage() {
         title={SUBSCRIPTION_STEP_COPY[4]?.title ?? 'Review & confirm'}
         description="Everything looks good? Confirm to create your subscription and proceed to payment."
       >
-        <EnterpriseCard className="!shadow-none border-gray-200">
-          <dl className="space-y-2 text-sm divide-y divide-gray-50">
+        <EnterpriseCard className="!shadow-none border-gray-200" padding="sm">
+          <dl>
             {selectedPackageId && (
-              <div className="flex gap-2 py-2">
-                <dt className="text-gray-500 w-28 shrink-0">Package</dt>
-                <dd className="font-medium text-gray-900">{packages.find((p) => p.id === selectedPackageId)?.name}</dd>
-              </div>
+              <SummaryInfoRow
+                label="Package"
+                value={packages.find((p) => p.id === selectedPackageId)?.name}
+              />
             )}
-            <div className="flex gap-2 py-2">
-              <dt className="text-gray-500 w-28 shrink-0">Type</dt>
-              <dd className="font-medium text-gray-900 capitalize">{subscriptionType}</dd>
-            </div>
+            <SummaryInfoRow label="Type" value={<span className="capitalize">{subscriptionType}</span>} />
             {selectedRiderIds.length > 0 && (
-              <div className="flex gap-2 py-2">
-                <dt className="text-gray-500 w-28 shrink-0">Riders</dt>
-                <dd className="font-medium text-gray-900">
-                  {selectedRiderIds.map((id) => riders.find((r) => r.id === id)?.name).join(', ')}
-                </dd>
-              </div>
+              <SummaryInfoRow
+                label="Riders"
+                value={selectedRiderIds.map((id) => riders.find((r) => r.id === id)?.name).join(', ')}
+              />
             )}
-            <div className="flex gap-2 py-2">
-              <dt className="text-gray-500 w-28 shrink-0">Route</dt>
-              <dd className="font-medium text-gray-900 leading-snug">
-                {pickupLocation?.label ?? '—'} → {dropoffLocation?.label ?? '—'}
-                <span className="block text-xs text-gray-500 font-normal mt-0.5">
-                  {tripDirection === 'ROUND_TRIP' ? 'Round trip' : 'One way'}
-                </span>
-              </dd>
-            </div>
-            <div className="flex gap-2 py-2">
-              <dt className="text-gray-500 w-28 shrink-0">Times</dt>
-              <dd className="font-medium text-gray-900">
-                {pickupTime} pickup{tripDirection === 'ROUND_TRIP' ? ` · ${returnTime} return` : ''}
-              </dd>
-            </div>
-            <div className="flex gap-2 py-2">
-              <dt className="text-gray-500 w-28 shrink-0">Days</dt>
-              <dd className="font-medium text-gray-900">
-                {weekdays.map((d) => WEEKDAYS.find((w) => w.day === d)?.label).join(', ')}
-              </dd>
-            </div>
+            <SummaryInfoRow
+              label="Route"
+              value={
+                <div className="space-y-2">
+                  <RouteDisplay
+                    pickupLabel={pickupLocation?.label ?? '—'}
+                    dropoffLabel={dropoffLocation?.label ?? '—'}
+                    compact
+                  />
+                  <p className="text-xs text-gray-500">
+                    {tripDirection === 'ROUND_TRIP' ? 'Round trip' : 'One way'}
+                  </p>
+                </div>
+              }
+            />
+            <SummaryInfoRow
+              label="Times"
+              value={
+                <>
+                  {pickupTime} pickup
+                  {tripDirection === 'ROUND_TRIP' && returnTime ? ` · ${returnTime} return` : ''}
+                </>
+              }
+            />
+            <SummaryInfoRow
+              label="Days"
+              value={weekdays.map((d) => WEEKDAYS.find((w) => w.day === d)?.label).join(', ')}
+            />
             {selectedAddOnIds.length > 0 && (
-              <div className="flex gap-2 py-2">
-                <dt className="text-gray-500 w-28 shrink-0">Add-ons</dt>
-                <dd className="font-medium text-gray-900">
-                  {selectedAddOnIds.map((id) => addOns.find((a) => a.id === id)?.name).join(', ')}
-                </dd>
-              </div>
+              <SummaryInfoRow
+                label="Add-ons"
+                value={selectedAddOnIds.map((id) => addOns.find((a) => a.id === id)?.name).join(', ')}
+              />
             )}
           </dl>
         </EnterpriseCard>
@@ -1274,8 +1256,8 @@ export default function NewSubscriptionPage() {
         <p className="text-sm text-gray-500 mt-1">Set up safe, scheduled transport for your family in a few steps.</p>
       </div>
 
-      <div className="grid lg:grid-cols-3 gap-6 lg:gap-8 items-start">
-        <EnterpriseCard className="lg:col-span-2" padding="lg">
+      <div className="grid lg:grid-cols-3 gap-4 sm:gap-6 lg:gap-8 items-start">
+        <EnterpriseCard className="lg:col-span-2 !p-4 sm:!p-6 lg:!p-8 order-2 lg:order-1" padding="none">
           <SubscriptionWizardStepper step={step} />
 
           {steps[step]?.()}
@@ -1312,21 +1294,21 @@ export default function NewSubscriptionPage() {
           </ActionBar>
         </EnterpriseCard>
 
-        <div className="lg:col-span-1 space-y-4">
+        <aside className="lg:col-span-1 order-1 lg:order-2 mb-1 lg:mb-0">
           <div className="hidden lg:block">
             <SubscriptionSummaryPanel {...summaryProps} />
           </div>
           <div className="lg:hidden">
-            <details className="rounded-2xl border border-emerald-200 bg-emerald-50/30">
-              <summary className="px-4 py-3 text-sm font-semibold text-emerald-800 cursor-pointer">
-                View summary
+            <details className="rounded-2xl border border-emerald-200 bg-emerald-50/30" open={isLastStep || undefined}>
+              <summary className="px-4 py-3.5 text-sm font-semibold text-emerald-800 cursor-pointer min-h-[44px] flex items-center list-none [&::-webkit-details-marker]:hidden">
+                {isLastStep ? 'Subscription summary' : 'View summary'}
               </summary>
-              <div className="px-1 pb-2">
+              <div className="px-0 pb-1">
                 <SubscriptionSummaryPanel {...summaryProps} compact />
               </div>
             </details>
           </div>
-        </div>
+        </aside>
       </div>
     </AppShell>
   );

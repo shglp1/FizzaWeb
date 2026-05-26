@@ -35,8 +35,18 @@ function withNormalized(row: MapPlaceSeedRow) {
   return { ...row, ...buildMapPlaceNormalizedFields(row) };
 }
 
+type MapPlaceBackfillRow = {
+  id: string;
+  nameAr: string;
+  nameEn: string;
+  aliasesAr: unknown;
+  aliasesEn: unknown;
+  normalizedNameAr?: string;
+  normalizedNameEn?: string;
+};
+
 async function backfillMapPlaceNormalized() {
-  const places = await prisma.mapPlace.findMany();
+  const places = (await prisma.mapPlace.findMany()) as MapPlaceBackfillRow[];
   let updated = 0;
   for (const place of places) {
     if (place.normalizedNameAr && place.normalizedNameEn) continue;

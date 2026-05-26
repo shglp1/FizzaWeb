@@ -1,7 +1,9 @@
 'use client';
 
-import { MapPin, Users, CalendarDays, CreditCard, Route } from 'lucide-react';
-import { EnterpriseCard, InfoRow } from '@/components/ui/enterprise';
+import { MapPin, Users, CalendarDays, CreditCard } from 'lucide-react';
+import { EnterpriseCard } from '@/components/ui/enterprise';
+import { RouteDisplay } from '@/components/subscriptions/RouteDisplay';
+import { SummaryInfoRow } from '@/components/subscriptions/SummaryRows';
 import type { SelectedLocation } from '@/lib/location/stableMapPickerHelpers';
 
 type TripDirection = 'ONE_WAY' | 'ROUND_TRIP';
@@ -47,6 +49,9 @@ export function SubscriptionSummaryPanel({
   quoteLoading,
   compact = false,
 }: Props) {
+  const pickupLabel = quote?.normalizedPickupLabel ?? pickup?.label ?? 'Pickup TBD';
+  const dropoffLabel = quote?.normalizedDropoffLabel ?? dropoff?.label ?? 'Drop-off TBD';
+
   return (
     <EnterpriseCard
       accent
@@ -54,72 +59,73 @@ export function SubscriptionSummaryPanel({
       header={
         <div>
           <p className="text-xs font-semibold text-emerald-700 uppercase tracking-wide">Your plan</p>
-          <p className="text-lg font-bold text-gray-900 mt-0.5">Subscription summary</p>
+          <p className={`font-bold text-gray-900 mt-0.5 ${compact ? 'text-base' : 'text-lg'}`}>
+            Subscription summary
+          </p>
         </div>
       }
       padding="none"
     >
-      <div className="px-5 sm:px-6 pb-5 sm:pb-6 space-y-4">
-        <dl className="space-y-1">
-          <InfoRow
+      <div className={`${compact ? 'px-4 pb-4' : 'px-4 sm:px-5 pb-4 sm:pb-5'} space-y-3`}>
+        <dl>
+          <SummaryInfoRow
             label="Plan"
             value={packageName ?? (step > 0 ? 'Custom pricing' : 'Not selected')}
           />
           {riderNames.length > 0 && (
-            <InfoRow
+            <SummaryInfoRow
               label="Riders"
               value={
-                <span className="inline-flex items-center gap-1.5">
-                  <Users className="h-3.5 w-3.5 text-gray-400" aria-hidden />
+                <span className="inline-flex items-center gap-2">
+                  <Users className="h-4 w-4 text-gray-400 shrink-0" aria-hidden />
                   {riderNames.join(', ')}
                 </span>
               }
             />
           )}
           {weekdaysLabel && (
-            <InfoRow
+            <SummaryInfoRow
               label="Schedule"
               value={
-                <span className="inline-flex items-start gap-1.5">
-                  <CalendarDays className="h-3.5 w-3.5 text-gray-400 mt-0.5 shrink-0" aria-hidden />
-                  <span>
-                    {weekdaysLabel}
-                    {serviceDaysCount > 0 && (
-                      <span className="block text-xs font-normal text-gray-500 mt-0.5">
-                        {serviceDaysCount} service days in billing period
-                      </span>
-                    )}
+                <span className="block">
+                  <span className="inline-flex items-start gap-2">
+                    <CalendarDays className="h-4 w-4 text-gray-400 mt-0.5 shrink-0" aria-hidden />
+                    <span>{weekdaysLabel}</span>
                   </span>
+                  {serviceDaysCount > 0 && (
+                    <span className="block text-xs font-normal text-gray-500 mt-1.5 ps-6">
+                      {serviceDaysCount} service days in billing period
+                    </span>
+                  )}
                 </span>
               }
             />
           )}
-          {(pickup || dropoff) && (
-            <InfoRow
+          {(pickup || dropoff || quote) && (
+            <SummaryInfoRow
               label="Route"
               value={
-                <span className="inline-flex items-start gap-1.5">
-                  <Route className="h-3.5 w-3.5 text-gray-400 mt-0.5 shrink-0" aria-hidden />
-                  <span className="leading-snug">
-                    {pickup?.label ?? 'Pickup TBD'}
-                    <span className="text-emerald-600 mx-1">→</span>
-                    {dropoff?.label ?? 'Drop-off TBD'}
-                    <span className="block text-xs font-normal text-gray-500 mt-1">
-                      {tripDirection === 'ROUND_TRIP' ? 'Round trip' : 'One way'}
-                      {pickupTime && ` · Pickup ${pickupTime}`}
-                      {tripDirection === 'ROUND_TRIP' && returnTime && ` · Return ${returnTime}`}
-                    </span>
-                  </span>
-                </span>
+                <div className="space-y-2">
+                  <RouteDisplay
+                    pickupLabel={pickupLabel}
+                    dropoffLabel={dropoffLabel}
+                    compact={compact}
+                  />
+                  <p className="text-xs text-gray-500">
+                    {tripDirection === 'ROUND_TRIP' ? 'Round trip' : 'One way'}
+                    {pickupTime && ` · Pickup ${pickupTime}`}
+                    {tripDirection === 'ROUND_TRIP' && returnTime && ` · Return ${returnTime}`}
+                  </p>
+                </div>
               }
             />
           )}
           {addOnLabels.length > 0 && (
-            <InfoRow label="Add-ons" value={addOnLabels.join(', ')} />
+            <SummaryInfoRow label="Add-ons" value={addOnLabels.join(', ')} />
           )}
         </dl>
 
-        <div className="rounded-xl bg-emerald-50 border border-emerald-100 p-4">
+        <div className="rounded-xl bg-emerald-50 border border-emerald-100 p-3.5 sm:p-4">
           {quoteLoading ? (
             <div className="space-y-2" role="status">
               <p className="text-sm font-medium text-emerald-800">Calculating route distance and price…</p>
@@ -129,22 +135,22 @@ export function SubscriptionSummaryPanel({
             </div>
           ) : quote ? (
             <>
-              <div className="flex items-center justify-between gap-2">
+              <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between sm:gap-3">
                 <span className="text-sm text-gray-600">Estimated total</span>
-                <span className="text-2xl font-bold text-emerald-800">
+                <span className="text-2xl font-bold text-emerald-800 tabular-nums">
                   SAR {quote.finalPriceSar.toLocaleString()}
                 </span>
               </div>
-              <p className="text-xs text-gray-500 mt-2 flex items-center gap-1">
-                <MapPin className="h-3 w-3" aria-hidden />
+              <p className="text-xs text-gray-500 mt-2 flex items-start gap-1.5">
+                <MapPin className="h-3.5 w-3.5 shrink-0 mt-0.5" aria-hidden />
                 {quote.oneWayDistanceKm} km one-way · {quote.actualServiceDays} service days
               </p>
-              <p className="text-xs text-emerald-700 mt-2">
+              <p className="text-xs text-emerald-700 mt-2 leading-relaxed">
                 Distance is calculated across all selected service days, not only one trip.
               </p>
             </>
           ) : (
-            <p className="text-sm text-gray-600">
+            <p className="text-sm text-gray-600 leading-relaxed">
               {step >= 3
                 ? 'Complete route details and calculate price to see your total.'
                 : 'Your estimate will appear here as you complete each step.'}
@@ -153,8 +159,8 @@ export function SubscriptionSummaryPanel({
         </div>
 
         {quote && (
-          <p className="text-xs text-gray-400 flex items-center gap-1">
-            <CreditCard className="h-3 w-3" aria-hidden />
+          <p className="text-xs text-gray-400 flex items-start gap-1.5 leading-relaxed">
+            <CreditCard className="h-3.5 w-3.5 shrink-0 mt-0.5" aria-hidden />
             Payment is collected after you confirm on the final step.
           </p>
         )}
