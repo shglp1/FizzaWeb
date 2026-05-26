@@ -4,6 +4,34 @@
 
 import type { TripStatus } from '../trips/tripLifecycle.ts';
 import { isActiveStatus, isTrackableStatus, TRIP_STATUS_LABEL } from '../trips/tripLifecycle.ts';
+import {
+  DRIVER_TIMEZONE as DRIVER_TZ,
+  addDaysToDateKey as addDaysToDateKeyInTz,
+  getTimezoneDateKey as getTzDateKey,
+  getTripDateKey as getTripLocalDateKey,
+  getWeekDateRangeInTimezone,
+} from './driverTripSelection.ts';
+
+export {
+  DRIVER_ACTIVE_STATUSES,
+  DRIVER_TERMINAL_STATUSES,
+  DRIVER_TIMEZONE,
+  DRIVER_UPCOMING_STATUSES,
+  computeDriverTripCounts,
+  explainNextTripExclusion,
+  filterDriverAssignedTrips,
+  filterTripsForLocalDate,
+  addDaysToDateKey,
+  getTimezoneDateKey,
+  getTripDateKey,
+  getWeekDateRangeInTimezone,
+  isDriverActiveTrip,
+  isDriverNextTripCandidate,
+  isTripAssignedToDriver,
+  pickNextDriverTrip,
+  resolveTripStartMs,
+  sortTripsByStartAsc,
+} from './driverTripSelection.ts';
 
 export type DriverTripTab =
   | 'today'
@@ -78,7 +106,12 @@ const ACTION_LABEL: Partial<Record<TripStatus, string>> = {
   NO_SHOW: 'No show',
 };
 
-export function getDriverPrimaryAction(status: TripStatus, withinTrackingWindow = true): DriverPrimaryAction {
+export function getDriverPrimaryAction(
+  status: TripStatus,
+  withinTrackingWindow = true,
+  options?: { isAssignedToCurrentDriver?: boolean },
+): DriverPrimaryAction {
+  const isAssigned = options?.isAssignedToCurrentDriver ?? false;
   if (status === 'COMPLETED') {
     return { label: 'View summary', kind: 'view' };
   }
@@ -86,6 +119,21 @@ export function getDriverPrimaryAction(status: TripStatus, withinTrackingWindow 
     return { label: ACTION_LABEL[status] ?? status, kind: 'none', disabled: true, disabledReason: 'Trip is read-only.' };
   }
   if (status === 'SCHEDULED') {
+    if (isAssigned) {
+      if (!withinTrackingWindow) {
+        return {
+          label: 'Navigate to pickup',
+          kind: 'navigate',
+          disabled: true,
+          disabledReason: 'GPS opens 10 minutes before pickup.',
+        };
+      }
+      return {
+        label: 'Start pre-trip',
+        nextStatus: 'PRE_TRIP',
+        kind: 'status',
+      };
+    }
     return {
       label: 'Awaiting dispatch',
       kind: 'none',
@@ -268,19 +316,34 @@ export function isWithinTrackingWindow(scheduledPickupTime: string | null, nowMs
   return mins <= 10;
 }
 
-export function fmtDriverTime(t: string | null): string {
+export function fmtDriverTime(t: string | null, timeZone = DRIVER_TZ): string {
   if (!t) return '—';
-  return new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  return new Date(t).toLocaleTimeString('en-SA', {
+    timeZone,
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 }
 
-export function fmtDriverDate(d: string): string {
-  const dt = new Date(d.includes('T') ? d : `${d}T12:00:00`);
-  const today = new Date();
-  const tomorrow = new Date(today);
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  if (dt.toDateString() === today.toDateString()) return 'Today';
-  if (dt.toDateString() === tomorrow.toDateString()) return 'Tomorrow';
-  return dt.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+export function fmtDriverDate(d: string, now = new Date(), timeZone = DRIVER_TZ): string {
+  const tripKey = getTripLocalDateKey({ scheduledDate: d }, timeZone);
+  const todayKey = getTzDateKey(now, timeZone);
+  const tomorrowKey = addDaysToDateKeyInTz(todayKey, 1, timeZone);
+  if (tripKey === todayKey) return 'Today';
+  if (tripKey === tomorrowKey) return 'Tomorrow';
+  const dt = d.includes('T') ? new Date(d) : new Date(`${d.split('T')[0]}T12:00:00.000Z`);
+  return dt.toLocaleDateString('en-US', { timeZone, weekday: 'short', month: 'short', day: 'numeric' });
+}
+
+export function fmtDriverDateTimeLabel(
+  trip: { scheduledDate: string; scheduledPickupTime?: string | null },
+  now = new Date(),
+  timeZone = DRIVER_TZ,
+): string {
+  const dateLabel = fmtDriverDate(trip.scheduledDate, now, timeZone);
+  const timeLabel = fmtDriverTime(trip.scheduledPickupTime ?? null, timeZone);
+  if (dateLabel === 'Today') return timeLabel;
+  return `${dateLabel} · ${timeLabel}`;
 }
 
 /** Returns true when page should render driver-specific UI (not parent). */
@@ -296,10 +359,7 @@ export const CHAT_BLOCKED_LABEL = 'Your chat access is restricted due to FIZZA s
 export const ROUTE_GEOMETRY_FALLBACK_LABEL = 'Road route unavailable; showing approximate route.';
 
 export function getWeekDateRange(now = new Date()): { from: string; to: string } {
-  const from = now.toISOString().split('T')[0]!;
-  const end = new Date(now);
-  end.setDate(end.getDate() + 6);
-  return { from, to: end.toISOString().split('T')[0]! };
+  return getWeekDateRangeInTimezone(now, DRIVER_TZ);
 }
 
 export function buildDriverTripsListParams(
@@ -308,10 +368,8 @@ export function buildDriverTripsListParams(
   limit = 50,
   now = new Date(),
 ): { status?: string; from?: string; to?: string; page: number; limit: number } {
-  const today = now.toISOString().split('T')[0]!;
-  const tomorrowDate = new Date(now);
-  tomorrowDate.setDate(tomorrowDate.getDate() + 1);
-  const tomorrow = tomorrowDate.toISOString().split('T')[0]!;
+  const today = getTzDateKey(now, DRIVER_TZ);
+  const tomorrow = addDaysToDateKeyInTz(today, 1, DRIVER_TZ);
   const week = getWeekDateRange(now);
 
   switch (tab) {

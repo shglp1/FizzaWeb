@@ -25,12 +25,21 @@ import {
   CHAT_UNAVAILABLE_BEFORE_LABEL,
   DRIVER_ROUTE_SHEET_TABS,
   buildDriverTripsListParams,
+  computeDriverTripCounts,
+  filterDriverAssignedTrips,
+  filterTripsForLocalDate,
   fmtDriverDate,
+  fmtDriverDateTimeLabel,
   fmtDriverTime,
   formatCountdown,
   getDriverPrimaryAction,
+  getTimezoneDateKey,
+  isDriverActiveTrip,
   isWithinTrackingWindow,
   minutesUntilPickup,
+  pickNextDriverTrip,
+  sortTripsByStartAsc,
+  addDaysToDateKey,
   type DriverTripTab,
 } from '@/lib/ui/driverPortal';
 import { formatDriverRiderMeta } from '@/lib/riders/riderExposure';
@@ -52,11 +61,10 @@ type Trip = {
   dropoffLat: number | null;
   dropoffLng: number | null;
   statusReason: string | null;
+  driverId?: string | null;
   rider: { name: string; school: string | null; grade?: string | null; specialNeeds?: boolean; pickupNotes?: string | null; dropoffNotes?: string | null } | null;
 };
 
-const ACTIVE = new Set(['PRE_TRIP', 'ON_THE_WAY', 'ARRIVED_PICKUP', 'PICKED_UP', 'EN_ROUTE_DROPOFF', 'ARRIVED_DROPOFF']);
-const UPCOMING = new Set(['SCHEDULED', 'DRIVER_ASSIGNED']);
 const CANCELLED = new Set(['CANCELLED', 'NO_SHOW']);
 
 export function DriverRouteSheet() {
@@ -76,8 +84,16 @@ export function DriverRouteSheet() {
   const [lateReason, setLateReason] = useState('');
   const [actionMsg, setActionMsg] = useState('');
   const [gpsActive, setGpsActive] = useState(false);
+  const [nowMs, setNowMs] = useState(() => Date.now());
 
-  const today = new Date().toISOString().split('T')[0]!;
+  useEffect(() => {
+    const id = window.setInterval(() => setNowMs(Date.now()), 60_000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  const now = new Date(nowMs);
+  const todayKey = getTimezoneDateKey(now);
+  const tomorrowKey = addDaysToDateKey(todayKey, 1);
 
   const loadTrips = useCallback(async (pageNum = 1, append = false) => {
     setPageError('');
@@ -112,25 +128,24 @@ export function DriverRouteSheet() {
     });
   }, [trips]);
 
-  const todayTrips = trips.filter((t) => t.scheduledDate.startsWith(today));
-  const activeTrip = trips.find((t) => ACTIVE.has(t.status));
-  const nextTrip = todayTrips
-    .filter((t) => UPCOMING.has(t.status))
-    .sort((a, b) => (a.scheduledPickupTime ?? '').localeCompare(b.scheduledPickupTime ?? ''))[0];
-  const completedToday = todayTrips.filter((t) => t.status === 'COMPLETED').length;
-  const remainingToday = todayTrips.filter((t) => !['COMPLETED', 'CANCELLED', 'NO_SHOW'].includes(t.status)).length;
+  const assignedTrips = filterDriverAssignedTrips(trips);
+  const counts = computeDriverTripCounts(assignedTrips, nowMs, now);
+  const todayTrips = sortTripsByStartAsc(filterTripsForLocalDate(assignedTrips, todayKey));
+  const activeTrip = assignedTrips.find((t) => isDriverActiveTrip(t)) ?? null;
+  const nextTrip = pickNextDriverTrip(assignedTrips, nowMs);
 
   function displayTrips(): Trip[] {
     switch (activeTab) {
       case 'today':
-        return todayTrips.sort((a, b) => (a.scheduledPickupTime ?? '').localeCompare(b.scheduledPickupTime ?? ''));
+        return todayTrips;
+      case 'tomorrow':
+        return sortTripsByStartAsc(filterTripsForLocalDate(assignedTrips, tomorrowKey));
       case 'week':
-        return [...trips].sort((a, b) => {
-          const d = a.scheduledDate.localeCompare(b.scheduledDate);
-          return d !== 0 ? d : (a.scheduledPickupTime ?? '').localeCompare(b.scheduledPickupTime ?? '');
-        });
+        return sortTripsByStartAsc(assignedTrips);
+      case 'active':
+        return assignedTrips.filter((t) => isDriverActiveTrip(t));
       default:
-        return trips;
+        return assignedTrips;
     }
   }
 
@@ -141,7 +156,9 @@ export function DriverRouteSheet() {
 
   async function handlePrimary(trip: Trip) {
     const status = trip.status as TripStatus;
-    const action = getDriverPrimaryAction(status, isWithinTrackingWindow(trip.scheduledPickupTime));
+    const action = getDriverPrimaryAction(status, isWithinTrackingWindow(trip.scheduledPickupTime, nowMs), {
+      isAssignedToCurrentDriver: true,
+    });
     if (action.kind === 'status' && action.nextStatus) {
       setActionLoading(true);
       await tripService.updateStatus(trip.id, action.nextStatus);
@@ -153,7 +170,9 @@ export function DriverRouteSheet() {
 
   async function handleActiveAdvance() {
     if (!activeTrip) return;
-    const action = getDriverPrimaryAction(activeTrip.status as TripStatus, isWithinTrackingWindow(activeTrip.scheduledPickupTime));
+    const action = getDriverPrimaryAction(activeTrip.status as TripStatus, isWithinTrackingWindow(activeTrip.scheduledPickupTime, nowMs), {
+      isAssignedToCurrentDriver: true,
+    });
     if (!action.nextStatus) return;
     setActionLoading(true);
     await tripService.updateStatus(activeTrip.id, action.nextStatus);
@@ -198,13 +217,20 @@ export function DriverRouteSheet() {
 
   const tabs = DRIVER_ROUTE_SHEET_TABS.map((t) => ({
     ...t,
-    count: t.value === 'today' ? todayTrips.length :
-      t.value === 'active' ? trips.filter((x) => ACTIVE.has(x.status)).length : undefined,
+    count: t.value === 'today' ? counts.todayTotal :
+      t.value === 'active' ? counts.active : undefined,
   }));
 
-  const dateLabel = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+  const dateLabel = now.toLocaleDateString('en-US', {
+    timeZone: 'Asia/Riyadh',
+    weekday: 'long',
+    month: 'short',
+    day: 'numeric',
+  });
   const activeAction = activeTrip
-    ? getDriverPrimaryAction(activeTrip.status as TripStatus, isWithinTrackingWindow(activeTrip.scheduledPickupTime))
+    ? getDriverPrimaryAction(activeTrip.status as TripStatus, isWithinTrackingWindow(activeTrip.scheduledPickupTime, nowMs), {
+      isAssignedToCurrentDriver: true,
+    })
     : null;
   const navUrl = activeTrip
     ? tripToGoogleMapsUrl(activeTrip)
@@ -214,7 +240,7 @@ export function DriverRouteSheet() {
     <div className="max-w-3xl mx-auto driver-portal pb-28 md:pb-6">
       <DriverCommandHeader
         title="My Route Sheet"
-        subtitle={`${totalCount || trips.length} assigned trips`}
+        subtitle={`${assignedTrips.length} assigned trips`}
         dateLabel={dateLabel}
         gpsIndicator={gpsActive ? 'active' : 'idle'}
       />
@@ -225,10 +251,10 @@ export function DriverRouteSheet() {
 
       {!loading && !pageError && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mb-4">
-          <DriverKpiCard icon={Calendar} value={todayTrips.length} label="Today total" accent="#0B683A" />
-          <DriverKpiCard icon={Clock} value={activeTrip ? 1 : 0} label="Active" accent="#14A34A" />
-          <DriverKpiCard icon={CheckCircle2} value={completedToday} label="Completed" accent="#1D4ED8" />
-          <DriverKpiCard icon={MapPin} value={remainingToday} label="Remaining" accent="#7C3AED" helper={nextTrip ? `Next ${fmtDriverTime(nextTrip.scheduledPickupTime)}` : undefined} />
+          <DriverKpiCard icon={Calendar} value={counts.todayTotal} label="Today total" accent="#0B683A" />
+          <DriverKpiCard icon={Clock} value={counts.active} label="Active" accent="#14A34A" />
+          <DriverKpiCard icon={CheckCircle2} value={counts.completedToday} label="Completed" accent="#1D4ED8" />
+          <DriverKpiCard icon={MapPin} value={counts.remainingToday} label="Remaining" accent="#7C3AED" helper={nextTrip ? `Next ${fmtDriverDateTimeLabel(nextTrip, now)}` : undefined} />
         </div>
       )}
 
@@ -240,7 +266,7 @@ export function DriverRouteSheet() {
             riderName={activeTrip.rider?.name ?? 'Rider'}
             pickup={activeTrip.pickupLocation}
             dropoff={activeTrip.dropoffLocation}
-            time={fmtDriverTime(activeTrip.scheduledPickupTime)}
+            time={fmtDriverDateTimeLabel(activeTrip, now)}
             statusLabel="Active now"
             gpsStatus={gpsActive ? 'active' : 'idle'}
             primaryAction={activeAction?.label}
@@ -265,7 +291,7 @@ export function DriverRouteSheet() {
         </div>
       )}
 
-      {!loading && !activeTrip && nextTrip && activeTab === 'today' && (
+      {!loading && !activeTrip && nextTrip && (activeTab === 'today' || activeTab === 'week') && (
         <div className="mb-4">
           <DriverSectionTitle title="Next trip" />
           <DriverActionHero
@@ -273,11 +299,11 @@ export function DriverRouteSheet() {
             riderName={nextTrip.rider?.name ?? 'Rider'}
             pickup={nextTrip.pickupLocation}
             dropoff={nextTrip.dropoffLocation}
-            time={fmtDriverTime(nextTrip.scheduledPickupTime)}
-            countdown={formatCountdown(minutesUntilPickup(nextTrip.scheduledPickupTime))}
+            time={fmtDriverDateTimeLabel(nextTrip, now)}
+            countdown={formatCountdown(minutesUntilPickup(nextTrip.scheduledPickupTime, nowMs))}
             statusLabel="Scheduled"
             gpsStatus="unavailable"
-            primaryAction={isWithinTrackingWindow(nextTrip.scheduledPickupTime) ? 'Start pre-trip' : 'View details'}
+            primaryAction={isWithinTrackingWindow(nextTrip.scheduledPickupTime, nowMs) ? 'Start pre-trip' : 'View details'}
             onPrimaryAction={() => handlePrimary(nextTrip)}
             secondaryActions={
               <>
@@ -305,8 +331,8 @@ export function DriverRouteSheet() {
         <DriverErrorState message={pageError} onRetry={() => { setLoading(true); loadTrips(); }} />
       ) : shown.length === 0 ? (
         <DriverEmptyState
-          title={activeTab === 'today' ? 'No trips today' : `No ${activeTab} trips`}
-          description={activeTab === 'today' ? "You don't have trips scheduled for today." : 'Try another tab.'}
+          title={activeTab === 'today' ? 'No trips today' : activeTab === 'tomorrow' ? 'No trips tomorrow' : `No ${activeTab} trips`}
+          description={activeTab === 'today' ? "You don't have assigned trips scheduled for today." : 'Try another tab.'}
         />
       ) : grouped ? (
         <div className="space-y-4">
@@ -388,8 +414,8 @@ export function DriverRouteSheet() {
 
   function renderTripCard(trip: Trip) {
     const status = trip.status as TripStatus;
-    const within = isWithinTrackingWindow(trip.scheduledPickupTime);
-    const action = getDriverPrimaryAction(status, within);
+    const within = isWithinTrackingWindow(trip.scheduledPickupTime, nowMs);
+    const action = getDriverPrimaryAction(status, within, { isAssignedToCurrentDriver: true });
     const isCancelled = CANCELLED.has(trip.status);
     const chatOpen = chatMeta[trip.id]?.windowOpen;
     const chatReason = chatOpen === false ? CHAT_UNAVAILABLE_BEFORE_LABEL : undefined;
@@ -397,16 +423,16 @@ export function DriverRouteSheet() {
     return (
       <DriverRouteCard
         key={trip.id}
-        time={fmtDriverTime(trip.scheduledPickupTime)}
-        dateLabel={fmtDriverDate(trip.scheduledDate)}
+        time={fmtDriverDateTimeLabel(trip, now)}
+        dateLabel={fmtDriverDate(trip.scheduledDate, now)}
         riderName={trip.rider?.name ?? 'Rider'}
         riderMeta={trip.rider ? formatDriverRiderMeta(trip.rider) : undefined}
         pickup={trip.pickupLocation}
         dropoff={trip.dropoffLocation}
         legType={trip.legType ?? 'OUTBOUND'}
         status={status}
-        highlighted={ACTIVE.has(trip.status)}
-        attention={isCancelled ? 'cancelled' : trip.status === 'SCHEDULED' ? 'dispatch' : undefined}
+        highlighted={isDriverActiveTrip(trip)}
+        attention={isCancelled ? 'cancelled' : undefined}
         primaryAction={action.kind === 'status' ? action.label : action.kind === 'view' ? action.label : undefined}
         onPrimaryAction={action.kind === 'status' ? () => handlePrimary(trip) : undefined}
         primaryDisabled={action.disabled}

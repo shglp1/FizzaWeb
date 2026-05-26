@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { AppShell } from '@/components/layout/AppShell';
@@ -24,11 +24,19 @@ import { tripService } from '@/services/tripService';
 import type { TripStatus } from '@/lib/trips/tripLifecycle';
 import { isTrackableStatus } from '@/lib/trips/tripLifecycle';
 import {
-  fmtDriverTime,
+  buildDriverTripsListParams,
+  computeDriverTripCounts,
+  filterDriverAssignedTrips,
+  filterTripsForLocalDate,
+  fmtDriverDateTimeLabel,
   formatCountdown,
   getDriverStatusActionLabel,
+  getTimezoneDateKey,
+  isDriverActiveTrip,
   isWithinTrackingWindow,
   minutesUntilPickup,
+  pickNextDriverTrip,
+  sortTripsByStartAsc,
 } from '@/lib/ui/driverPortal';
 import { Calendar, CheckCircle2, ClipboardList, Clock, UserRound } from 'lucide-react';
 
@@ -40,17 +48,16 @@ type Trip = {
   scheduledPickupTime: string | null;
   pickupLocation: string;
   dropoffLocation: string;
+  driverId?: string | null;
   rider: { name: string; school: string | null } | null;
 };
-
-const ACTIVE = new Set(['PRE_TRIP', 'ON_THE_WAY', 'ARRIVED_PICKUP', 'PICKED_UP', 'EN_ROUTE_DROPOFF', 'ARRIVED_DROPOFF']);
-const UPCOMING = new Set(['SCHEDULED', 'DRIVER_ASSIGNED']);
 
 export default function DriverDashboardPage() {
   const router = useRouter();
   const [trips, setTrips] = useState<Trip[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [nowMs, setNowMs] = useState(() => Date.now());
 
   useEffect(() => {
     fetch('/api/me')
@@ -61,7 +68,8 @@ export default function DriverDashboardPage() {
       })
       .catch(() => {});
 
-    tripService.list('upcoming').then((res) => {
+    const params = buildDriverTripsListParams('week', 1, 100);
+    tripService.list(params).then((res) => {
       if (res.data) setTrips(Array.isArray(res.data) ? res.data : []);
       else setError(res.error?.message ?? 'Failed to load trips.');
       setLoading(false);
@@ -71,30 +79,48 @@ export default function DriverDashboardPage() {
     });
   }, [router]);
 
-  const today = new Date().toISOString().split('T')[0]!;
-  const todayTrips = trips.filter((t) => t.scheduledDate.startsWith(today));
-  const activeTrip = trips.find((t) => ACTIVE.has(t.status));
-  const heroTrip = activeTrip ?? todayTrips
-    .filter((t) => UPCOMING.has(t.status) || ACTIVE.has(t.status))
-    .sort((a, b) => (a.scheduledPickupTime ?? '').localeCompare(b.scheduledPickupTime ?? ''))[0];
-  const completedToday = todayTrips.filter((t) => t.status === 'COMPLETED').length;
-  const upcomingCount = todayTrips.filter((t) => UPCOMING.has(t.status)).length;
-  const minsNext = heroTrip ? minutesUntilPickup(heroTrip.scheduledPickupTime) : null;
+  useEffect(() => {
+    const id = window.setInterval(() => setNowMs(Date.now()), 60_000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  const now = useMemo(() => new Date(nowMs), [nowMs]);
+  const todayKey = getTimezoneDateKey(now);
+  const assignedTrips = useMemo(() => filterDriverAssignedTrips(trips), [trips]);
+  const counts = useMemo(
+    () => computeDriverTripCounts(assignedTrips, nowMs, now),
+    [assignedTrips, nowMs, now],
+  );
+  const todayTrips = useMemo(
+    () => sortTripsByStartAsc(filterTripsForLocalDate(assignedTrips, todayKey)),
+    [assignedTrips, todayKey],
+  );
+  const heroTrip = useMemo(
+    () => pickNextDriverTrip(assignedTrips, nowMs),
+    [assignedTrips, nowMs],
+  );
+  const activeTrip = useMemo(
+    () => assignedTrips.find((t) => isDriverActiveTrip(t)) ?? null,
+    [assignedTrips],
+  );
+  const minsNext = heroTrip ? minutesUntilPickup(heroTrip.scheduledPickupTime, nowMs) : null;
   const countdown = formatCountdown(minsNext);
 
   const primaryCta = activeTrip
     ? { label: getDriverStatusActionLabel(activeTrip.status), href: `/tracking/${activeTrip.id}` }
-    : heroTrip && isWithinTrackingWindow(heroTrip.scheduledPickupTime)
+    : heroTrip && isWithinTrackingWindow(heroTrip.scheduledPickupTime, nowMs)
     ? { label: 'Start GPS', href: `/tracking/${heroTrip.id}` }
     : heroTrip
     ? { label: 'Navigate to pickup', href: '/trips' }
     : { label: 'Open route sheet', href: '/trips' };
 
-  const previewTrips = [...todayTrips]
-    .sort((a, b) => (a.scheduledPickupTime ?? '').localeCompare(b.scheduledPickupTime ?? ''))
-    .slice(0, 4);
-
-  const dateLabel = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+  const previewTrips = todayTrips.slice(0, 4);
+  const dateLabel = now.toLocaleDateString('en-US', {
+    timeZone: 'Asia/Riyadh',
+    weekday: 'long',
+    month: 'short',
+    day: 'numeric',
+  });
 
   return (
     <AppShell>
@@ -118,7 +144,7 @@ export default function DriverDashboardPage() {
                 riderName={heroTrip.rider?.name ?? 'Rider'}
                 pickup={heroTrip.pickupLocation}
                 dropoff={heroTrip.dropoffLocation}
-                time={fmtDriverTime(heroTrip.scheduledPickupTime)}
+                time={fmtDriverDateTimeLabel(heroTrip, now)}
                 countdown={countdown}
                 statusLabel={activeTrip ? 'Active trip' : 'Next trip'}
                 primaryAction={primaryCta.label}
@@ -135,24 +161,24 @@ export default function DriverDashboardPage() {
               />
             ) : (
               <DriverEmptyState
-                title="No trips today"
-                description="Your route will appear here once trips are assigned."
+                title="No upcoming assigned trips"
+                description="Your next assigned trip will appear here once scheduled."
                 action={<Link href="/trips"><Button variant="primary" size="sm">View route sheet</Button></Link>}
               />
             )}
 
             <div className="grid grid-cols-2 gap-2.5">
-              <DriverKpiCard icon={Calendar} value={todayTrips.length} label="Today's trips" accent="#0B683A" />
-              <DriverKpiCard icon={Clock} value={activeTrip ? 1 : 0} label="Active now" accent={activeTrip ? '#14A34A' : '#6B7280'} />
-              <DriverKpiCard icon={CheckCircle2} value={completedToday} label="Completed" accent="#1D4ED8" />
-              <DriverKpiCard icon={ClipboardList} value={upcomingCount} label="Upcoming" accent="#7C3AED" />
+              <DriverKpiCard icon={Calendar} value={counts.todayTotal} label="Today's trips" accent="#0B683A" />
+              <DriverKpiCard icon={Clock} value={counts.active} label="Active now" accent={counts.active ? '#14A34A' : '#6B7280'} />
+              <DriverKpiCard icon={CheckCircle2} value={counts.completedToday} label="Completed" accent="#1D4ED8" />
+              <DriverKpiCard icon={ClipboardList} value={counts.upcoming} label="Upcoming" accent="#7C3AED" />
             </div>
 
             {!activeTrip && minsNext != null && minsNext <= 20 && minsNext > 0 && heroTrip && (
               <DriverNotice
                 variant="soon"
                 title="Trip starts soon"
-                message={`${heroTrip.rider?.name ?? 'Rider'} pickup at ${fmtDriverTime(heroTrip.scheduledPickupTime)}.`}
+                message={`${heroTrip.rider?.name ?? 'Rider'} pickup at ${fmtDriverDateTimeLabel(heroTrip, now)}.`}
                 action={<Link href="/trips"><Button variant="outline" size="sm">Prepare</Button></Link>}
               />
             )}
@@ -175,14 +201,14 @@ export default function DriverDashboardPage() {
                   {previewTrips.map((trip) => (
                     <DriverRouteCard
                       key={trip.id}
-                      time={fmtDriverTime(trip.scheduledPickupTime)}
+                      time={fmtDriverDateTimeLabel(trip, now)}
                       riderName={trip.rider?.name ?? 'Rider'}
                       riderMeta={trip.rider?.school ?? undefined}
                       pickup={trip.pickupLocation}
                       dropoff={trip.dropoffLocation}
                       legType={trip.legType ?? 'OUTBOUND'}
                       status={trip.status}
-                      highlighted={ACTIVE.has(trip.status)}
+                      highlighted={isDriverActiveTrip(trip)}
                       secondaryActions={
                         <Link href={`/tracking/${trip.id}`}><Button variant="ghost" size="sm">Details</Button></Link>
                       }
@@ -195,7 +221,7 @@ export default function DriverDashboardPage() {
             <div>
               <DriverSectionTitle title="Quick actions" />
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                <DriverQuickActionCard href="/trips" Icon={ClipboardList} title="Route sheet" subtitle={`${upcomingCount} upcoming today`} accent="bg-emerald-50 text-fizza-secondary" />
+                <DriverQuickActionCard href="/trips" Icon={ClipboardList} title="Route sheet" subtitle={`${counts.remainingToday} remaining today`} accent="bg-emerald-50 text-fizza-secondary" />
                 <DriverQuickActionCard href="/tracking" Icon={MapPin} title="Live GPS" subtitle="Share location" accent="bg-blue-50 text-blue-600" />
                 <DriverQuickActionCard href="/safety" Icon={Shield} title="Safety Center" subtitle="Report an incident" accent="bg-red-50 text-red-600" />
                 <DriverQuickActionCard href="/notifications" Icon={Bell} title="Notifications" subtitle="Dispatch updates" accent="bg-amber-50 text-amber-600" />

@@ -98,7 +98,10 @@ export async function GET(req: Request) {
       if (!driver) {
         return NextResponse.json({ data: [], meta: { page, limit, total: 0, totalPages: 0 }, error: null });
       }
-      where = { driverId: driver.id, ...baseWhere };
+      const driverStatusWhere = statusFilter === 'upcoming'
+        ? { status: { in: ['DRIVER_ASSIGNED', 'PRE_TRIP'] as TripStatus[] } }
+        : statusWhere;
+      where = { driverId: driver.id, ...baseWhere, ...driverStatusWhere };
     } else {
       const [subscriptions, riders] = await Promise.all([
         prisma.userSubscription.findMany({ where: { userId: auth.userId }, select: { id: true } }),
