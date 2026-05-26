@@ -1299,13 +1299,11 @@ export default function NewSubscriptionPage() {
             <SubscriptionSummaryPanel {...summaryProps} />
           </div>
           <div className="lg:hidden">
-            <details className="rounded-2xl border border-emerald-200 bg-emerald-50/30" open={isLastStep || undefined}>
-              <summary className="px-4 py-3.5 text-sm font-semibold text-emerald-800 cursor-pointer min-h-[44px] flex items-center list-none [&::-webkit-details-marker]:hidden">
+            <details className="rounded-2xl border border-emerald-200 bg-white shadow-card overflow-hidden" open={isLastStep || undefined}>
+              <summary className="px-4 py-3.5 text-sm font-semibold text-emerald-800 cursor-pointer min-h-[44px] flex items-center list-none [&::-webkit-details-marker]:hidden border-b border-emerald-100 bg-emerald-50/40">
                 {isLastStep ? 'Subscription summary' : 'View summary'}
               </summary>
-              <div className="px-0 pb-1">
-                <SubscriptionSummaryPanel {...summaryProps} compact />
-              </div>
+              <SubscriptionSummaryPanel {...summaryProps} compact />
             </details>
           </div>
         </aside>

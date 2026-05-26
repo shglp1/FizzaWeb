@@ -55,18 +55,21 @@ export function SubscriptionSummaryPanel({
   return (
     <EnterpriseCard
       accent
-      className={compact ? '' : 'lg:sticky lg:top-6'}
+      className={[
+        compact ? '!rounded-none !border-0 !ring-0 !shadow-none' : '',
+        !compact ? 'lg:sticky lg:top-6' : '',
+      ].join(' ')}
       header={
-        <div>
-          <p className="text-xs font-semibold text-emerald-700 uppercase tracking-wide">Your plan</p>
-          <p className={`font-bold text-gray-900 mt-0.5 ${compact ? 'text-base' : 'text-lg'}`}>
+        <div className="space-y-1">
+          <p className="text-xs font-semibold text-emerald-700 uppercase tracking-wide leading-none">Your plan</p>
+          <p className={`font-bold text-gray-900 leading-tight ${compact ? 'text-base' : 'text-lg'}`}>
             Subscription summary
           </p>
         </div>
       }
       padding="none"
     >
-      <div className={`${compact ? 'px-4 pb-4' : 'px-4 sm:px-5 pb-4 sm:pb-5'} space-y-3`}>
+      <div className="space-y-3">
         <dl>
           <SummaryInfoRow
             label="Plan"

@@ -11,7 +11,7 @@
  *   UPDATE users SET role = 'ADMIN' WHERE email = 'admin@fizza.sa';
  */
 
-import { PrismaClient, type MapPlaceType } from '@prisma/client';
+import { PrismaClient, type MapPlaceType, type Prisma } from '@prisma/client';
 import { buildMapPlaceNormalizedFields } from '../src/lib/maps/mapPlaceNormalize.ts';
 
 const prisma = new PrismaClient();
@@ -56,7 +56,10 @@ async function backfillMapPlaceNormalized() {
       aliasesAr: place.aliasesAr,
       aliasesEn: place.aliasesEn,
     });
-    await prisma.mapPlace.update({ where: { id: place.id }, data: normalized });
+    await prisma.mapPlace.update({
+      where: { id: place.id },
+      data: normalized as Prisma.MapPlaceUpdateInput,
+    });
     updated += 1;
   }
   if (updated > 0) console.log(`Backfilled normalized fields on ${updated} map places.`);
