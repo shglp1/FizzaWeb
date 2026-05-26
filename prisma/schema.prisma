@@ -140,6 +140,9 @@ model Profile {
   payrollLinesApproved  DriverPayrollLine[]            @relation("PayrollLineApprovedBy")
   promoCodesCreated     PromoCode[]                    @relation("PromoCodeCreatedBy")
   promoRedemptions      PromoCodeRedemption[]
+  mapPlacesCreated      MapPlace[]                     @relation("MapPlaceCreatedBy")
+  mapPlacesUpdated      MapPlace[]                     @relation("MapPlaceUpdatedBy")
+  mapLocationReviews    MapLocationReview[]            @relation("MapLocationReviewedBy")
 
   @@map("profiles")
 }
@@ -276,6 +279,7 @@ model UserSubscription {
   subscriptionRiders     SubscriptionRider[]
   driverAssignments      SubscriptionDriverAssignment[]
   promoRedemptions       PromoCodeRedemption[]
+  mapLocationReviews     MapLocationReview[]
 
   @@index([userId])
   @@index([status])
@@ -804,6 +808,42 @@ enum PayrollPayoutMethod {
   MYFATOORAH
 }
 
+enum MapPlaceType {
+  DISTRICT
+  SCHOOL
+  UNIVERSITY
+  MOSQUE
+  HOSPITAL
+  LANDMARK
+  STREET
+  BUILDING
+  GATE
+  OTHER
+}
+
+enum LocationConfidence {
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum MapLocationKind {
+  PICKUP
+  DROPOFF
+}
+
+enum MapLocationReviewStatus {
+  PENDING
+  APPROVED
+  IGNORED
+  CONVERTED
+}
+
+enum MapGeocodeCacheKind {
+  FORWARD
+  REVERSE
+}
+
 /// Optional per-driver overrides for trip-based pay (null fields inherit global rules).
 model DriverPayProfile {
   id                    String               @id @default(cuid())
@@ -900,4 +940,86 @@ model DriverPayrollLine {
   @@index([driverId])
   @@index([status])
   @@map("driver_payroll_lines")
+}
+
+model MapPlace {
+  id                    String       @id @default(uuid())
+  nameAr                String       @map("name_ar")
+  nameEn                String       @map("name_en")
+  type                  MapPlaceType
+  city                  String
+  region                String?
+  country               String       @default("SA")
+  latitude              Decimal      @db.Decimal(10, 7)
+  longitude             Decimal      @db.Decimal(10, 7)
+  aliasesAr             Json         @default("[]") @map("aliases_ar")
+  aliasesEn             Json         @default("[]") @map("aliases_en")
+  normalizedNameAr      String       @default("") @map("normalized_name_ar") @db.VarChar(300)
+  normalizedNameEn      String       @default("") @map("normalized_name_en") @db.VarChar(300)
+  normalizedAliasesAr   String       @default("") @map("normalized_aliases_ar") @db.VarChar(2000)
+  normalizedAliasesEn   String       @default("") @map("normalized_aliases_en") @db.VarChar(2000)
+  isActive              Boolean      @default(true) @map("is_active")
+  isVerified            Boolean      @default(false) @map("is_verified")
+  notes                 String?      @db.Text
+  createdById           String?      @map("created_by_id")
+  updatedById           String?      @map("updated_by_id")
+  createdAt             DateTime     @default(now()) @map("created_at")
+  updatedAt             DateTime     @updatedAt @map("updated_at")
+  createdBy             Profile?     @relation("MapPlaceCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedBy             Profile?     @relation("MapPlaceUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  convertedFromReviews  MapLocationReview[] @relation("ReviewConvertedPlace")
+
+  @@index([city])
+  @@index([type])
+  @@index([isActive])
+  @@index([isVerified])
+  @@index([normalizedNameAr])
+  @@index([normalizedNameEn])
+  @@index([latitude, longitude])
+  @@map("map_places")
+}
+
+model MapGeocodeCache {
+  id              String              @id @default(uuid())
+  kind            MapGeocodeCacheKind
+  query           String?             @db.VarChar(500)
+  normalizedQuery String?             @map("normalized_query") @db.VarChar(500)
+  language        String              @default("en")
+  roundedLat      Decimal?            @map("rounded_lat") @db.Decimal(8, 5)
+  roundedLng      Decimal?            @map("rounded_lng") @db.Decimal(8, 5)
+  provider        String              @db.VarChar(32)
+  resultJson      Json                @map("result_json")
+  expiresAt       DateTime            @map("expires_at")
+  createdAt       DateTime            @default(now()) @map("created_at")
+
+  @@index([kind, normalizedQuery, language, provider])
+  @@index([kind, roundedLat, roundedLng, language, provider])
+  @@index([expiresAt])
+  @@map("map_geocode_cache")
+}
+
+model MapLocationReview {
+  id                  String                  @id @default(uuid())
+  subscriptionId      String?                 @map("subscription_id")
+  locationKind        MapLocationKind         @map("location_kind")
+  label               String                  @db.Text
+  latitude            Decimal                 @db.Decimal(10, 7)
+  longitude           Decimal                 @db.Decimal(10, 7)
+  source              String                  @db.VarChar(32)
+  confidence          LocationConfidence
+  placeId             String?                 @map("place_id")
+  status              MapLocationReviewStatus @default(PENDING)
+  convertedMapPlaceId String?                 @map("converted_map_place_id")
+  reviewedById        String?                 @map("reviewed_by_id")
+  adminNotes          String?                 @map("admin_notes") @db.Text
+  createdAt           DateTime                @default(now()) @map("created_at")
+  updatedAt           DateTime                @updatedAt @map("updated_at")
+  subscription        UserSubscription?       @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+  convertedMapPlace   MapPlace?               @relation("ReviewConvertedPlace", fields: [convertedMapPlaceId], references: [id], onDelete: SetNull)
+  reviewedBy          Profile?                @relation("MapLocationReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@index([confidence])
+  @@index([subscriptionId])
+  @@map("map_location_reviews")
 }

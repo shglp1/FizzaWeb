@@ -6,7 +6,22 @@ import { AppShell } from '@/components/layout/AppShell';
 import { subscriptionService } from '@/services/subscriptionService';
 import { riderService } from '@/services/riderService';
 import { walletService } from '@/services/walletService';
-import { MapLocationPicker, type SelectedLocation } from '@/components/location/MapLocationPicker';
+import { StableMapPicker } from '@/components/location/StableMapPicker';
+import {
+  fromSelectedLocation,
+  subscriptionStepRequiresLocations,
+  toSelectedLocation,
+  type MapPickerLanguage,
+  type SelectedLocation,
+  type StableMapLocationValue,
+} from '@/lib/location/stableMapPickerHelpers';
+import {
+  buildSubscriptionQuotePayload,
+  mapQuoteValidationError,
+} from '@/lib/subscriptions/quotePayload';
+import { locationsWithinMeters } from '@/lib/location/locationDistance';
+
+export type { SelectedLocation };
 import {
   Alert,
   Button,
@@ -16,12 +31,15 @@ import {
 } from '@/components/ui';
 import { FormSection, ActionBar, EnterpriseCard } from '@/components/ui/enterprise';
 import { SubscriptionSummaryPanel } from '@/components/subscriptions/SubscriptionSummaryPanel';
+import { SubscriptionWizardStepper } from '@/components/subscriptions/SubscriptionWizardStepper';
+import { LocationStepGuide } from '@/components/subscriptions/LocationStepGuide';
+import { RouteDisplay } from '@/components/subscriptions/RouteDisplay';
+import { SummaryInfoRow, DetailRow } from '@/components/subscriptions/SummaryRows';
 import {
-  SUBSCRIPTION_WIZARD_STEPS,
   SUBSCRIPTION_STEP_COPY,
   SUBSCRIPTION_WIZARD_STEP_COUNT,
 } from '@/lib/ui/subscriptionWizard';
-import { Check } from 'lucide-react';
+import { AlertCircle, Check, RefreshCw } from 'lucide-react';
 import { mapDistanceProviderLabel } from '@/lib/ui/mapLocation';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -92,11 +110,6 @@ const WEEKDAYS = [
 
 const TOTAL_STEPS = SUBSCRIPTION_WIZARD_STEP_COUNT;
 
-const STEP_META = SUBSCRIPTION_WIZARD_STEPS.map((label, i) => ({
-  label,
-  number: i + 1,
-}));
-
 // ─── Quote key helper ─────────────────────────────────────────────────────────
 
 function makeQuoteKey(
@@ -125,65 +138,6 @@ function makeQuoteKey(
   ].join('|');
 }
 
-// ─── Stepper ──────────────────────────────────────────────────────────────────
-
-function Stepper({ step }: { step: number }) {
-  return (
-    <nav aria-label="Progress" className="mb-8 -mx-1 overflow-x-auto pb-1">
-      <ol className="flex items-center gap-0 min-w-[520px] sm:min-w-0">
-        {STEP_META.map((s, i) => {
-          const isCompleted = i < step;
-          const isCurrent = i === step;
-
-          return (
-            <li key={s.label} className="flex items-center flex-1 last:flex-none">
-              <div className="flex flex-col items-center gap-1.5 min-w-0">
-                <div
-                  className={[
-                    'flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-2 text-sm font-bold transition-all',
-                    isCompleted
-                      ? 'border-emerald-500 bg-emerald-500 text-white'
-                      : isCurrent
-                      ? 'border-emerald-500 bg-white text-emerald-600 shadow-sm shadow-emerald-100'
-                      : 'border-gray-200 bg-white text-gray-400',
-                  ].join(' ')}
-                  aria-current={isCurrent ? 'step' : undefined}
-                >
-                  {isCompleted ? (
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                      <polyline points="20 6 9 17 4 12" />
-                    </svg>
-                  ) : (
-                    s.number
-                  )}
-                </div>
-                <span
-                  className={[
-                    'text-[10px] sm:text-xs font-medium text-center max-w-[4.5rem] sm:max-w-none leading-tight',
-                    isCurrent ? 'text-emerald-600' : isCompleted ? 'text-emerald-500' : 'text-gray-400',
-                  ].join(' ')}
-                >
-                  {s.label}
-                </span>
-              </div>
-
-              {i < STEP_META.length - 1 && (
-                <div
-                  className={[
-                    'h-0.5 flex-1 mx-2 mb-5 rounded-full transition-colors',
-                    isCompleted ? 'bg-emerald-400' : 'bg-gray-200',
-                  ].join(' ')}
-                  aria-hidden="true"
-                />
-              )}
-            </li>
-          );
-        })}
-      </ol>
-    </nav>
-  );
-}
-
 // ─── Day-of-week label helper ─────────────────────────────────────────────────
 
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -194,132 +148,112 @@ function QuoteBreakdown({ quote }: { quote: PriceQuote }) {
   const dayLabels = quote.weekdays.map((d) => DAY_LABELS[d] ?? d).join(', ');
 
   return (
-    <Card className="!bg-emerald-50 !border-emerald-200 space-y-2 text-sm">
-      <p className="font-semibold text-emerald-800 text-base mb-3">Price Breakdown</p>
+    <Card className="!bg-emerald-50 !border-emerald-200 text-sm">
+      <p className="font-semibold text-emerald-800 text-base mb-4">Price Breakdown</p>
 
-      {/* Route summary */}
-      <div className="flex items-start gap-2 pb-3 border-b border-emerald-200">
-        <div className="min-w-0 flex-1 text-xs text-gray-500 leading-relaxed">
-          <span className="font-medium text-gray-700">{quote.normalizedPickupLabel}</span>
-          <span className="mx-1.5 text-emerald-400">→</span>
-          <span className="font-medium text-gray-700">{quote.normalizedDropoffLabel}</span>
-        </div>
+      <div className="pb-4 mb-3 border-b border-emerald-200">
+        <RouteDisplay
+          pickupLabel={quote.normalizedPickupLabel}
+          dropoffLabel={quote.normalizedDropoffLabel}
+          compact
+        />
       </div>
 
-      {/* Distance rows */}
-      <div className="flex justify-between">
-        <span className="text-gray-600">One-way distance</span>
-        <span className="font-medium">{quote.oneWayDistanceKm} km</span>
+      <div className="space-y-0.5">
+        <DetailRow label="One-way distance" value={`${quote.oneWayDistanceKm} km`} />
+        <DetailRow
+          label="Trip direction"
+          value={quote.tripDirection === 'ROUND_TRIP' ? 'Round-trip (×2)' : 'One-way'}
+        />
+        <DetailRow label="Daily chargeable distance" value={`${quote.dailyChargeableDistanceKm} km`} />
       </div>
 
-      <div className="flex justify-between">
-        <span className="text-gray-600">Trip direction</span>
-        <span className="font-medium">
-          {quote.tripDirection === 'ROUND_TRIP' ? 'Round-trip (×2)' : 'One-way'}
-        </span>
-      </div>
-
-      <div className="flex justify-between">
-        <span className="text-gray-600">Daily chargeable distance</span>
-        <span className="font-medium">{quote.dailyChargeableDistanceKm} km</span>
-      </div>
-
-      {/* Service days */}
-      <div className="border-t border-emerald-100 pt-2 space-y-1.5">
-        <div className="flex justify-between">
-          <span className="text-gray-600">Schedule</span>
-          <span className="font-medium text-right">{dayLabels}</span>
-        </div>
-        <div className="flex justify-between">
-          <span className="text-gray-600">Service period</span>
-          <span className="font-medium text-xs text-right">
-            {quote.serviceStartDate} → {quote.serviceEndDate}
-          </span>
-        </div>
-        <div className="flex justify-between">
-          <span className="text-gray-600 font-medium">Service days</span>
-          <span className="font-bold text-emerald-700">{quote.actualServiceDays} days</span>
-        </div>
-        <div className="flex justify-between">
-          <span className="text-gray-600">Total chargeable distance</span>
-          <span className="font-medium">
-            {quote.totalChargeableDistanceKm} km
-            <span className="ml-1 text-xs text-gray-400">
-              ({quote.dailyChargeableDistanceKm} × {quote.actualServiceDays})
+      <div className="border-t border-emerald-100 pt-2 mt-2 space-y-0.5">
+        <DetailRow label="Schedule" value={dayLabels} />
+        <DetailRow label="Service period" value={`${quote.serviceStartDate} → ${quote.serviceEndDate}`} />
+        <DetailRow label="Service days" value={`${quote.actualServiceDays} days`} />
+        <DetailRow
+          label="Total chargeable distance"
+          value={
+            <span>
+              {quote.totalChargeableDistanceKm} km
+              <span className="block text-xs font-normal text-gray-500 mt-0.5">
+                ({quote.dailyChargeableDistanceKm} × {quote.actualServiceDays})
+              </span>
             </span>
-          </span>
-        </div>
+          }
+        />
       </div>
 
-      {/* Price rows */}
-      <div className="border-t border-emerald-100 pt-2">
-        <div className="flex justify-between">
-          <span className="text-gray-600">
-            Distance charge
-            <span className="ml-1 text-xs text-gray-400">
-              ({quote.totalChargeableDistanceKm} km × SAR {quote.pricePerKmSar}/km)
+      <div className="border-t border-emerald-100 pt-2 mt-2 space-y-0.5">
+        <DetailRow
+          label={
+            <span>
+              Distance charge
+              <span className="block text-xs font-normal text-gray-500 mt-0.5">
+                {quote.totalChargeableDistanceKm} km × SAR {quote.pricePerKmSar}/km
+              </span>
             </span>
-          </span>
-          <span className="font-medium">SAR {quote.distanceChargeSar.toFixed(2)}</span>
-        </div>
+          }
+          value={`SAR ${quote.distanceChargeSar.toFixed(2)}`}
+        />
       </div>
 
       {quote.packagePriceSar > 0 && (
-        <div className="flex justify-between">
-          <span className="text-gray-600">
-            Package{quote.packageName ? ` (${quote.packageName})` : ''}
-          </span>
-          <span className="font-medium">SAR {quote.packagePriceSar.toFixed(2)}</span>
-        </div>
+        <DetailRow
+          label={`Package${quote.packageName ? ` (${quote.packageName})` : ''}`}
+          value={`SAR ${quote.packagePriceSar.toFixed(2)}`}
+        />
       )}
 
       {quote.addOnsPriceSar > 0 && (
-        <div className="flex justify-between">
-          <span className="text-gray-600">
-            Add-ons
-            {quote.addOns.length > 0 && (
-              <span className="ml-1 text-xs text-gray-400">
-                ({quote.addOns.map((a) => a.name).join(', ')})
-              </span>
-            )}
-          </span>
-          <span className="font-medium">SAR {quote.addOnsPriceSar.toFixed(2)}</span>
-        </div>
+        <DetailRow
+          label={
+            <span>
+              Add-ons
+              {quote.addOns.length > 0 && (
+                <span className="block text-xs font-normal text-gray-500 mt-0.5">
+                  {quote.addOns.map((a) => a.name).join(', ')}
+                </span>
+              )}
+            </span>
+          }
+          value={`SAR ${quote.addOnsPriceSar.toFixed(2)}`}
+        />
       )}
 
       {quote.extraRiderChargeSar > 0 && (
-        <div className="flex justify-between">
-          <span className="text-gray-600">
-            Extra rider{quote.extraRiderCount > 1 ? 's' : ''} ({quote.extraRiderCount} ×{' '}
-            {(quote.extraRiderSameDropoffMultiplier * 100).toFixed(0)}%)
-          </span>
-          <span className="font-medium">SAR {quote.extraRiderChargeSar.toFixed(2)}</span>
-        </div>
+        <DetailRow
+          label={`Extra rider${quote.extraRiderCount > 1 ? 's' : ''} (${quote.extraRiderCount} × ${(quote.extraRiderSameDropoffMultiplier * 100).toFixed(0)}%)`}
+          value={`SAR ${quote.extraRiderChargeSar.toFixed(2)}`}
+        />
       )}
 
       {(quote.promoDiscountSar ?? 0) > 0 && (
-        <div className="flex justify-between text-emerald-700">
-          <span>
-            Promo {quote.promo?.code}
-            {quote.promo?.discountPercent ? ` (${quote.promo.discountPercent}% off)` : ''}
-          </span>
-          <span className="font-medium">− SAR {quote.promoDiscountSar!.toFixed(2)}</span>
-        </div>
+        <DetailRow
+          className="text-emerald-700"
+          label={`Promo ${quote.promo?.code}${quote.promo?.discountPercent ? ` (${quote.promo.discountPercent}% off)` : ''}`}
+          value={`− SAR ${quote.promoDiscountSar!.toFixed(2)}`}
+        />
       )}
 
       {(quote.loyaltyDiscountSar ?? 0) > 0 && (
-        <div className="flex justify-between text-purple-700">
-          <span>Loyalty points ({quote.loyaltyPointsUsed ?? 0} pts)</span>
-          <span className="font-medium">− SAR {quote.loyaltyDiscountSar!.toFixed(2)}</span>
-        </div>
+        <DetailRow
+          className="text-purple-700"
+          label={`Loyalty points (${quote.loyaltyPointsUsed ?? 0} pts)`}
+          value={`− SAR ${quote.loyaltyDiscountSar!.toFixed(2)}`}
+        />
       )}
 
-      <div className="border-t border-emerald-200 pt-2 flex justify-between font-bold text-base">
-        <span className="text-emerald-800">Total ({quote.billingCycle})</span>
-        <span className="text-emerald-700">SAR {quote.finalPriceSar.toFixed(2)}</span>
+      <div className="border-t border-emerald-200 pt-3 mt-3">
+        <DetailRow
+          emphasis
+          label={`Total (${quote.billingCycle})`}
+          value={`SAR ${quote.finalPriceSar.toFixed(2)}`}
+        />
       </div>
 
-      <p className="text-xs text-gray-400 pt-1">
+      <p className="text-xs text-gray-400 pt-3 leading-relaxed">
         Calculated via {mapDistanceProviderLabel(quote.distanceProvider, quote.distanceApproximate)}.
         {quote.distanceApproximate && (
           <span className="block text-amber-700 mt-1">
@@ -361,6 +295,9 @@ export default function NewSubscriptionPage() {
   const [dropoffLocation, setDropoffLocation] = useState<SelectedLocation | null>(null);
   const [pickupPhotoUrl, setPickupPhotoUrl] = useState<string | null>(null);
   const [dropoffPhotoUrl, setDropoffPhotoUrl] = useState<string | null>(null);
+  const [mapLanguage, setMapLanguage] = useState<MapPickerLanguage>('en');
+  const [openMapPicker, setOpenMapPicker] = useState<'pickup' | 'dropoff' | null>('pickup');
+  const [closeLocationsAcknowledged, setCloseLocationsAcknowledged] = useState(false);
   const [pickupTime, setPickupTime] = useState('07:00');
   const [returnTime, setReturnTime] = useState('15:00');
   const [femaleDriver, setFemaleDriver] = useState(false);
@@ -414,6 +351,31 @@ export default function NewSubscriptionPage() {
     }
   }, [currentQuoteKey, quoteKey]);
 
+  useEffect(() => {
+    if (step !== 2) return;
+    if (!pickupLocation) setOpenMapPicker('pickup');
+    else if (!dropoffLocation) setOpenMapPicker('dropoff');
+    else setOpenMapPicker(null);
+  }, [step, pickupLocation, dropoffLocation]);
+
+  const locationsTooClose = locationsWithinMeters(
+    pickupLocation
+      ? { lat: pickupLocation.latitude, lng: pickupLocation.longitude }
+      : null,
+    dropoffLocation
+      ? { lat: dropoffLocation.latitude, lng: dropoffLocation.longitude }
+      : null,
+  );
+
+  useEffect(() => {
+    setCloseLocationsAcknowledged(false);
+  }, [
+    pickupLocation?.latitude,
+    pickupLocation?.longitude,
+    dropoffLocation?.latitude,
+    dropoffLocation?.longitude,
+  ]);
+
   // ── Calculate Price ──
   const canCalculate =
     selectedRiderIds.length > 0 &&
@@ -423,16 +385,21 @@ export default function NewSubscriptionPage() {
   const handleCalculatePrice = useCallback(async () => {
     setQuoteError('');
 
-    if (!pickupLocation) {
-      setQuoteError('Please confirm the exact pickup pin on the map.');
-      return;
-    }
-    if (!dropoffLocation) {
-      setQuoteError('Please confirm the exact drop-off pin on the map.');
-      return;
-    }
-    if (selectedRiderIds.length === 0) {
-      setQuoteError('Please select at least one rider before calculating price.');
+    const built = buildSubscriptionQuotePayload({
+      packageId: selectedPackageId,
+      addOnIds: selectedAddOnIds,
+      pickupLocation,
+      dropoffLocation,
+      tripDirection,
+      riderIds: selectedRiderIds,
+      weekdays,
+      startsOn,
+      promoCode,
+      loyaltyPointsToRedeem: Number(loyaltyPointsToRedeem) || 0,
+    });
+
+    if (!built.ok) {
+      setQuoteError(built.message);
       return;
     }
 
@@ -443,26 +410,7 @@ export default function NewSubscriptionPage() {
       const res = await fetch('/api/subscriptions/quote', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          packageId: selectedPackageId ?? undefined,
-          addOnIds: selectedAddOnIds,
-          pickupLocation: {
-            label: pickupLocation.label,
-            latitude: pickupLocation.latitude,
-            longitude: pickupLocation.longitude,
-          },
-          dropoffLocation: {
-            label: dropoffLocation.label,
-            latitude: dropoffLocation.latitude,
-            longitude: dropoffLocation.longitude,
-          },
-          tripDirection,
-          riderIds: selectedRiderIds,
-          weekdays,
-          startsOn: startsOn || undefined,
-          promoCode: promoCode.trim() || undefined,
-          loyaltyPointsToRedeem: Number(loyaltyPointsToRedeem) || 0,
-        }),
+        body: JSON.stringify(built.payload),
       });
 
       const json = await res.json();
@@ -471,7 +419,9 @@ export default function NewSubscriptionPage() {
         setQuote(json.data.quote as PriceQuote);
         setQuoteKey(currentQuoteKey);
       } else {
-        setQuoteError(json.error?.message ?? 'Could not calculate price. Please try again.');
+        setQuoteError(
+          mapQuoteValidationError(json.error?.message ?? 'Could not calculate price. Please try again.'),
+        );
       }
     } catch {
       setQuoteError('Could not reach the pricing service. Check your connection and try again.');
@@ -528,6 +478,18 @@ export default function NewSubscriptionPage() {
       }
       if (!dropoffLocation) {
         setStepError('Please confirm the exact drop-off pin on the map.');
+        return false;
+      }
+      if (pickupLocation.label.trim().length < 3) {
+        setStepError('Pickup location needs a clearer place name (at least 3 characters).');
+        return false;
+      }
+      if (dropoffLocation.label.trim().length < 3) {
+        setStepError('Drop-off location needs a clearer place name (at least 3 characters).');
+        return false;
+      }
+      if (locationsTooClose && !closeLocationsAcknowledged) {
+        setStepError('Pickup and drop-off are very close. Please confirm this is correct.');
         return false;
       }
     }
@@ -590,6 +552,24 @@ export default function NewSubscriptionPage() {
       dropoffPhotoUrl: dropoffPhotoUrl ?? undefined,
       promoCode: promoCode.trim() || undefined,
       loyaltyPointsToRedeem: Number(loyaltyPointsToRedeem) || 0,
+      pickupLocationMeta: pickupLocation
+        ? {
+            source: (pickupLocation.source as 'LOCAL' | 'ORS' | 'NOMINATIM' | 'MANUAL' | undefined) ?? undefined,
+            confidence: pickupLocation.confidence ?? undefined,
+            placeId: pickupLocation.placeId ?? undefined,
+            isVerifiedPlace: pickupLocation.isVerifiedPlace,
+            isManual: pickupLocation.isManual,
+          }
+        : undefined,
+      dropoffLocationMeta: dropoffLocation
+        ? {
+            source: (dropoffLocation.source as 'LOCAL' | 'ORS' | 'NOMINATIM' | 'MANUAL' | undefined) ?? undefined,
+            confidence: dropoffLocation.confidence ?? undefined,
+            placeId: dropoffLocation.placeId ?? undefined,
+            isVerifiedPlace: dropoffLocation.isVerifiedPlace,
+            isManual: dropoffLocation.isManual,
+          }
+        : undefined,
     };
 
     const res = await subscriptionService.create(payload);
@@ -867,45 +847,115 @@ export default function NewSubscriptionPage() {
     </div>
   );
 
-  // ── Step 2: Pickup & drop-off (map) ──
-  const renderStep2 = () => (
-    <div className="space-y-5">
-      <FormSection
-        title={SUBSCRIPTION_STEP_COPY[2]?.title ?? 'Pickup & drop-off'}
-        description="Search or use your current location, then confirm the exact pin on the map for each stop."
-      >
-        <div className="rounded-2xl border border-gray-100 bg-gray-50/50 p-4 sm:p-5 space-y-5">
-          <MapLocationPicker
-            label="Pickup location"
-            value={pickupLocation}
-            onChange={setPickupLocation}
-            placeholder="Search home, district, or landmark…"
-            required
-            photoUrl={pickupPhotoUrl}
-            onPhotoChange={setPickupPhotoUrl}
-            photoKind="pickup"
-          />
-          {!pickupLocation && (
-            <p className="text-xs text-amber-700 -mt-3">Please confirm the exact pickup pin on the map.</p>
+  // ── Step 2: Pickup & drop-off (stable map picker) ──
+  const renderStep2 = () => {
+    const pickupStable = fromSelectedLocation(pickupLocation, pickupPhotoUrl);
+    const dropoffStable = fromSelectedLocation(dropoffLocation, dropoffPhotoUrl);
+
+    const confirmPickup = (v: StableMapLocationValue) => {
+      setPickupLocation(toSelectedLocation(v));
+      setPickupPhotoUrl(v.photoUrl ?? null);
+      setOpenMapPicker('dropoff');
+    };
+
+    const confirmDropoff = (v: StableMapLocationValue) => {
+      setDropoffLocation(toSelectedLocation(v));
+      setDropoffPhotoUrl(v.photoUrl ?? null);
+      setOpenMapPicker(null);
+    };
+
+    return (
+      <div className="space-y-5 max-w-full overflow-x-hidden">
+        <LocationStepGuide
+          pickupConfirmed={!!pickupLocation}
+          dropoffConfirmed={!!dropoffLocation}
+          activeTarget={openMapPicker}
+          language={mapLanguage}
+        />
+
+        <FormSection
+          title={SUBSCRIPTION_STEP_COPY[2]?.title ?? 'Pickup & drop-off'}
+          description="Search for a place, use your current location, or drop a pin on the map. Confirm pickup first, then drop-off."
+        >
+          <div className="flex justify-end mb-3">
+            <span className="inline-flex rounded-lg border border-gray-200 overflow-hidden text-xs">
+              <button
+                type="button"
+                className={`px-3 py-1.5 min-h-[36px] ${mapLanguage === 'en' ? 'bg-emerald-600 text-white' : 'bg-white text-gray-600'}`}
+                onClick={() => setMapLanguage('en')}
+              >
+                EN
+              </button>
+              <button
+                type="button"
+                className={`px-3 py-1.5 min-h-[36px] ${mapLanguage === 'ar' ? 'bg-emerald-600 text-white' : 'bg-white text-gray-600'}`}
+                onClick={() => setMapLanguage('ar')}
+              >
+                AR
+              </button>
+            </span>
+          </div>
+
+          <div className="space-y-4">
+            <StableMapPicker
+              mode="pickup"
+              language={mapLanguage}
+              value={pickupStable}
+              expanded={openMapPicker === 'pickup'}
+              onExpand={() => setOpenMapPicker('pickup')}
+              onConfirm={confirmPickup}
+              onCancel={() => setOpenMapPicker(pickupStable ? null : 'pickup')}
+              allowPhoto
+              disabled={openMapPicker === 'dropoff'}
+            />
+
+            <StableMapPicker
+              mode="dropoff"
+              language={mapLanguage}
+              value={dropoffStable}
+              expanded={openMapPicker === 'dropoff'}
+              onExpand={() => {
+                if (pickupLocation) setOpenMapPicker('dropoff');
+              }}
+              onConfirm={confirmDropoff}
+              onCancel={() => setOpenMapPicker(dropoffStable ? null : pickupLocation ? 'dropoff' : 'pickup')}
+              allowPhoto
+              disabled={!pickupLocation || openMapPicker === 'pickup'}
+            />
+          </div>
+
+          {!subscriptionStepRequiresLocations(pickupStable, dropoffStable) && (
+            <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 flex gap-3">
+              <AlertCircle className="h-5 w-5 text-amber-700 shrink-0 mt-0.5" aria-hidden />
+              <div>
+                <p className="text-sm font-medium text-amber-950">Locations required</p>
+                <p className="text-xs text-amber-800 mt-1">
+                  Confirm both pickup and drop-off on the map to continue to pricing.
+                </p>
+              </div>
+            </div>
           )}
 
-          <MapLocationPicker
-            label="Drop-off location"
-            value={dropoffLocation}
-            onChange={setDropoffLocation}
-            placeholder="Search school, university, or landmark…"
-            required
-            photoUrl={dropoffPhotoUrl}
-            onPhotoChange={setDropoffPhotoUrl}
-            photoKind="dropoff"
-          />
-          {!dropoffLocation && (
-            <p className="text-xs text-amber-700 -mt-3">Please confirm the exact drop-off pin on the map.</p>
+          {subscriptionStepRequiresLocations(pickupStable, dropoffStable) && locationsTooClose && (
+            <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 space-y-3">
+              <p className="text-sm text-amber-900">
+                Pickup and drop-off are very close. Please confirm this is correct.
+              </p>
+              <label className="flex items-start gap-2 text-sm text-amber-900 cursor-pointer min-h-[44px]">
+                <input
+                  type="checkbox"
+                  checked={closeLocationsAcknowledged}
+                  onChange={(e) => setCloseLocationsAcknowledged(e.target.checked)}
+                  className="mt-1 rounded accent-amber-600"
+                />
+                <span>I confirm pickup and drop-off are at different nearby spots.</span>
+              </label>
+            </div>
           )}
-        </div>
-      </FormSection>
-    </div>
-  );
+        </FormSection>
+      </div>
+    );
+  };
 
   // ── Step 3: Price & add-ons ──
   const renderStep3 = () => (
@@ -998,18 +1048,51 @@ export default function NewSubscriptionPage() {
           >
             {quoteLoading ? 'Calculating route distance and subscription price…' : quote ? 'Recalculate price' : 'Calculate price'}
           </Button>
-          {!canCalculate && (
-            <p className="text-xs text-gray-500 mt-2 text-center">
-              Confirm pickup, drop-off, and riders on previous steps first.
-            </p>
-          )}
         </div>
 
         {quote && quoteKey && currentQuoteKey !== quoteKey && (
           <Alert variant="warning">Route or add-ons changed. Please recalculate before continuing.</Alert>
         )}
-        {quoteError && <Alert variant="error">{quoteError}</Alert>}
-        {quote && currentQuoteKey === quoteKey && <QuoteBreakdown quote={quote} />}
+        {quoteLoading && (
+          <div className="rounded-xl border border-emerald-100 bg-emerald-50/50 p-4 space-y-3" role="status">
+            <p className="text-sm font-medium text-emerald-800">Calculating route distance and subscription price…</p>
+            <div className="h-2 rounded-full bg-emerald-100 overflow-hidden">
+              <div className="h-full w-2/3 bg-emerald-500 animate-pulse rounded-full" />
+            </div>
+          </div>
+        )}
+
+        {quoteError && (
+          <Alert variant="error">
+            <div className="space-y-2">
+              <p>{quoteError}</p>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="gap-1.5 min-h-[44px]"
+                onClick={() => void handleCalculatePrice()}
+                disabled={quoteLoading || !canCalculate}
+              >
+                <RefreshCw className="h-3.5 w-3.5" aria-hidden />
+                Try again
+              </Button>
+            </div>
+          </Alert>
+        )}
+
+        {!canCalculate && step === 3 && (
+          <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 flex gap-3">
+            <AlertCircle className="h-5 w-5 text-gray-500 shrink-0 mt-0.5" aria-hidden />
+            <p className="text-sm text-gray-700">
+              {!pickupLocation || !dropoffLocation
+                ? 'Confirm pickup and drop-off locations on the previous step before calculating price.'
+                : 'Select at least one rider before calculating price.'}
+            </p>
+          </div>
+        )}
+
+        {quote && currentQuoteKey === quoteKey && !quoteLoading && <QuoteBreakdown quote={quote} />}
       </FormSection>
 
       <div>
@@ -1066,54 +1149,54 @@ export default function NewSubscriptionPage() {
         title={SUBSCRIPTION_STEP_COPY[4]?.title ?? 'Review & confirm'}
         description="Everything looks good? Confirm to create your subscription and proceed to payment."
       >
-        <EnterpriseCard className="!shadow-none border-gray-200">
-          <dl className="space-y-2 text-sm divide-y divide-gray-50">
+        <EnterpriseCard className="!shadow-none border-gray-200" padding="sm">
+          <dl>
             {selectedPackageId && (
-              <div className="flex gap-2 py-2">
-                <dt className="text-gray-500 w-28 shrink-0">Package</dt>
-                <dd className="font-medium text-gray-900">{packages.find((p) => p.id === selectedPackageId)?.name}</dd>
-              </div>
+              <SummaryInfoRow
+                label="Package"
+                value={packages.find((p) => p.id === selectedPackageId)?.name}
+              />
             )}
-            <div className="flex gap-2 py-2">
-              <dt className="text-gray-500 w-28 shrink-0">Type</dt>
-              <dd className="font-medium text-gray-900 capitalize">{subscriptionType}</dd>
-            </div>
+            <SummaryInfoRow label="Type" value={<span className="capitalize">{subscriptionType}</span>} />
             {selectedRiderIds.length > 0 && (
-              <div className="flex gap-2 py-2">
-                <dt className="text-gray-500 w-28 shrink-0">Riders</dt>
-                <dd className="font-medium text-gray-900">
-                  {selectedRiderIds.map((id) => riders.find((r) => r.id === id)?.name).join(', ')}
-                </dd>
-              </div>
+              <SummaryInfoRow
+                label="Riders"
+                value={selectedRiderIds.map((id) => riders.find((r) => r.id === id)?.name).join(', ')}
+              />
             )}
-            <div className="flex gap-2 py-2">
-              <dt className="text-gray-500 w-28 shrink-0">Route</dt>
-              <dd className="font-medium text-gray-900 leading-snug">
-                {pickupLocation?.label ?? '—'} → {dropoffLocation?.label ?? '—'}
-                <span className="block text-xs text-gray-500 font-normal mt-0.5">
-                  {tripDirection === 'ROUND_TRIP' ? 'Round trip' : 'One way'}
-                </span>
-              </dd>
-            </div>
-            <div className="flex gap-2 py-2">
-              <dt className="text-gray-500 w-28 shrink-0">Times</dt>
-              <dd className="font-medium text-gray-900">
-                {pickupTime} pickup{tripDirection === 'ROUND_TRIP' ? ` · ${returnTime} return` : ''}
-              </dd>
-            </div>
-            <div className="flex gap-2 py-2">
-              <dt className="text-gray-500 w-28 shrink-0">Days</dt>
-              <dd className="font-medium text-gray-900">
-                {weekdays.map((d) => WEEKDAYS.find((w) => w.day === d)?.label).join(', ')}
-              </dd>
-            </div>
+            <SummaryInfoRow
+              label="Route"
+              value={
+                <div className="space-y-2">
+                  <RouteDisplay
+                    pickupLabel={pickupLocation?.label ?? '—'}
+                    dropoffLabel={dropoffLocation?.label ?? '—'}
+                    compact
+                  />
+                  <p className="text-xs text-gray-500">
+                    {tripDirection === 'ROUND_TRIP' ? 'Round trip' : 'One way'}
+                  </p>
+                </div>
+              }
+            />
+            <SummaryInfoRow
+              label="Times"
+              value={
+                <>
+                  {pickupTime} pickup
+                  {tripDirection === 'ROUND_TRIP' && returnTime ? ` · ${returnTime} return` : ''}
+                </>
+              }
+            />
+            <SummaryInfoRow
+              label="Days"
+              value={weekdays.map((d) => WEEKDAYS.find((w) => w.day === d)?.label).join(', ')}
+            />
             {selectedAddOnIds.length > 0 && (
-              <div className="flex gap-2 py-2">
-                <dt className="text-gray-500 w-28 shrink-0">Add-ons</dt>
-                <dd className="font-medium text-gray-900">
-                  {selectedAddOnIds.map((id) => addOns.find((a) => a.id === id)?.name).join(', ')}
-                </dd>
-              </div>
+              <SummaryInfoRow
+                label="Add-ons"
+                value={selectedAddOnIds.map((id) => addOns.find((a) => a.id === id)?.name).join(', ')}
+              />
             )}
           </dl>
         </EnterpriseCard>
@@ -1173,9 +1256,9 @@ export default function NewSubscriptionPage() {
         <p className="text-sm text-gray-500 mt-1">Set up safe, scheduled transport for your family in a few steps.</p>
       </div>
 
-      <div className="grid lg:grid-cols-3 gap-6 lg:gap-8 items-start">
-        <EnterpriseCard className="lg:col-span-2" padding="lg">
-          <Stepper step={step} />
+      <div className="grid lg:grid-cols-3 gap-4 sm:gap-6 lg:gap-8 items-start">
+        <EnterpriseCard className="lg:col-span-2 !p-4 sm:!p-6 lg:!p-8 order-2 lg:order-1" padding="none">
+          <SubscriptionWizardStepper step={step} />
 
           {steps[step]?.()}
 
@@ -1211,21 +1294,19 @@ export default function NewSubscriptionPage() {
           </ActionBar>
         </EnterpriseCard>
 
-        <div className="lg:col-span-1 space-y-4">
+        <aside className="lg:col-span-1 order-1 lg:order-2 mb-1 lg:mb-0">
           <div className="hidden lg:block">
             <SubscriptionSummaryPanel {...summaryProps} />
           </div>
           <div className="lg:hidden">
-            <details className="rounded-2xl border border-emerald-200 bg-emerald-50/30">
-              <summary className="px-4 py-3 text-sm font-semibold text-emerald-800 cursor-pointer">
-                View summary
+            <details className="rounded-2xl border border-emerald-200 bg-white shadow-card overflow-hidden" open={isLastStep || undefined}>
+              <summary className="px-4 py-3.5 text-sm font-semibold text-emerald-800 cursor-pointer min-h-[44px] flex items-center list-none [&::-webkit-details-marker]:hidden border-b border-emerald-100 bg-emerald-50/40">
+                {isLastStep ? 'Subscription summary' : 'View summary'}
               </summary>
-              <div className="px-1 pb-2">
-                <SubscriptionSummaryPanel {...summaryProps} compact />
-              </div>
+              <SubscriptionSummaryPanel {...summaryProps} compact />
             </details>
           </div>
-        </div>
+        </aside>
       </div>
     </AppShell>
   );

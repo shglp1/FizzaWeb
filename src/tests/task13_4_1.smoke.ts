@@ -50,7 +50,7 @@ test('driver vs parent tracking copy branches', () => {
 
 test('mobile nav uses Route label for driver', () => {
   const items = getMobileNavItemsForDriverState('APPROVED_DRIVER')!;
-  assert.ok(items.some((i) => i.label === 'Route'));
+  assert.ok(items.some((i) => i.label === 'Route Sheet'));
 });
 
 test('isDriverRole helper', () => {

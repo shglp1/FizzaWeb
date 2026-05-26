@@ -22,7 +22,7 @@ export const SUBSCRIPTION_STEP_COPY: { title: string; description: string }[] = 
   },
   {
     title: 'Pickup & drop-off',
-    description: 'Pin the exact locations on the map so we calculate the correct route distance.',
+    description: 'Set pickup first, then drop-off. Verified Fizza places appear on the map when zoomed in.',
   },
   {
     title: 'Price & add-ons',

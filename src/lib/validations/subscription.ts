@@ -8,9 +8,16 @@ const TIME_REGEX = /^\d{2}:\d{2}$/;
 /**
  * Location object produced by the LocationPicker component.
  * Requires both a human-readable label and precise coordinates.
- * This prevents raw free-text from reaching the distance calculation engine.
+ * Accepts latitude/longitude or lat/lng aliases from StableMapPicker.
  */
-export const locationInputSchema = z.object({
+export const locationInputSchema = z.preprocess((val) => {
+  if (val && typeof val === 'object' && !Array.isArray(val)) {
+    const o = val as Record<string, unknown>;
+    if (o.latitude == null && o.lat != null) o.latitude = o.lat;
+    if (o.longitude == null && o.lng != null) o.longitude = o.lng;
+  }
+  return val;
+}, z.object({
   label: z.string().min(3, 'Location label must be at least 3 characters').max(500),
   latitude: z
     .number({ required_error: 'Latitude is required' })
@@ -20,9 +27,21 @@ export const locationInputSchema = z.object({
     .number({ required_error: 'Longitude is required' })
     .min(-180, 'Longitude must be between -180 and 180')
     .max(180, 'Longitude must be between -180 and 180'),
-});
+}));
 
 export type LocationInput = z.infer<typeof locationInputSchema>;
+
+const locationMetaSchema = z
+  .object({
+    source: z.enum(['LOCAL', 'ORS', 'NOMINATIM', 'MANUAL']).optional(),
+    confidence: z.enum(['HIGH', 'MEDIUM', 'LOW']).optional(),
+    placeId: z.string().uuid().optional().nullable(),
+    isVerifiedPlace: z.boolean().optional(),
+    isManual: z.boolean().optional(),
+  })
+  .optional();
+
+export type LocationMetaInput = z.infer<typeof locationMetaSchema>;
 
 /**
  * Union field that accepts either a coordinate-object (new LocationPicker flow)
@@ -63,6 +82,8 @@ export const subscriptionCreateSchema = z.object({
   dropoffPhotoUrl: z.string().url().optional().nullable(),
   promoCode: z.string().trim().min(3).max(32).optional(),
   loyaltyPointsToRedeem: z.number().int().min(0).optional().default(0),
+  pickupLocationMeta: locationMetaSchema,
+  dropoffLocationMeta: locationMetaSchema,
 });
 
 export const subscriptionUpdateSchema = z.object({
