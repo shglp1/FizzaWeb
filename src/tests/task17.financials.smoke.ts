@@ -28,8 +28,7 @@ import {
   fizzaRetentionFromDrivers,
   totalRecognizedRevenue,
 } from '../lib/payroll/platformEconomics.ts';
-import { computePromoDiscount } from '../lib/promo/promoCodeRules.ts';
-import { remainingPromoUses } from '../lib/promo/promoAdminHelpers.ts';
+import { computePromoDiscount, remainingPromoUses } from '../lib/promo/promoCodeRules.ts';
 
 // ─── Financial overview ───────────────────────────────────────────────────────
 
