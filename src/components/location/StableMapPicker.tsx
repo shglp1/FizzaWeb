@@ -9,11 +9,15 @@ import {
   DEFAULT_MAP_CENTER,
   DEFAULT_MAP_ZOOM_COUNTRY,
   DEFAULT_MAP_ZOOM_PLACE,
+  DEFAULT_MAP_ZOOM_VERIFIED,
   confirmedLabelFromReverse,
+  isLocalGeocodeSuggestion,
+  isVerifiedGeocodeSuggestion,
+  mapPlaceTypeIcon,
   mapPickerCopy,
   mapPickerMarkerColor,
   mapPickerSectionTitle,
-  providerBadgeLabel,
+  suggestionProviderBadge,
   sanitizeManualLabel,
   suggestionDisplaySubtitle,
   suggestionDisplayTitle,
@@ -50,6 +54,10 @@ type DraftState = {
   city?: string | null;
   reverseLoading?: boolean;
   reverseFailed?: boolean;
+  placeId?: string | null;
+  isVerifiedPlace?: boolean;
+  source?: string | null;
+  isLocalSnap?: boolean;
 };
 
 export function StableMapPicker({
@@ -116,6 +124,11 @@ export function StableMapPicker({
             city?: string;
             landmark?: string;
             road?: string;
+            placeId?: string;
+            isVerified?: boolean;
+            isLocalSnap?: boolean;
+            source?: string;
+            providerBadge?: string;
           };
         };
         if (json.data && !labelEditedRef.current) {
@@ -127,6 +140,10 @@ export function StableMapPicker({
                   label,
                   neighborhood: json.data!.neighborhood ?? null,
                   city: json.data!.city ?? null,
+                  placeId: json.data!.placeId ?? null,
+                  isVerifiedPlace: json.data!.isVerified ?? json.data!.isLocalSnap ?? false,
+                  source: json.data!.source ?? null,
+                  isLocalSnap: json.data!.isLocalSnap ?? false,
                   reverseLoading: false,
                   reverseFailed: false,
                 }
@@ -178,9 +195,10 @@ export function StableMapPicker({
 
   const search = useCallback(
     async (q: string) => {
-      if (q.trim().length < 3) {
+      if (q.trim().length < 2) {
         setSuggestions([]);
         setShowResults(false);
+        setSearchError('');
         return;
       }
       setSearching(true);
@@ -194,13 +212,20 @@ export function StableMapPicker({
           `/api/maps/geocode?q=${encodeURIComponent(q.trim())}&lang=${language}${focus}`,
         );
         const json = (await res.json()) as {
-          data?: GeocodeSuggestion[];
+          data?: GeocodeSuggestion[] | null;
           error?: { message: string };
         };
-        if (json.data) {
+        if (Array.isArray(json.data)) {
           setSuggestions(json.data);
           setShowResults(true);
           setActiveIndex(-1);
+          if (json.data.length === 0) {
+            setSearchError(copy.noMatchingPlace);
+          }
+        } else if (json.error?.message) {
+          setSearchError(copy.searchUnavailable);
+          setSuggestions([]);
+          setShowResults(false);
         } else {
           setSearchError(copy.searchUnavailable);
           setSuggestions([]);
@@ -214,7 +239,7 @@ export function StableMapPicker({
         setSearching(false);
       }
     },
-    [language, copy.searchUnavailable, mapFocus.lat, mapFocus.lng],
+    [language, copy.searchUnavailable, copy.noMatchingPlace, mapFocus.lat, mapFocus.lng],
   );
 
   const startManualDraft = () => {
@@ -234,8 +259,10 @@ export function StableMapPicker({
 
   const handleSelectSuggestion = (s: GeocodeSuggestion) => {
     const title = suggestionDisplayTitle(s);
+    const verified = isVerifiedGeocodeSuggestion(s);
+    const local = isLocalGeocodeSuggestion(s);
     labelEditedRef.current = false;
-    setMapZoom(DEFAULT_MAP_ZOOM_PLACE);
+    setMapZoom(verified || local ? DEFAULT_MAP_ZOOM_VERIFIED : DEFAULT_MAP_ZOOM_PLACE);
     setMapFocus({ lat: s.latitude, lng: s.longitude });
     setDraft({
       label: title,
@@ -245,12 +272,17 @@ export function StableMapPicker({
       photoUrl: value?.photoUrl ?? null,
       neighborhood: s.neighborhood ?? null,
       city: s.city ?? null,
+      placeId: s.placeId ?? null,
+      isVerifiedPlace: verified,
+      source: s.source ?? s.provider ?? null,
+      isLocalSnap: local,
       reverseLoading: false,
       reverseFailed: false,
     });
     setQuery('');
     setSuggestions([]);
     setShowResults(false);
+    setSearchError('');
   };
 
   const handleUseCurrentLocation = () => {
@@ -315,6 +347,9 @@ export function StableMapPicker({
       lat: draft.lat,
       lng: draft.lng,
       photoUrl: draft.photoUrl ?? null,
+      placeId: draft.placeId ?? null,
+      isVerifiedPlace: draft.isVerifiedPlace ?? false,
+      source: draft.source ?? null,
     });
   };
 
@@ -346,7 +381,12 @@ export function StableMapPicker({
             <MapPin className="h-4 w-4" aria-hidden />
           </span>
           <div className="min-w-0 flex-1">
-            <p className="text-xs font-semibold uppercase tracking-wide text-emerald-800">{copy.confirmed}</p>
+            <p className="text-xs font-semibold text-emerald-800">{copy.confirmed}</p>
+            {value.isVerifiedPlace && (
+              <span className="mt-1 inline-flex rounded bg-emerald-200 px-2 py-0.5 text-[10px] font-semibold text-emerald-900">
+                {copy.verifiedPlace}
+              </span>
+            )}
             <p className="mt-1 text-sm font-medium text-gray-900 break-words">{value.label}</p>
             <p className="mt-1 text-xs font-mono text-gray-500">
               {value.lat.toFixed(6)}, {value.lng.toFixed(6)}
@@ -496,10 +536,10 @@ export function StableMapPicker({
                 className="max-h-52 overflow-y-auto rounded-xl border border-gray-200 bg-white shadow-md"
               >
                 {suggestions.length === 0 ? (
-                  <li className="px-4 py-3 text-sm text-gray-500">{copy.noResults}</li>
+                  <li className="px-4 py-3 text-sm text-gray-500">{copy.noMatchingPlace}</li>
                 ) : (
                   suggestions.map((s, i) => (
-                    <li key={`${s.label}-${i}`} role="option" aria-selected={i === activeIndex}>
+                    <li key={`${s.placeId ?? s.label}-${i}`} role="option" aria-selected={i === activeIndex}>
                       <button
                         type="button"
                         onMouseDown={(e) => {
@@ -512,15 +552,31 @@ export function StableMapPicker({
                       >
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0 flex-1">
-                            <p className="font-medium text-gray-900">{suggestionDisplayTitle(s)}</p>
-                            <p className="text-xs text-gray-500 mt-0.5">{suggestionDisplaySubtitle(s)}</p>
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-base leading-none" aria-hidden>
+                                {mapPlaceTypeIcon(s.type)}
+                              </span>
+                              <p className="font-medium text-gray-900">{suggestionDisplayTitle(s)}</p>
+                            </div>
+                            <p className="text-xs text-gray-500 mt-0.5 ms-6">{suggestionDisplaySubtitle(s)}</p>
+                            <p className="text-[10px] font-mono text-gray-400 mt-0.5 ms-6">
+                              {s.latitude.toFixed(5)}, {s.longitude.toFixed(5)}
+                            </p>
                           </div>
-                          <span className="shrink-0 inline-flex items-center gap-1">
+                          <span className="shrink-0 inline-flex flex-col items-end gap-1">
+                            <span
+                              className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+                                isVerifiedGeocodeSuggestion(s)
+                                  ? 'bg-emerald-100 text-emerald-800'
+                                  : isLocalGeocodeSuggestion(s)
+                                    ? 'bg-teal-100 text-teal-800'
+                                    : 'bg-gray-100 text-gray-600'
+                              }`}
+                            >
+                              {suggestionProviderBadge(s)}
+                            </span>
                             <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-800">
                               {copy.providerSa}
-                            </span>
-                            <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-600">
-                              {providerBadgeLabel(s.provider)}
                             </span>
                           </span>
                         </div>
@@ -531,8 +587,7 @@ export function StableMapPicker({
               </ul>
             )}
 
-            <p className="text-xs text-gray-500">{copy.searchHelper}</p>
-            <p className="text-xs text-gray-400">{copy.searchHint}</p>
+            <p className="text-xs text-gray-500">{copy.searchHint}</p>
 
             <button
               type="button"
@@ -548,9 +603,26 @@ export function StableMapPicker({
         {draft && (
           <>
             <div className="space-y-2">
-              <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                {copy.selectedPlace}
-              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                  {copy.selectedPlace}
+                </p>
+                {draft.isLocalSnap && draft.isVerifiedPlace && (
+                  <span className="rounded bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-800">
+                    {copy.nearestVerified}
+                  </span>
+                )}
+                {!draft.isLocalSnap && draft.isVerifiedPlace && (
+                  <span className="rounded bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-800">
+                    {copy.verifiedPlace}
+                  </span>
+                )}
+                {!draft.isVerifiedPlace && draft.source && draft.source !== 'LOCAL' && (
+                  <span className="rounded bg-gray-100 px-2 py-0.5 text-[10px] font-semibold text-gray-700">
+                    {copy.externalPlace}
+                  </span>
+                )}
+              </div>
               {editingLabel ? (
                 <input
                   type="text"

@@ -140,6 +140,8 @@ model Profile {
   payrollLinesApproved  DriverPayrollLine[]            @relation("PayrollLineApprovedBy")
   promoCodesCreated     PromoCode[]                    @relation("PromoCodeCreatedBy")
   promoRedemptions      PromoCodeRedemption[]
+  mapPlacesCreated      MapPlace[]                     @relation("MapPlaceCreatedBy")
+  mapPlacesUpdated      MapPlace[]                     @relation("MapPlaceUpdatedBy")
 
   @@map("profiles")
 }
@@ -804,6 +806,19 @@ enum PayrollPayoutMethod {
   MYFATOORAH
 }
 
+enum MapPlaceType {
+  DISTRICT
+  SCHOOL
+  UNIVERSITY
+  MOSQUE
+  HOSPITAL
+  LANDMARK
+  STREET
+  BUILDING
+  GATE
+  OTHER
+}
+
 /// Optional per-driver overrides for trip-based pay (null fields inherit global rules).
 model DriverPayProfile {
   id                    String               @id @default(cuid())
@@ -900,4 +915,33 @@ model DriverPayrollLine {
   @@index([driverId])
   @@index([status])
   @@map("driver_payroll_lines")
+}
+
+model MapPlace {
+  id          String       @id @default(uuid())
+  nameAr      String       @map("name_ar")
+  nameEn      String       @map("name_en")
+  type        MapPlaceType
+  city        String
+  region      String?
+  country     String       @default("SA")
+  latitude    Decimal      @db.Decimal(10, 7)
+  longitude   Decimal      @db.Decimal(10, 7)
+  aliasesAr   Json         @default("[]") @map("aliases_ar")
+  aliasesEn   Json         @default("[]") @map("aliases_en")
+  isActive    Boolean      @default(true) @map("is_active")
+  isVerified  Boolean      @default(false) @map("is_verified")
+  notes       String?      @db.Text
+  createdById String?      @map("created_by_id")
+  updatedById String?      @map("updated_by_id")
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
+  createdBy   Profile?     @relation("MapPlaceCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedBy   Profile?     @relation("MapPlaceUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  @@index([city])
+  @@index([type])
+  @@index([isActive])
+  @@index([isVerified])
+  @@map("map_places")
 }

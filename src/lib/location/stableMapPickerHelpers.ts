@@ -17,6 +17,9 @@ export type StableMapLocationValue = {
   lat: number;
   lng: number;
   photoUrl?: string | null;
+  placeId?: string | null;
+  isVerifiedPlace?: boolean;
+  source?: string | null;
 };
 
 export type GeocodeSuggestion = {
@@ -26,17 +29,23 @@ export type GeocodeSuggestion = {
   latitude: number;
   longitude: number;
   provider: string;
+  source?: string;
+  providerBadge?: string;
   providerPlaceId?: string;
+  placeId?: string;
+  type?: string;
   neighborhood?: string;
   city?: string;
   region?: string;
   country?: string;
+  isVerified?: boolean;
 };
 
 /** Default map centre (Riyadh) — Saudi Arabia focus when no user location. */
 export const DEFAULT_MAP_CENTER = { lat: 24.7136, lng: 46.6753 };
 export const DEFAULT_MAP_ZOOM_COUNTRY = 6;
 export const DEFAULT_MAP_ZOOM_PLACE = 16;
+export const DEFAULT_MAP_ZOOM_VERIFIED = 17;
 
 const COPY = {
   en: {
@@ -55,8 +64,10 @@ const COPY = {
     editLabel: 'Edit location label',
     manualPin: 'Place pin on map manually',
     searchHint: 'Search by district, school, mosque, university, landmark, or street.',
-    searchHelper:
-      'Search by district, school, mosque, university, landmark, or street.',
+    verifiedPlace: 'Verified place',
+    externalPlace: 'External map result',
+    nearestVerified: 'Nearest verified place',
+    noMatchingPlace: 'No matching place found. You can place the pin manually.',
     selectedPlace: 'Selected place',
     resolvingPlace: 'Identifying place name…',
     reverseGeocodeFailed:
@@ -87,9 +98,11 @@ const COPY = {
     confirmed: 'تم تأكيد الموقع',
     editLabel: 'تعديل وصف الموقع',
     manualPin: 'تحديد الدبوس على الخريطة يدوياً',
-    searchHint: 'اكتب 3 أحرف على الأقل للبحث.',
-    searchHelper:
-      'ابحث باسم الحي، المدرسة، المسجد، الجامعة، المعلم، أو الشارع.',
+    searchHint: 'ابحث باسم الحي، المدرسة، المسجد، الجامعة، المعلم، أو الشارع.',
+    verifiedPlace: 'مكان موثّق',
+    externalPlace: 'نتيجة خريطة خارجية',
+    nearestVerified: 'أقرب مكان موثّق',
+    noMatchingPlace: 'لم يتم العثور على مكان مطابق. يمكنك تحديد الدبوس يدوياً.',
     selectedPlace: 'المكان المحدد',
     resolvingPlace: 'جاري تحديد اسم المكان…',
     reverseGeocodeFailed:
@@ -152,7 +165,7 @@ export function toSelectedLocation(v: StableMapLocationValue) {
     label: v.label,
     latitude: v.lat,
     longitude: v.lng,
-    provider: 'stable-map-picker',
+    provider: v.source ?? 'stable-map-picker',
   };
 }
 
@@ -166,6 +179,7 @@ export function fromSelectedLocation(
     lat: v.latitude,
     lng: v.longitude,
     photoUrl: photoUrl ?? null,
+    source: v.provider ?? null,
   };
 }
 
@@ -179,9 +193,41 @@ export function suggestionDisplaySubtitle(s: GeocodeSuggestion): string {
   return parts.slice(0, 3).join(' · ') || 'Saudi Arabia';
 }
 
-export function providerBadgeLabel(provider: string): string {
+export function providerBadgeLabel(provider: string, badge?: string): string {
+  if (badge) return badge;
+  if (provider === 'local' || provider === 'LOCAL') return 'Local';
   if (provider === 'openrouteservice' || provider === 'ORS') return 'ORS';
   return 'OSM';
+}
+
+export function suggestionProviderBadge(s: GeocodeSuggestion): string {
+  return s.providerBadge ?? providerBadgeLabel(s.provider);
+}
+
+const TYPE_ICONS: Record<string, string> = {
+  DISTRICT: '🏘️',
+  SCHOOL: '🏫',
+  UNIVERSITY: '🎓',
+  MOSQUE: '🕌',
+  HOSPITAL: '🏥',
+  LANDMARK: '📍',
+  STREET: '🛣️',
+  BUILDING: '🏢',
+  GATE: '🚪',
+  OTHER: '📌',
+};
+
+export function mapPlaceTypeIcon(type?: string): string {
+  if (!type) return '📍';
+  return TYPE_ICONS[type] ?? '📍';
+}
+
+export function isLocalGeocodeSuggestion(s: GeocodeSuggestion): boolean {
+  return s.source === 'LOCAL' || s.provider === 'local';
+}
+
+export function isVerifiedGeocodeSuggestion(s: GeocodeSuggestion): boolean {
+  return s.isVerified === true || s.providerBadge === 'Verified';
 }
 
 export function confirmedLabelFromReverse(result: {

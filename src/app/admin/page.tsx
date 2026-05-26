@@ -19,6 +19,7 @@ import { PayrollSection } from './sections/PayrollSection';
 import { SystemConfigSection } from './sections/SystemConfigSection';
 import { PackagesSection } from './sections/PackagesSection';
 import { PromoCodesSection } from './sections/PromoCodesSection';
+import { MapPlacesSection } from './sections/MapPlacesSection';
 import { TripsSection } from './sections/TripsSection';
 import { SafetySection } from './sections/SafetySection';
 import { AuditLogsSection } from './sections/AuditLogsSection';
@@ -107,6 +108,7 @@ function AdminContent() {
         {activeSection === 'safety' && <SafetySection />}
         {activeSection === 'packages' && <PackagesSection />}
         {activeSection === 'promo-codes' && <PromoCodesSection />}
+        {activeSection === 'map-places' && <MapPlacesSection />}
         {activeSection === 'sysconfig' && <SystemConfigSection />}
         {activeSection === 'audit' && <AuditLogsSection />}
       </div>

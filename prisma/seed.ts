@@ -66,9 +66,91 @@ async function seedAddOns() {
   console.log('Created 3 add-ons.');
 }
 
+async function seedMapPlaces() {
+  const existing = await prisma.mapPlace.count();
+  if (existing > 0) {
+    console.log(`Map places already seeded (${existing} found), skipping.`);
+    return;
+  }
+
+  await prisma.mapPlace.createMany({
+    data: [
+      {
+        nameAr: 'جامعة الأمير مقرن',
+        nameEn: 'University of Prince Mugrin',
+        type: 'UNIVERSITY',
+        city: 'Medina',
+        region: 'Medina Province',
+        latitude: 24.4627,
+        longitude: 39.6117,
+        aliasesAr: ['مقرن', 'جامعة الأمير', 'UPM'],
+        aliasesEn: ['Prince Mugrin', 'UPM', 'Mugrin University'],
+        isVerified: true,
+        isActive: true,
+        notes: 'Seed place for map search QA',
+      },
+      {
+        nameAr: 'المسجد النبوي',
+        nameEn: 'Prophet Mosque',
+        type: 'MOSQUE',
+        city: 'Medina',
+        region: 'Medina Province',
+        latitude: 24.4672,
+        longitude: 39.6111,
+        aliasesAr: ['المسجد النبوي الشريف', 'الحرم النبوي'],
+        aliasesEn: ['Al-Masjid an-Nabawi', 'Prophet\'s Mosque'],
+        isVerified: true,
+        isActive: true,
+      },
+      {
+        nameAr: 'حي العزيزية المدينة المنورة',
+        nameEn: 'Al Aziziyah Medina',
+        type: 'DISTRICT',
+        city: 'Medina',
+        region: 'Medina Province',
+        latitude: 24.4705,
+        longitude: 39.5948,
+        aliasesAr: ['العزيزية', 'حي العزيزية'],
+        aliasesEn: ['Aziziyah', 'Al Aziziyah'],
+        isVerified: true,
+        isActive: true,
+      },
+      {
+        nameAr: 'طريق الملك فهد',
+        nameEn: 'King Fahad Road',
+        type: 'STREET',
+        city: 'Medina',
+        region: 'Medina Province',
+        latitude: 24.4785,
+        longitude: 39.5820,
+        aliasesAr: ['طريق الملك فهد بن عبد العزيز'],
+        aliasesEn: ['King Fahd Road', 'King Fahad Road'],
+        isVerified: false,
+        isActive: true,
+      },
+      {
+        nameAr: 'فندق إعمار طيبة',
+        nameEn: 'Emaar Taibah Hotel',
+        type: 'LANDMARK',
+        city: 'Medina',
+        region: 'Medina Province',
+        latitude: 24.4697,
+        longitude: 39.6092,
+        aliasesAr: ['إعمار طيبة', 'فندق طيبة'],
+        aliasesEn: ['Emaar Taibah', 'Taibah Hotel'],
+        isVerified: true,
+        isActive: true,
+      },
+    ],
+  });
+
+  console.log('Created 5 map places (Saudi registry seed).');
+}
+
 async function main() {
   await seedPackages();
   await seedAddOns();
+  await seedMapPlaces();
 
   console.log('');
   console.log('Seed complete.');

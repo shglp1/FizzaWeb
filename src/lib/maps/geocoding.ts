@@ -1,56 +1,39 @@
 /**
  * Saudi-focused forward & reverse geocoding (server-side only).
- * ORS when configured; Nominatim fallback. Never expose API keys to the client.
+ * Local registry first; ORS/Nominatim fallback.
  */
+
+import { haversineDistanceMeters } from '../location/locationDistance.ts';
+import { getLocalPlaceSnapRadiusMeters } from './mapPlaceConfig.ts';
+import { mergeGeocodeResults } from './mergeGeocodeResults.ts';
+import { mapPlaceTypeLabel } from './mapPlaceTypes.ts';
+import type { MapPlaceType } from '@prisma/client';
+import type {
+  GeocodeFocus,
+  GeocodeProviderTag,
+  GeocodeSearchOptions,
+  GeocodeSearchResult,
+  LocalMapPlaceHit,
+  ReverseGeocodeProvider,
+  ReverseGeocodeResult,
+} from './geocodeTypes.ts';
+
+export type {
+  GeocodeFocus,
+  GeocodeProviderTag,
+  GeocodeSearchOptions,
+  GeocodeSearchResult,
+  ReverseGeocodeProvider,
+  ReverseGeocodeResult,
+  GeocodeSource,
+  GeocodeProviderBadge,
+} from './geocodeTypes.ts';
 
 export class GeocodingError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'GeocodingError';
   }
-}
-
-export type GeocodeProviderTag = 'openrouteservice' | 'nominatim';
-
-export type GeocodeFocus = {
-  lat?: number;
-  lng?: number;
-  viewbox?: { minLng: number; minLat: number; maxLng: number; maxLat: number };
-};
-
-export type GeocodeSearchOptions = {
-  lang?: string;
-  focus?: GeocodeFocus;
-  limit?: number;
-};
-
-export interface GeocodeSearchResult {
-  label: string;
-  title: string;
-  subtitle: string;
-  latitude: number;
-  longitude: number;
-  provider: GeocodeProviderTag;
-  providerPlaceId?: string;
-  neighborhood?: string;
-  city?: string;
-  region?: string;
-  country?: string;
-}
-
-export type ReverseGeocodeProvider = 'ORS' | 'NOMINATIM';
-
-export interface ReverseGeocodeResult {
-  label: string;
-  neighborhood?: string;
-  road?: string;
-  landmark?: string;
-  city?: string;
-  region?: string;
-  country?: string;
-  latitude: number;
-  longitude: number;
-  provider: ReverseGeocodeProvider;
 }
 
 const ORS_BASE = 'https://api.openrouteservice.org';
@@ -140,7 +123,12 @@ export function formatPlaceSubtitle(parts: {
 }
 
 function normalizeSearchResult(
-  raw: Omit<GeocodeSearchResult, 'title' | 'subtitle'> & { title?: string; subtitle?: string },
+  raw: Omit<GeocodeSearchResult, 'title' | 'subtitle' | 'source' | 'providerBadge'> & {
+    title?: string;
+    subtitle?: string;
+    source?: GeocodeSearchResult['source'];
+    providerBadge?: GeocodeSearchResult['providerBadge'];
+  },
 ): GeocodeSearchResult {
   const title = raw.title?.trim() || raw.label.trim();
   const subtitle =
@@ -151,11 +139,66 @@ function normalizeSearchResult(
       region: raw.region,
       country: raw.country,
     });
+  const source = raw.source ?? (raw.provider === 'openrouteservice' ? 'ORS' : raw.provider === 'nominatim' ? 'NOMINATIM' : 'LOCAL');
+  const providerBadge =
+    raw.providerBadge ??
+    (source === 'LOCAL' ? (raw.isVerified ? 'Verified' : 'Local') : source === 'ORS' ? 'ORS' : 'OSM');
+
   return {
     ...raw,
     label: raw.label.trim() || title,
     title,
     subtitle,
+    source,
+    providerBadge,
+    confidence: raw.confidence ?? (source === 'LOCAL' ? (raw.isVerified ? 1 : 0.9) : 0.6),
+  };
+}
+
+function localHitToGeocodeResult(hit: LocalMapPlaceHit, lang: 'ar' | 'en'): GeocodeSearchResult {
+  const title = lang === 'ar' ? hit.nameAr : hit.nameEn;
+  const alt = lang === 'ar' ? hit.nameEn : hit.nameAr;
+  const subtitle = formatPlaceSubtitle({
+    city: hit.city,
+    region: hit.region,
+    country: hit.country === 'SA' ? 'Saudi Arabia' : hit.country,
+  });
+  return normalizeSearchResult({
+    label: title,
+    title,
+    subtitle: `${mapPlaceTypeLabel(hit.type as MapPlaceType, lang)} · ${subtitle}${alt && alt !== title ? ` · ${alt}` : ''}`,
+    latitude: hit.latitude,
+    longitude: hit.longitude,
+    provider: 'local',
+    source: 'LOCAL',
+    providerBadge: hit.isVerified ? 'Verified' : 'Local',
+    placeId: hit.id,
+    type: hit.type,
+    city: hit.city,
+    region: hit.region ?? undefined,
+    country: hit.country === 'SA' ? 'Saudi Arabia' : hit.country,
+    isVerified: hit.isVerified,
+    confidence: hit.isVerified ? 1 : 0.92,
+  });
+}
+
+function localHitToReverseResult(hit: LocalMapPlaceHit, lang: 'ar' | 'en'): ReverseGeocodeResult {
+  const title = lang === 'ar' ? hit.nameAr : hit.nameEn;
+  return {
+    label: title,
+    city: hit.city,
+    region: hit.region ?? undefined,
+    country: hit.country === 'SA' ? 'Saudi Arabia' : hit.country,
+    latitude: hit.latitude,
+    longitude: hit.longitude,
+    provider: 'LOCAL',
+    source: 'LOCAL',
+    providerBadge: hit.isVerified ? 'Verified' : 'Local',
+    placeId: hit.id,
+    isVerified: hit.isVerified,
+    isLocalSnap: true,
+    distanceMeters: hit.distanceMeters,
+    landmark: title,
   };
 }
 
@@ -249,6 +292,8 @@ async function searchLocationsOrs(
         latitude: lat,
         longitude: lng,
         provider: 'openrouteservice',
+        source: 'ORS',
+        providerBadge: 'ORS',
         providerPlaceId: feature.properties.id ?? undefined,
         neighborhood,
         city,
@@ -329,6 +374,8 @@ async function searchLocationsNominatim(
         latitude: Number(r.lat),
         longitude: Number(r.lon),
         provider: 'nominatim',
+        source: 'NOMINATIM',
+        providerBadge: 'OSM',
         providerPlaceId: r.place_id != null ? String(r.place_id) : undefined,
         neighborhood,
         city,
@@ -339,30 +386,42 @@ async function searchLocationsNominatim(
     .filter((r) => withinSaudi(r.latitude, r.longitude));
 }
 
-/** Saudi-focused location search. ORS primary; Nominatim fallback. */
+/** Local-first Saudi location search with external fallback. */
 export async function searchLocations(
   query: string,
   options?: GeocodeSearchOptions,
 ): Promise<GeocodeSearchResult[]> {
-  if (!query || query.trim().length < 3) return [];
+  if (!query || query.trim().length < 2) return [];
+
+  const lang = options?.lang === 'ar' ? 'ar' : 'en';
+  const limit = options?.limit ?? DEFAULT_LIMIT;
+
+  const { searchLocalMapPlaces } = await import('./localPlaceSearch.ts');
+  const localHits = await searchLocalMapPlaces(query, lang, limit);
+  const localResults = localHits.map((h) => localHitToGeocodeResult(h, lang));
+
+  let external: GeocodeSearchResult[] = [];
 
   if (isOrsGeocodingConfigured()) {
     try {
-      const results = await searchLocationsOrs(query, options);
-      if (results.length) return results;
+      external = await searchLocationsOrs(query, options);
     } catch {
-      // fall through to Nominatim
+      // continue to Nominatim
     }
   }
 
-  try {
-    const results = await searchLocationsNominatim(query, options);
-    if (results.length) return results;
-    throw new GeocodingError('No locations found in Saudi Arabia.');
-  } catch (err) {
-    if (err instanceof GeocodingError) throw err;
-    throw new GeocodingError('Could not reach geocoding service. Please try again.');
+  if (external.length === 0) {
+    try {
+      external = await searchLocationsNominatim(query, options);
+    } catch {
+      // external unavailable
+    }
   }
+
+  const merged = mergeGeocodeResults(localResults, external, limit);
+  if (merged.length) return merged;
+
+  return [];
 }
 
 function nominatimReverseToResult(
@@ -398,6 +457,8 @@ function nominatimReverseToResult(
     latitude: lat,
     longitude: lng,
     provider: 'NOMINATIM',
+    source: 'NOMINATIM',
+    providerBadge: 'OSM',
   };
 }
 
@@ -466,6 +527,8 @@ async function reverseGeocodeOrs(
     latitude: lat,
     longitude: lng,
     provider: 'ORS',
+    source: 'ORS',
+    providerBadge: 'ORS',
   };
 }
 
@@ -504,7 +567,7 @@ async function reverseGeocodeNominatim(
   return result.label.length >= 3 ? result : null;
 }
 
-/** Reverse geocode coordinates to a human-readable Saudi place name. */
+/** Reverse geocode — local snap first, then ORS/Nominatim. */
 export async function reverseGeocodeLocation(
   lat: number,
   lng: number,
@@ -512,6 +575,14 @@ export async function reverseGeocodeLocation(
 ): Promise<ReverseGeocodeResult | null> {
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
   if (!withinSaudi(lat, lng)) return null;
+
+  const lang = options?.lang === 'ar' ? 'ar' : 'en';
+  const radius = getLocalPlaceSnapRadiusMeters();
+  const { findNearestLocalMapPlace } = await import('./localPlaceSearch.ts');
+  const nearest = await findNearestLocalMapPlace(lat, lng, radius);
+  if (nearest) {
+    return localHitToReverseResult(nearest, lang);
+  }
 
   if (isOrsGeocodingConfigured()) {
     try {
@@ -529,8 +600,11 @@ export async function reverseGeocodeLocation(
   }
 }
 
-/** Provider badge label for UI (SA / ORS / OSM). */
-export function geocodeProviderBadge(provider: GeocodeProviderTag | ReverseGeocodeProvider): string {
+/** Provider badge label for legacy UI helpers. */
+export function geocodeProviderBadge(
+  provider: GeocodeProviderTag | ReverseGeocodeProvider | GeocodeSearchResult['source'],
+): string {
+  if (provider === 'local' || provider === 'LOCAL') return 'Local';
   if (provider === 'openrouteservice' || provider === 'ORS') return 'ORS';
   return 'OSM';
 }
