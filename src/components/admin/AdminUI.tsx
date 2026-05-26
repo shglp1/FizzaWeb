@@ -234,31 +234,71 @@ export function AdminDataCard({
   onClick?: () => void;
   selected?: boolean;
 }) {
-  const Wrapper = onClick ? 'button' : 'div';
-  return (
-    <Wrapper
-      type={onClick ? 'button' : undefined}
-      onClick={onClick}
-      className={[
-        'w-full text-left rounded-2xl border bg-white shadow-card transition-all',
-        compact ? 'p-4' : 'p-5',
-        onClick ? 'hover:shadow-card-md hover:border-emerald-100 cursor-pointer' : '',
-        selected ? 'ring-2 ring-emerald-400 border-emerald-200' : 'border-gray-100',
-      ].join(' ')}
-    >
-      <div className="flex items-start justify-between gap-3 mb-3">
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2 mb-0.5">
-            <h3 className="font-semibold text-gray-900 text-sm truncate">{title}</h3>
-            {badges}
-          </div>
-          {subtitle && <p className="text-xs text-gray-500 truncate">{subtitle}</p>}
-        </div>
-        {actions && <div className="flex items-center gap-1 shrink-0">{actions}</div>}
+  const cardClass = [
+    'w-full text-left rounded-2xl border bg-white shadow-card transition-all',
+    compact ? 'p-4' : 'p-5',
+    onClick ? 'hover:shadow-card-md hover:border-emerald-100' : '',
+    selected ? 'ring-2 ring-emerald-400 border-emerald-200' : 'border-gray-100',
+  ].join(' ');
+
+  const headerBlock = (
+    <>
+      <div className="flex flex-wrap items-center gap-2 mb-0.5">
+        <h3 className="font-semibold text-gray-900 text-sm truncate">{title}</h3>
+        {badges}
       </div>
+      {subtitle && <p className="text-xs text-gray-500 truncate">{subtitle}</p>}
+    </>
+  );
+
+  const bodyBlock = (
+    <>
       {metadata && <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs mb-3">{metadata}</div>}
       {children}
-    </Wrapper>
+    </>
+  );
+
+  const hasBody = Boolean(metadata || children);
+  const actionsInHeader = actions && !onClick;
+  const actionsInFooter = actions && onClick;
+
+  return (
+    <div className={cardClass}>
+      <div className={`flex items-start justify-between gap-3 ${hasBody || actionsInFooter ? 'mb-3' : ''}`}>
+        {onClick ? (
+          <button
+            type="button"
+            onClick={onClick}
+            className="min-w-0 flex-1 text-left rounded-lg -m-1 p-1 hover:bg-gray-50/80 transition-colors cursor-pointer"
+          >
+            {headerBlock}
+          </button>
+        ) : (
+          <div className="min-w-0 flex-1">{headerBlock}</div>
+        )}
+        {actionsInHeader && <div className="flex items-center gap-1 shrink-0">{actions}</div>}
+      </div>
+
+      {hasBody && (
+        onClick ? (
+          <button
+            type="button"
+            onClick={onClick}
+            className="w-full text-left rounded-lg -mx-1 px-1 hover:bg-gray-50/50 transition-colors cursor-pointer"
+          >
+            {bodyBlock}
+          </button>
+        ) : (
+          bodyBlock
+        )
+      )}
+
+      {actionsInFooter && (
+        <div className="mt-3 pt-3 border-t border-gray-100 flex flex-wrap items-center gap-1">
+          {actions}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -420,6 +460,7 @@ export function AdminTable<T extends { id: string }>({
               key={row.id}
               title={columns[0]?.cell(row) as string}
               onClick={onRowClick ? () => onRowClick(row) : undefined}
+              actions={rowActions ? rowActions(row) : undefined}
               compact
             >
               <dl className="space-y-2">
@@ -430,7 +471,6 @@ export function AdminTable<T extends { id: string }>({
                   </div>
                 ))}
               </dl>
-              {rowActions && <div className="mt-3 pt-3 border-t border-gray-50">{rowActions(row)}</div>}
             </AdminDataCard>
           ),
         )}
