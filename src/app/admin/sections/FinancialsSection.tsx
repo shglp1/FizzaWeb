@@ -25,7 +25,6 @@ import { formatSar } from '@/lib/ui/adminCurrency';
 
 type Overview = {
   totalRevenueSar: number;
-  paidParentRevenueSar: number;
   paidPaymentsCount: number;
   pendingRevenueSar: number;
   pendingPaymentsCount: number;
@@ -38,7 +37,6 @@ type Overview = {
   totalWalletBalanceSar: number;
   driverPayrollPaidSar: number;
   driverPayrollPaidCount: number;
-  driverPayoutsCompletedSar: number;
   driverPayrollApprovedSar: number;
   driverPayrollApprovedCount: number;
   driverPayrollDraftSar: number;
@@ -50,9 +48,6 @@ type Overview = {
   driverBonusesPaidSar: number;
   driverRetentionPaidSar: number;
   totalPlatformRevenueSar: number;
-  totalRecognizedRevenueSar: number;
-  estimatedGrossMarginSar: number;
-  estimatedGrossMarginPercent: number;
 };
 
 type Payment = {
@@ -77,7 +72,6 @@ const PAY_LABELS: Record<string, string> = {
 
 const PURPOSE_LABELS: Record<string, string> = {
   SUBSCRIPTION: 'Subscription',
-  SUBSCRIPTION_PAYMENT: 'Subscription payment',
   WALLET_TOP_UP: 'Wallet top-up',
   TRIP: 'Trip',
 };
@@ -137,7 +131,7 @@ export function FinancialsSection() {
     <div>
       <AdminSectionHeader
         title="Financial Overview"
-        subtitle="Recognized revenue, driver payouts, driver-side retention, and estimated gross margin"
+        subtitle="Revenue, payments, and wallet balances across the platform"
       />
 
       <AdminToolbar
@@ -183,89 +177,53 @@ export function FinancialsSection() {
           <div className="mb-8 grid gap-4 lg:grid-cols-5">
             <div className="lg:col-span-3">
               <AdminRevenueFlow
-                title="Total recognized revenue"
-                subtitle="Paid parent transactions plus settled driver-side retention from paid payroll lines. Operating costs are not included."
+                title="Total platform revenue"
+                subtitle="Combined Fizza revenue from parent payments and settled driver-side retention (paid payroll lines only)."
                 rows={[
-                  {
-                    label: 'Parent paid transactions',
-                    value: formatSar(overview.paidParentRevenueSar),
-                    tone: 'inflow',
-                    helper: 'Includes paid subscription payments, wallet top-ups, and wallet-funded subscription payments. MyFatoorah is only one payment source.',
-                  },
-                  { label: 'Driver platform fees (paid)', value: formatSar(overview.driverPlatformFeePaidSar), tone: 'inflow', helper: 'Platform fee % retained from driver trip gross on paid payroll lines' },
-                  ...(overview.driverDeductionsPaidSar > 0 ? [{ label: 'Driver deductions withheld (paid)', value: formatSar(overview.driverDeductionsPaidSar), tone: 'inflow' as const, helper: 'Admin deductions kept by Fizza on paid payroll lines' }] : []),
-                  ...(overview.driverBonusesPaidSar > 0 ? [{ label: 'Driver bonuses paid (paid)', value: `− ${formatSar(overview.driverBonusesPaidSar)}`, tone: 'outflow' as const, helper: 'Bonuses funded by Fizza on paid payroll lines' }] : []),
+                  { label: 'Parent payments (MyFatoorah)', value: formatSar(overview.totalRevenueSar), tone: 'inflow', helper: 'Subscriptions, wallet top-ups, and other paid parent transactions' },
+                  { label: 'Driver platform fees', value: formatSar(overview.driverPlatformFeePaidSar), tone: 'inflow', helper: 'Fee % retained from driver trip gross' },
+                  ...(overview.driverDeductionsPaidSar > 0 ? [{ label: 'Driver deductions withheld', value: formatSar(overview.driverDeductionsPaidSar), tone: 'inflow' as const, helper: 'Admin deductions kept by Fizza on paid lines' }] : []),
+                  ...(overview.driverBonusesPaidSar > 0 ? [{ label: 'Driver bonuses paid', value: `− ${formatSar(overview.driverBonusesPaidSar)}`, tone: 'outflow' as const, helper: 'Bonuses funded by Fizza on paid lines' }] : []),
                 ]}
-                totalLabel="Total recognized revenue"
-                totalValue={formatSar(overview.totalRecognizedRevenueSar)}
-                totalHelper="Paid parent transactions + driver-side retention (platform fees + deductions − bonuses)"
-                footnote="Date filter applies to parent payments (created) and driver payroll (paid at). Draft and approved payroll are excluded from recognized revenue."
+                totalLabel="Total platform revenue"
+                totalValue={formatSar(overview.totalPlatformRevenueSar)}
+                totalHelper="Parent payments + driver fees + deductions − bonuses"
+                footnote="Date filter applies to parent payments (created) and driver payroll (paid at). Draft/approved payroll is shown below."
               />
             </div>
-            <div className="lg:col-span-2 space-y-4">
+            <div className="lg:col-span-2">
               <AdminDataCard title="At a glance" compact>
                 <div className="grid gap-3 sm:grid-cols-2">
                   <AdminMetaItem label="Paid parent transactions" value={overview.paidPaymentsCount} />
-                  <AdminMetaItem label="Driver payouts completed" value={formatSar(overview.driverPayoutsCompletedSar)} />
-                  <AdminMetaItem label="Driver-side retention (paid)" value={formatSar(overview.driverRetentionPaidSar)} />
+                  <AdminMetaItem label="Driver payouts completed" value={formatSar(overview.driverPayrollPaidSar)} />
+                  <AdminMetaItem label="Driver retention (paid)" value={formatSar(overview.driverRetentionPaidSar)} />
                   <AdminMetaItem label="Wallet balances (liability)" value={formatSar(overview.totalWalletBalanceSar)} />
                 </div>
                 <a href="/admin?section=payroll" className="mt-4 inline-flex text-xs font-medium text-indigo-600 hover:text-indigo-800">
                   Open Driver Payroll →
                 </a>
               </AdminDataCard>
-              <AdminDataCard title="Estimated Platform Margin" compact>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between gap-3">
-                    <span className="text-gray-600">Paid parent revenue</span>
-                    <span className="tabular-nums font-medium text-emerald-700">{formatSar(overview.paidParentRevenueSar)}</span>
-                  </div>
-                  <div className="flex justify-between gap-3">
-                    <span className="text-gray-600">Driver payouts completed</span>
-                    <span className="tabular-nums font-medium text-amber-700">{formatSar(overview.driverPayoutsCompletedSar)}</span>
-                  </div>
-                  <div className="flex justify-between gap-3">
-                    <span className="text-gray-600">Driver-side retention</span>
-                    <span className="tabular-nums font-medium text-emerald-700">{formatSar(overview.driverRetentionPaidSar)}</span>
-                  </div>
-                  <div className="border-t border-gray-100 pt-2 flex justify-between gap-3">
-                    <span className="font-medium text-gray-800">Estimated gross margin</span>
-                    <span className="tabular-nums font-semibold text-indigo-700">{formatSar(overview.estimatedGrossMarginSar)}</span>
-                  </div>
-                  <div className="flex justify-between gap-3">
-                    <span className="text-gray-600">Estimated gross margin %</span>
-                    <span className="tabular-nums font-medium text-indigo-700">{overview.estimatedGrossMarginPercent.toFixed(2)}%</span>
-                  </div>
-                </div>
-                <p className="text-[11px] text-gray-500 mt-3 leading-relaxed">
-                  This is an estimated gross margin before payment gateway fees, SMS/API costs, refunds, support, hosting, and other operating expenses.
-                </p>
-              </AdminDataCard>
             </div>
           </div>
 
-          <AdminSectionHeader title="Parent revenue" subtitle="Money collected from parents — only PAID transactions count as recognized revenue" />
+          <AdminSectionHeader title="Parent revenue" subtitle="Payments collected from parents via MyFatoorah" />
           <AdminMetricGrid
             columns={4}
             items={[
-              { label: 'Parent paid transactions', value: formatSar(overview.paidParentRevenueSar), icon: DollarSign, color: '#059669' },
+              { label: 'Parent payments', value: formatSar(overview.totalRevenueSar), icon: DollarSign, color: '#059669' },
               { label: 'Paid transactions', value: overview.paidPaymentsCount, icon: TrendingUp, color: '#059669' },
               { label: 'Pending revenue', value: formatSar(overview.pendingRevenueSar), color: '#D97706' },
               { label: 'Pending payments', value: overview.pendingPaymentsCount, color: '#D97706' },
-              { label: 'Failed payments', value: formatSar(overview.failedPaymentsSar), color: '#DC2626' },
-              { label: 'Failed payment count', value: overview.failedPaymentsCount, color: '#DC2626' },
-              { label: 'Subscription revenue (paid)', value: formatSar(overview.subscriptionRevenueSar), icon: CreditCard, color: '#6366F1' },
-              { label: 'Wallet top-ups (paid)', value: formatSar(overview.walletTopUpRevenueSar), icon: Wallet, color: '#2563EB' },
-              { label: 'Wallet balance liability', value: formatSar(overview.totalWalletBalanceSar), icon: Wallet, color: '#7C3AED' },
+              { label: 'Failed payments', value: overview.failedPaymentsCount, color: '#DC2626' },
+              { label: 'Wallet top-ups', value: formatSar(overview.walletTopUpRevenueSar), icon: Wallet, color: '#2563EB' },
+              { label: 'Subscription revenue', value: formatSar(overview.subscriptionRevenueSar), icon: CreditCard, color: '#6366F1' },
+              { label: 'Total wallet balance', value: formatSar(overview.totalWalletBalanceSar), icon: Wallet, color: '#7C3AED' },
             ]}
           />
-          <p className="text-xs text-gray-500 -mt-4 mb-6">
-            Pending and failed payments are not recognized revenue. Wallet top-ups increase parent paid transactions and wallet liability until spent on subscriptions.
-          </p>
           <div className="mt-6 mb-2">
             <AdminSectionHeader
               title="Driver-side economics"
-              subtitle="Trip gross, platform fees, deductions, and bonuses — settled amounts reflect paid payroll lines only"
+              subtitle="Platform fee and deductions retained from driver trip gross — settled on paid payroll lines"
             />
           </div>
           <AdminMetricGrid
@@ -274,28 +232,22 @@ export function FinancialsSection() {
               { label: 'Platform fees (paid)', value: formatSar(overview.driverPlatformFeePaidSar), icon: Banknote, color: '#059669' },
               { label: 'Deductions withheld (paid)', value: formatSar(overview.driverDeductionsPaidSar), color: '#059669' },
               { label: 'Bonuses paid (paid)', value: formatSar(overview.driverBonusesPaidSar), color: '#D97706' },
-              { label: 'Driver-side retention (paid)', value: formatSar(overview.driverRetentionPaidSar), color: '#047857' },
+              { label: 'Driver retention (paid)', value: formatSar(overview.driverRetentionPaidSar), color: '#047857' },
               { label: 'Platform fees (approved)', value: formatSar(overview.driverPlatformFeeApprovedSar), color: '#2563EB' },
               { label: 'Platform fees (draft)', value: formatSar(overview.driverPlatformFeeDraftSar), color: '#D97706' },
             ]}
           />
-          <p className="text-xs text-gray-500 -mt-4 mb-4">
-            Driver-side retention = platform fees + deductions − bonuses from paid payroll lines. Draft and approved payroll do not affect settled retention totals.
-          </p>
           <div className="mt-4 mb-2">
-            <AdminSectionHeader title="Driver payouts" subtitle="Net pay to drivers after platform fee — only paid payroll lines count as completed payouts" />
+            <AdminSectionHeader title="Driver payouts" subtitle="Amounts owed or paid to drivers after platform fee" />
           </div>
           <AdminMetricGrid
             columns={3}
             items={[
-              { label: 'Driver payouts completed', value: formatSar(overview.driverPayoutsCompletedSar), icon: Banknote, color: '#047857' },
+              { label: 'Paid to drivers', value: formatSar(overview.driverPayrollPaidSar), icon: Banknote, color: '#047857' },
               { label: 'Approved (awaiting payout)', value: formatSar(overview.driverPayrollApprovedSar), color: '#2563EB' },
               { label: 'Draft payroll', value: formatSar(overview.driverPayrollDraftSar), color: '#D97706' },
             ]}
           />
-          <p className="text-xs text-gray-500 -mt-4 mb-6">
-            Approved and draft payroll are shown for operational visibility but are excluded from completed payout totals and estimated gross margin.
-          </p>
         </>
       ) : null}
 

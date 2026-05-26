@@ -36,15 +36,6 @@ import {
 } from '@/components/admin/AdminUI';
 import { formatSar } from '@/lib/ui/adminCurrency';
 import { mapDistanceProviderLabel } from '@/lib/ui/mapLocation';
-import { systemConfigService } from '@/services/adminService';
-import {
-  calculateSubscriptionMargin,
-  isDriverRateAboveParentDistanceRate,
-} from '@/lib/financials/subscriptionMargin';
-import {
-  DEFAULT_DRIVER_PAY_RATE_PER_KM,
-  DEFAULT_DRIVER_PLATFORM_FEE_PERCENT,
-} from '@/lib/payroll/payRules';
 
 type AssignedDriver = {
   id: string;
@@ -212,32 +203,6 @@ export function SubscriptionsSection() {
   const [cancelReason, setCancelReason] = useState('');
   const [cancelling, setCancelling] = useState(false);
   const [actionMsg, setActionMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
-  const [payConfig, setPayConfig] = useState({
-    driverRatePerKmSar: DEFAULT_DRIVER_PAY_RATE_PER_KM,
-    platformFeePercent: DEFAULT_DRIVER_PLATFORM_FEE_PERCENT,
-    parentDistanceRatePerKmSar: 0,
-  });
-
-  useEffect(() => {
-    systemConfigService.list().then((res) => {
-      if (!res.data) return;
-      const map = Object.fromEntries(
-        (res.data as { key: string; value: unknown }[]).map((c) => [c.key, String(c.value ?? '')]),
-      );
-      const driverRate = parseFloat(map.driverPayRatePerKmSar ?? '');
-      const fee = parseFloat(map.driverPlatformFeePercent ?? '');
-      const parentRate = parseFloat(map.pricePerKmSar ?? '');
-      setPayConfig({
-        driverRatePerKmSar: Number.isFinite(driverRate) && driverRate >= 0
-          ? driverRate
-          : DEFAULT_DRIVER_PAY_RATE_PER_KM,
-        platformFeePercent: Number.isFinite(fee) && fee >= 0 && fee <= 100
-          ? fee
-          : DEFAULT_DRIVER_PLATFORM_FEE_PERCENT,
-        parentDistanceRatePerKmSar: Number.isFinite(parentRate) && parentRate >= 0 ? parentRate : 0,
-      });
-    });
-  }, []);
 
   const load = useCallback((s: string, ps: string, df: string, search: string, p: number, l: number) => {
     setLoading(true);
@@ -411,22 +376,6 @@ export function SubscriptionsSection() {
               const completedTrips = d.ridesUsed ?? selected?.ridesUsed ?? 0;
               const totalTrips = d._count?.trips ?? selected?._count?.trips ?? 0;
               const remainingTrips = Math.max(0, totalTrips - completedTrips);
-              const parentDistanceRate = Number(d.pricePerKmSarSnapshot ?? payConfig.parentDistanceRatePerKmSar);
-              const chargeableKm = Number(
-                d.totalChargeableDistanceKm ?? d.chargeableDistanceKm ?? 0,
-              );
-              const subscriptionMargin = chargeableKm > 0
-                ? calculateSubscriptionMargin({
-                    subscriptionRevenueSar: Number(d.finalPriceSar),
-                    totalChargeableDistanceKm: chargeableKm,
-                    driverRatePerKmSar: payConfig.driverRatePerKmSar,
-                    platformFeePercent: payConfig.platformFeePercent,
-                  })
-                : null;
-              const unitEconomicsWarning = isDriverRateAboveParentDistanceRate(
-                payConfig.driverRatePerKmSar,
-                parentDistanceRate,
-              );
 
               return (
                 <>
@@ -502,24 +451,7 @@ export function SubscriptionsSection() {
                       <AdminDrawerRow label="Extra riders" value={formatSar(d.extraRidersPriceSar)} />
                     )}
                     <AdminDrawerRow label="Female driver preference" value={d.femaleDriverPreference ? 'Yes' : 'No'} />
-                    {unitEconomicsWarning && (
-                      <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
-                        Warning: Driver pay rate per km is higher than the parent distance charge per km. The package fee must cover the difference to keep this subscription profitable.
-                      </div>
-                    )}
                   </AdminDrawerSection>
-
-                  {subscriptionMargin && (
-                    <AdminDrawerSection title="Estimated subscription margin (admin only)">
-                      <AdminDrawerRow label="Estimated subscription margin" value={formatSar(subscriptionMargin.estimatedSubscriptionMarginSar)} />
-                      <AdminDrawerRow label="Parent-paid amount" value={formatSar(d.finalPriceSar)} />
-                      <AdminDrawerRow label="Est. driver gross" value={formatSar(subscriptionMargin.estimatedDriverGrossSar)} />
-                      <AdminDrawerRow label="Est. driver payout" value={formatSar(subscriptionMargin.estimatedDriverPayoutSar)} />
-                      <p className="text-xs text-gray-500 mt-2 leading-relaxed">
-                        Estimated only. This compares the parent-paid subscription amount against the estimated driver payout. Actual margin depends on completed trips, payroll adjustments, deductions, bonuses, refunds, payment gateway fees, SMS/API costs, and operational costs.
-                      </p>
-                    </AdminDrawerSection>
-                  )}
 
                   <AdminDrawerSection title="Riders">
                     <AdminDrawerRow label="Riders" value={riders} />

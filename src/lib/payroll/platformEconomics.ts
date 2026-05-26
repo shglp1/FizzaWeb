@@ -66,17 +66,6 @@ export function fizzaRetentionFromDriversPaid(e: PeriodEconomics): number {
   return roundMoney(e.paidPlatformFee + e.paidDeductions - e.paidBonuses);
 }
 
-/** Driver-side retention from paid payroll lines: platform fee + deductions − bonuses. */
-export function driverRetentionFromPaid(input: {
-  platformFeePaidSar: number;
-  deductionsPaidSar: number;
-  bonusesPaidSar: number;
-}): number {
-  return roundMoney(
-    input.platformFeePaidSar + input.deductionsPaidSar - input.bonusesPaidSar,
-  );
-}
-
 export function combinedPlatformRevenue(input: {
   parentPaymentsSar: number;
   driverPlatformFeePaidSar: number;
@@ -89,45 +78,4 @@ export function combinedPlatformRevenue(input: {
     + input.driverDeductionsPaidSar
     - input.driverBonusesPaidSar,
   );
-}
-
-/** Total recognized revenue = paid parent transactions + settled driver-side retention. */
-export function totalRecognizedRevenue(input: {
-  paidParentRevenueSar: number;
-  driverRetentionPaidSar: number;
-}): number {
-  return roundMoney(input.paidParentRevenueSar + input.driverRetentionPaidSar);
-}
-
-/**
- * Estimated gross margin before operating costs.
- * paidParentRevenue + driverRetention − driverPayoutsCompleted
- */
-export function estimatedGrossMargin(input: {
-  paidParentRevenueSar: number;
-  driverRetentionPaidSar: number;
-  driverPayoutsCompletedSar: number;
-}): number {
-  return roundMoney(
-    input.paidParentRevenueSar
-    + input.driverRetentionPaidSar
-    - input.driverPayoutsCompletedSar,
-  );
-}
-
-export function estimatedGrossMarginPercent(
-  paidParentRevenueSar: number,
-  estimatedGrossMarginSar: number,
-): number {
-  if (paidParentRevenueSar <= 0) return 0;
-  return roundMoney((estimatedGrossMarginSar / paidParentRevenueSar) * 100);
-}
-
-/** Driver-side retention from trip gross: platformFee + deductions − bonuses. */
-export function driverRetentionFromLine(input: {
-  platformFeeSar: number;
-  deductionsSar: number;
-  bonusesSar: number;
-}): number {
-  return roundMoney(input.platformFeeSar + input.deductionsSar - input.bonusesSar);
 }
