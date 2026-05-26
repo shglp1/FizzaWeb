@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireRole } from '@/lib/session';
-import { combinedPlatformRevenue } from '@/lib/payroll/platformEconomics';
+import { buildFinancialOverviewMetrics } from '@/lib/financials/financialOverviewMetrics';
 
 export async function GET(req: Request) {
   try {
@@ -90,29 +90,35 @@ export async function GET(req: Request) {
     const driverPlatformFeePaidSar = Number(platformFeePaid._sum.platformFeeSar ?? 0);
     const driverDeductionsPaidSar = Number(deductionsPaid._sum.deductionsSar ?? 0);
     const driverBonusesPaidSar = Number(bonusesPaid._sum.bonusesSar ?? 0);
-    const driverRetentionPaidSar = driverPlatformFeePaidSar + driverDeductionsPaidSar - driverBonusesPaidSar;
-    const totalPlatformRevenueSar = combinedPlatformRevenue({
-      parentPaymentsSar: parentRevenueSar,
+    const driverPayrollPaidSar = Number(payrollPaid._sum.netPaySar ?? 0);
+
+    const metrics = buildFinancialOverviewMetrics({
+      paidParentPaymentsSar: parentRevenueSar,
+      pendingPaymentsSar: Number(pendingPayments._sum.amountSar ?? 0),
+      failedPaymentsSar: Number(failedPayments._sum.amountSar ?? 0),
       driverPlatformFeePaidSar,
       driverDeductionsPaidSar,
       driverBonusesPaidSar,
+      driverPayoutsCompletedSar: driverPayrollPaidSar,
     });
 
     return NextResponse.json({
       data: {
         totalRevenueSar: parentRevenueSar,
+        paidParentRevenueSar: metrics.paidParentRevenueSar,
         paidPaymentsCount: paidPayments._count,
-        pendingRevenueSar: Number(pendingPayments._sum.amountSar ?? 0),
+        pendingRevenueSar: metrics.pendingRevenueSar,
         pendingPaymentsCount: pendingPayments._count,
-        failedPaymentsSar: Number(failedPayments._sum.amountSar ?? 0),
+        failedPaymentsSar: metrics.failedPaymentsSar,
         failedPaymentsCount: failedPayments._count,
         walletTopUpRevenueSar: Number(walletTopUpsPaid._sum.amountSar ?? 0),
         walletTopUpsCount: walletTopUpsPaid._count,
         subscriptionRevenueSar: Number(subscriptionPaymentsPaid._sum.amountSar ?? 0),
         subscriptionPaymentsCount: subscriptionPaymentsPaid._count,
         totalWalletBalanceSar: Number(totalWalletBalance._sum.balanceSar ?? 0),
-        driverPayrollPaidSar: Number(payrollPaid._sum.netPaySar ?? 0),
+        driverPayrollPaidSar,
         driverPayrollPaidCount: payrollPaid._count,
+        driverPayoutsCompletedSar: driverPayrollPaidSar,
         driverPayrollApprovedSar: Number(payrollApproved._sum.netPaySar ?? 0),
         driverPayrollApprovedCount: payrollApproved._count,
         driverPayrollDraftSar: Number(payrollPending._sum.netPaySar ?? 0),
@@ -122,8 +128,11 @@ export async function GET(req: Request) {
         driverPlatformFeeDraftSar: Number(platformFeeDraft._sum.platformFeeSar ?? 0),
         driverDeductionsPaidSar,
         driverBonusesPaidSar,
-        driverRetentionPaidSar,
-        totalPlatformRevenueSar,
+        driverRetentionPaidSar: metrics.driverRetentionPaidSar,
+        totalPlatformRevenueSar: metrics.totalRecognizedRevenueSar,
+        totalRecognizedRevenueSar: metrics.totalRecognizedRevenueSar,
+        estimatedGrossMarginSar: metrics.estimatedGrossMarginSar,
+        estimatedGrossMarginPercent: metrics.estimatedGrossMarginPercent,
         dateFrom: dateFrom || null,
         dateTo: dateTo || null,
       },
