@@ -1,0 +1,106 @@
+/**
+ * Script-safe map diagnostics — no `server-only` imports.
+ * Used by `scripts/check-maps.ts` and re-exported from `diagnostics.ts` for Next.js routes.
+ */
+
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { prisma } from '../prisma.ts';
+import { getMapSearchProviderMode, getMapRouteProviderMode } from './providers/resolve.ts';
+import { MAP_TILE_CSP_HOSTS } from './mapTiles.ts';
+
+function isOrsConfigured(): boolean {
+  return !!process.env.OPENROUTESERVICE_API_KEY?.trim();
+}
+
+const ROOT = join(process.cwd());
+
+async function pingUrl(url: string, timeoutMs = 5000, headers?: Record<string, string>): Promise<boolean> {
+  try {
+    const res = await fetch(url, {
+      method: 'GET',
+      signal: AbortSignal.timeout(timeoutMs),
+      headers: { Accept: 'application/json', ...headers },
+    });
+    return res.ok || res.status === 400;
+  } catch {
+    return false;
+  }
+}
+
+async function fetchMapPlaceCounts(): Promise<{
+  total: number;
+  verified: number;
+  inactive: number;
+  cities: number;
+}> {
+  const [total, verified, active, cities] = await Promise.all([
+    prisma.mapPlace.count(),
+    prisma.mapPlace.count({ where: { isVerified: true } }),
+    prisma.mapPlace.count({ where: { isActive: true } }),
+    prisma.mapPlace.findMany({ select: { city: true }, distinct: ['city'] }),
+  ]);
+  return { total, verified, inactive: total - active, cities: cities.length };
+}
+
+async function fetchGeocodeCacheStats(): Promise<{ total: number; active: number; expired: number }> {
+  const now = new Date();
+  const [total, active] = await Promise.all([
+    prisma.mapGeocodeCache.count(),
+    prisma.mapGeocodeCache.count({ where: { expiresAt: { gt: now } } }),
+  ]);
+  return { total, active, expired: total - active };
+}
+
+export type MapDiagnosticsResult = {
+  timestamp: string;
+  osmTileCspConfigured: boolean;
+  osmTileHosts: string[];
+  orsConfigured: boolean;
+  osrmReachable: boolean;
+  nominatimReachable: boolean;
+  mapSearchProvider: string;
+  mapRouteProvider: string;
+  mapPlaces: { total: number; verified: number; inactive: number; cities: number };
+  geocodeCache: { total: number; active: number; expired: number };
+  storageDriver: string;
+  seedPlacesPresent: boolean;
+};
+
+export async function runMapDiagnostics(): Promise<MapDiagnosticsResult> {
+  const configSrc = readFileSync(join(ROOT, 'next.config.ts'), 'utf8');
+  const osmTileCspConfigured = MAP_TILE_CSP_HOSTS.every((host) => {
+    const fragment = host.replace('https://', '').replace(/\./g, '\\.').replace(/\*/g, '.*');
+    return new RegExp(fragment).test(configSrc);
+  });
+
+  const osrmBase = process.env.OSRM_BASE_URL?.trim() || 'https://router.project-osrm.org';
+  const nominatimHeaders = {
+    'User-Agent': process.env.NOMINATIM_USER_AGENT?.trim() || 'FizzaWeb/1.0 (maps-diagnostics; contact@fizza.sa)',
+  };
+  const [osrmReachable, nominatimReachable, mapPlaces, geocodeCache] = await Promise.all([
+    pingUrl(`${osrmBase.replace(/\/$/, '')}/route/v1/driving/46.6753,24.7136;46.6853,24.7236?overview=false`),
+    pingUrl(
+      'https://nominatim.openstreetmap.org/search?q=Riyadh&format=json&limit=1',
+      8000,
+      nominatimHeaders,
+    ),
+    fetchMapPlaceCounts(),
+    fetchGeocodeCacheStats(),
+  ]);
+
+  return {
+    timestamp: new Date().toISOString(),
+    osmTileCspConfigured,
+    osmTileHosts: MAP_TILE_CSP_HOSTS,
+    orsConfigured: isOrsConfigured(),
+    osrmReachable,
+    nominatimReachable,
+    mapSearchProvider: getMapSearchProviderMode(),
+    mapRouteProvider: String(getMapRouteProviderMode()),
+    mapPlaces,
+    geocodeCache,
+    storageDriver: process.env.STORAGE_DRIVER?.trim() || 'local',
+    seedPlacesPresent: mapPlaces.verified >= 1,
+  };
+}

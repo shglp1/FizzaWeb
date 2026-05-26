@@ -28,11 +28,13 @@ describe('MobileNav loading state', () => {
 });
 
 describe('MobileNav driverState mapping', () => {
-  it('PARENT gets family mobile nav', () => {
+  it('PARENT gets family mobile nav with subscriptions and More menu', () => {
     const items = getMobileNavItemsForDriverState('PARENT');
     assert.ok(items);
-    assert.ok(items.some((i) => i.href === '/dashboard'));
-    assert.ok(items.some((i) => i.href === '/riders'));
+    assert.ok(items!.some((i) => i.href === '/dashboard'));
+    assert.ok(items!.some((i) => i.href === '/riders'));
+    assert.ok(items!.some((i) => i.href === '/subscriptions'));
+    assert.ok(items!.some((i) => i.href === '__more__'));
   });
 
   it('DRIVER_APPLICANT gets applicant nav only', () => {

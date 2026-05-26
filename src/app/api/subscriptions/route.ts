@@ -12,6 +12,7 @@ import {
 } from '@/lib/maps/distance';
 import { validatePromoCode, computePromoDiscount } from '@/lib/promo/promoCode';
 import { resolveLoyaltyRedemptionForQuote } from '@/lib/loyalty/resolveLoyaltyQuote';
+import { createLocationReviewIfNeeded } from '@/lib/maps/locationReview';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -160,6 +161,8 @@ export async function POST(req: Request) {
       dropoffPhotoUrl,
       promoCode,
       loyaltyPointsToRedeem,
+      pickupLocationMeta,
+      dropoffLocationMeta,
     } = parsed.data;
 
     // Normalise location inputs — accept both coord-objects and plain strings
@@ -437,6 +440,35 @@ export async function POST(req: Request) {
 
       return sub;
     });
+
+    if (pickup.hasCoords) {
+      await createLocationReviewIfNeeded({
+        subscriptionId: subscription.id,
+        locationKind: 'PICKUP',
+        label: pickup.label,
+        latitude: pickup.lat!,
+        longitude: pickup.lng!,
+        source: pickupLocationMeta?.source ?? null,
+        confidence: pickupLocationMeta?.confidence ?? null,
+        placeId: pickupLocationMeta?.placeId ?? null,
+        isVerifiedPlace: pickupLocationMeta?.isVerifiedPlace,
+        isManual: pickupLocationMeta?.isManual,
+      });
+    }
+    if (dropoff.hasCoords) {
+      await createLocationReviewIfNeeded({
+        subscriptionId: subscription.id,
+        locationKind: 'DROPOFF',
+        label: dropoff.label,
+        latitude: dropoff.lat!,
+        longitude: dropoff.lng!,
+        source: dropoffLocationMeta?.source ?? null,
+        confidence: dropoffLocationMeta?.confidence ?? null,
+        placeId: dropoffLocationMeta?.placeId ?? null,
+        isVerifiedPlace: dropoffLocationMeta?.isVerifiedPlace,
+        isManual: dropoffLocationMeta?.isManual,
+      });
+    }
 
     return NextResponse.json({ data: subscription, error: null }, { status: 201 });
   } catch {

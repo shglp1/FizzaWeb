@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
 import { PARENT_NAV } from '../lib/roleRoutes.ts';
-import { getMobileNavItemsForDriverState } from '../lib/mobileNav.ts';
+import { getMobileNavConfigForDriverState, getMobileNavItemsForDriverState } from '../lib/mobileNav.ts';
 import { CONFIG_FIELD_META, CONFIG_GROUPS } from '../lib/ui/systemConfigGroups.ts';
 import { DEFAULT_CHAT_CONFIG, chatUnavailableLabel } from '../lib/chat/chatConfig.ts';
 import { isChatWindowOpen } from '../lib/trips/tripLifecycle.ts';
@@ -31,9 +31,19 @@ test('parent desktop nav labels', () => {
 });
 
 test('parent mobile nav items', () => {
-  const items = getMobileNavItemsForDriverState('PARENT');
-  const hrefs = items!.map((i) => i.href);
-  assert.deepEqual(hrefs, ['/dashboard', '/riders', '/trips', '/wallet', '/profile']);
+  const config = getMobileNavConfigForDriverState('PARENT');
+  assert.ok(config);
+  const barHrefs = config!.bar.map((i) => i.href);
+  assert.ok(barHrefs.includes('/dashboard'));
+  assert.ok(barHrefs.includes('/riders'));
+  assert.ok(barHrefs.includes('/subscriptions'));
+  assert.ok(barHrefs.includes('/trips'));
+  assert.ok(barHrefs.includes('__more__'));
+  const moreHrefs = config!.more.map((i) => i.href);
+  assert.ok(moreHrefs.includes('/wallet'));
+  assert.ok(moreHrefs.includes('/safety'));
+  assert.ok(moreHrefs.includes('/notifications'));
+  assert.ok(moreHrefs.includes('/profile'));
 });
 
 test('rider sensitive info withheld from driver view', () => {

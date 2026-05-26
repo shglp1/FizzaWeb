@@ -66,7 +66,31 @@ export function EnterpriseCard({
   accent?: boolean;
   padding?: 'none' | 'sm' | 'default' | 'lg';
 }) {
-  const pad = { none: '', sm: 'p-4', default: 'p-5 sm:p-6', lg: 'p-6 sm:p-8' }[padding];
+  const padMap = {
+    none: '',
+    sm: 'p-4',
+    default: 'p-5 sm:p-6',
+    lg: 'p-6 sm:p-8',
+  };
+  const pad = padMap[padding];
+  const insetPad = 'px-4 sm:px-5';
+  const headerPad = header
+    ? padding === 'none'
+      ? `${insetPad} pt-4 sm:pt-5 pb-3`
+      : `${pad} pb-4`
+    : '';
+  const bodyPad =
+    padding === 'none'
+      ? header || footer
+        ? `${insetPad} pb-4 sm:pb-5`
+        : ''
+      : pad;
+  const footerPad = footer
+    ? padding === 'none'
+      ? `${insetPad} pt-4 pb-4 sm:pb-5 border-t border-gray-100`
+      : `${pad} pt-4 border-t border-gray-100`
+    : '';
+
   return (
     <div
       className={[
@@ -75,9 +99,9 @@ export function EnterpriseCard({
         className,
       ].join(' ')}
     >
-      {header && <div className={`border-b border-gray-100 ${pad} pb-4`}>{header}</div>}
-      <div className={header || footer ? pad : pad}>{children}</div>
-      {footer && <div className={`border-t border-gray-100 ${pad} pt-4`}>{footer}</div>}
+      {header && <div className={`border-b border-gray-100 ${headerPad}`}>{header}</div>}
+      <div className={header || footer ? bodyPad : pad}>{children}</div>
+      {footer && <div className={footerPad}>{footer}</div>}
     </div>
   );
 }

@@ -38,16 +38,8 @@ export interface RouteDistanceResult {
 }
 
 /** Geocode search provider tag returned to clients. */
-export type GeocodeProviderTag = 'openrouteservice' | 'nominatim';
-
-/** Normalized result from geocode search — returned by /api/maps/geocode. */
-export interface GeocodeSearchResult {
-  label: string;
-  latitude: number;
-  longitude: number;
-  provider: GeocodeProviderTag;
-  providerPlaceId?: string;
-}
+export type { GeocodeProviderTag, GeocodeSearchResult, GeocodeSearchOptions } from './geocoding.ts';
+export { searchLocations, reverseGeocodeLocation, GeocodingError } from './geocoding.ts';
 
 // ─── Typed error ──────────────────────────────────────────────────────────────
 
@@ -242,108 +234,6 @@ async function resolveRouteFromCoords(
   return result;
 }
 
-async function searchLocationsNominatim(
-  query: string,
-  options?: { lang?: string },
-): Promise<GeocodeSearchResult[]> {
-  const url = new URL(`${NOMINATIM_BASE}/search`);
-  url.searchParams.set('q', query.trim());
-  url.searchParams.set('format', 'json');
-  url.searchParams.set('addressdetails', '0');
-  url.searchParams.set('limit', '5');
-  url.searchParams.set('countrycodes', 'sa');
-  if (options?.lang === 'ar') url.searchParams.set('accept-language', 'ar');
-
-  const res = await fetch(url.toString(), {
-    headers: { Accept: 'application/json', 'User-Agent': 'FizzaWeb/1.0 (school transport)' },
-    cache: 'no-store',
-  });
-  if (!res.ok) return [];
-
-  const rows = (await res.json()) as { lat?: string; lon?: string; display_name?: string; place_id?: number }[];
-  return rows
-    .filter((r) => r.lat && r.lon)
-    .map((r) => ({
-      label: r.display_name ?? query.trim(),
-      latitude: Number(r.lat),
-      longitude: Number(r.lon),
-      provider: 'nominatim' as const,
-      providerPlaceId: r.place_id != null ? String(r.place_id) : undefined,
-    }));
-}
-
-async function searchLocationsOrs(
-  query: string,
-  options?: { lang?: string },
-): Promise<GeocodeSearchResult[]> {
-  const apiKey = getOrsApiKey();
-  const url = new URL(`${ORS_BASE}/geocode/search`);
-  url.searchParams.set('api_key', apiKey);
-  url.searchParams.set('text', query.trim());
-  url.searchParams.set('size', '5');
-  url.searchParams.set('boundary.country', 'SA');
-  if (options?.lang === 'ar') {
-    url.searchParams.set('boundary.rect.min_lon', '34.5');
-    url.searchParams.set('boundary.rect.min_lat', '16.0');
-    url.searchParams.set('boundary.rect.max_lon', '55.7');
-    url.searchParams.set('boundary.rect.max_lat', '32.2');
-  }
-
-  const res = await fetch(url.toString(), {
-    headers: { Accept: 'application/json' },
-    cache: 'no-store',
-  });
-  if (!res.ok) throw new DistanceError('Geocoding service returned an error.', 'GEOCODE_FAILED');
-
-  const json = (await res.json()) as { features?: unknown[] };
-  const features = json.features ?? [];
-  return features.map((f) => {
-    const feature = f as {
-      geometry: { coordinates: [number, number] };
-      properties: { label?: string; id?: string; name?: string };
-    };
-    const [lng, lat] = feature.geometry.coordinates;
-    return {
-      label: feature.properties.label ?? feature.properties.name ?? 'Unknown location',
-      latitude: lat,
-      longitude: lng,
-      provider: 'openrouteservice' as const,
-      providerPlaceId: feature.properties.id ?? undefined,
-    };
-  });
-}
-
-/**
- * Search for locations using ORS Geocoding Search. Returns up to 5 suggestions.
- * Used exclusively by the /api/maps/geocode server route.
- */
-export async function searchLocations(query: string, options?: { lang?: string }): Promise<GeocodeSearchResult[]> {
-  if (!query || query.trim().length < 3) return [];
-
-  const provider = getProvider();
-  if (provider === 'GOOGLE_MAPS' || provider === 'MAPBOX') {
-    throw new DistanceError(
-      `Provider ${provider} is not implemented yet. Please configure OPENROUTESERVICE.`,
-      'PROVIDER_NOT_IMPLEMENTED',
-    );
-  }
-
-  if (isDistanceConfigured()) {
-    try {
-      const results = await searchLocationsOrs(query, options);
-      if (results.length) return results;
-    } catch {
-      // fall through to Nominatim (free OSM geocoder)
-    }
-  }
-
-  try {
-    return await searchLocationsNominatim(query, options);
-  } catch {
-    throw new DistanceError('Could not reach geocoding service. Please try again.', 'GEOCODE_FAILED');
-  }
-}
-
 /**
  * Geocode a free-text address to coordinates using ORS Geocoding Search.
  * Returns the best match or throws DistanceError if nothing is found.
@@ -370,6 +260,7 @@ export async function geocodeAddress(address: string): Promise<GeocodedLocation>
   url.searchParams.set('api_key', apiKey);
   url.searchParams.set('text', address.trim());
   url.searchParams.set('size', '1');
+  url.searchParams.set('boundary.country', 'SA');
 
   let res: Response;
   try {

@@ -323,6 +323,72 @@ export const adminPromoService = {
   get: (id: string) => apiFetch<unknown>(`/api/admin/promo-codes/${id}`),
 };
 
+// ─── Map places registry ─────────────────────────────────────────────────────
+
+export const adminMapPlaceService = {
+  list: (params?: {
+    q?: string;
+    city?: string;
+    type?: string;
+    active?: string;
+    verified?: string;
+    page?: number;
+    limit?: number;
+  }) => {
+    const sp = new URLSearchParams();
+    if (params?.q) sp.set('query', params.q);
+    if (params?.city) sp.set('city', params.city);
+    if (params?.type) sp.set('type', params.type);
+    if (params?.active) sp.set('active', params.active);
+    if (params?.verified) sp.set('verified', params.verified);
+    if (params?.page) sp.set('page', String(params.page));
+    if (params?.limit) sp.set('limit', String(params.limit));
+    sp.set('stats', '1');
+    const qs = sp.toString();
+    return apiFetch<unknown>(`/api/admin/map-places${qs ? `?${qs}` : ''}`);
+  },
+  create: (data: Record<string, unknown>) =>
+    apiFetch<unknown>('/api/admin/map-places', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    }),
+  update: (id: string, data: Record<string, unknown>) =>
+    apiFetch<unknown>(`/api/admin/map-places/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    }),
+  get: (id: string) => apiFetch<unknown>(`/api/admin/map-places/${id}`),
+};
+
+export const adminMapLocationReviewService = {
+  list: (params?: { page?: number; limit?: number; status?: string }) => {
+    const sp = new URLSearchParams();
+    if (params?.page) sp.set('page', String(params.page));
+    if (params?.limit) sp.set('limit', String(params.limit));
+    if (params?.status) sp.set('status', params.status);
+    const qs = sp.toString();
+    return apiFetch<unknown>(`/api/admin/map-location-reviews${qs ? `?${qs}` : ''}`);
+  },
+  convert: (id: string, data: Record<string, unknown>) =>
+    apiFetch<unknown>(`/api/admin/map-location-reviews/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'CONVERT', ...data }),
+    }),
+  ignore: (id: string, adminNotes?: string) =>
+    apiFetch<unknown>(`/api/admin/map-location-reviews/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'IGNORE', adminNotes }),
+    }),
+};
+
+export const adminMapDiagnosticsService = {
+  get: () => apiFetch<unknown>('/api/admin/maps/diagnostics'),
+};
+
 // ─── Admin-created subscriptions ──────────────────────────────────────────────
 
 export const adminSubscriptionCreateService = {

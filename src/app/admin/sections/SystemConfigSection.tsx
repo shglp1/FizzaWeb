@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { Settings, MapPin } from 'lucide-react';
-import { systemConfigService } from '@/services/adminService';
+import { systemConfigService, adminMapDiagnosticsService } from '@/services/adminService';
 import { Alert, ErrorState } from '@/components/ui';
 import {
   AdminSectionHeader,
@@ -24,6 +24,17 @@ type DistanceStatus = {
   providerLabel: string;
 };
 
+type MapDiagnostics = {
+  timestamp: string;
+  orsConfigured: boolean;
+  osrmReachable: boolean;
+  nominatimReachable: boolean;
+  osmTileCspConfigured: boolean;
+  mapPlaces: { total: number; verified: number };
+  geocodeCache: { total: number; active: number };
+  storageDriver: string;
+};
+
 type ConfigRow = { key: string; value: unknown; updatedAt: string };
 
 export function SystemConfigSection() {
@@ -35,6 +46,7 @@ export function SystemConfigSection() {
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
   const [distanceStatus, setDistanceStatus] = useState<DistanceStatus | null>(null);
+  const [mapDiagnostics, setMapDiagnostics] = useState<MapDiagnostics | null>(null);
   const [activeGroup, setActiveGroup] = useState<ConfigGroupId>('pricing');
 
   const load = useCallback(() => {
@@ -62,6 +74,9 @@ export function SystemConfigSection() {
       .then((r) => r.json())
       .then((json) => { if (json.data) setDistanceStatus(json.data as DistanceStatus); })
       .catch(() => {});
+    adminMapDiagnosticsService.get().then((res) => {
+      if (res.data) setMapDiagnostics(res.data as MapDiagnostics);
+    });
   }, []);
 
   const dirty = useMemo(
@@ -131,22 +146,40 @@ export function SystemConfigSection() {
         <p className="text-sm text-gray-500 mb-5">{group.description}</p>
 
         {activeGroup === 'tracking' && (
-          <div className={`rounded-xl border p-4 ${distanceStatus?.configured ? 'bg-blue-50 border-blue-100' : 'bg-red-50 border-red-200'}`}>
-            <div className="flex items-center gap-2 mb-2">
-              <MapPin className="h-4 w-4" aria-hidden />
-              <p className="text-sm font-semibold text-gray-800">
-                Distance Provider: {distanceStatus?.providerLabel ?? 'OpenRouteService'}
+          <div className="space-y-4 mb-5">
+            <div className={`rounded-xl border p-4 ${distanceStatus?.configured ? 'bg-blue-50 border-blue-100' : 'bg-red-50 border-red-200'}`}>
+              <div className="flex items-center gap-2 mb-2">
+                <MapPin className="h-4 w-4" aria-hidden />
+                <p className="text-sm font-semibold text-gray-800">
+                  Distance Provider: {distanceStatus?.providerLabel ?? 'OpenRouteService'}
+                </p>
+                <AdminStatusBadge
+                  status={distanceStatus?.configured ? 'ACTIVE' : 'FAILED'}
+                  label={distanceStatus?.configured ? 'Configured' : 'Not configured'}
+                />
+              </div>
+              <p className="text-xs text-gray-600">
+                {distanceStatus?.configured
+                  ? 'API key is active. Distance is calculated server-side and never exposed to clients.'
+                  : 'Set OPENROUTESERVICE_API_KEY in server environment to enable subscription quote distance pricing.'}
               </p>
-              <AdminStatusBadge
-                status={distanceStatus?.configured ? 'ACTIVE' : 'FAILED'}
-                label={distanceStatus?.configured ? 'Configured' : 'Not configured'}
-              />
             </div>
-            <p className="text-xs text-gray-600">
-              {distanceStatus?.configured
-                ? 'API key is active. Distance is calculated server-side and never exposed to clients.'
-                : 'Set OPENROUTESERVICE_API_KEY in server environment to enable subscription quote distance pricing.'}
-            </p>
+
+            {mapDiagnostics && (
+              <div className="rounded-xl border border-emerald-100 bg-emerald-50/50 p-4 space-y-2">
+                <p className="text-sm font-semibold text-gray-900">Maps &amp; Location Diagnostics</p>
+                <p className="text-xs text-gray-500">Last check: {new Date(mapDiagnostics.timestamp).toLocaleString()}</p>
+                <div className="grid sm:grid-cols-2 gap-2 text-xs text-gray-700">
+                  <p>ORS: {mapDiagnostics.orsConfigured ? 'Configured' : 'Missing key'}</p>
+                  <p>OSRM fallback: {mapDiagnostics.osrmReachable ? 'Reachable' : 'Unreachable'}</p>
+                  <p>Nominatim fallback: {mapDiagnostics.nominatimReachable ? 'Reachable' : 'Unreachable'}</p>
+                  <p>OSM tile CSP: {mapDiagnostics.osmTileCspConfigured ? 'OK' : 'Check next.config.ts'}</p>
+                  <p>Verified places: {mapDiagnostics.mapPlaces.verified} / {mapDiagnostics.mapPlaces.total}</p>
+                  <p>Geocode cache: {mapDiagnostics.geocodeCache.active} active / {mapDiagnostics.geocodeCache.total} total</p>
+                  <p>Storage driver: {mapDiagnostics.storageDriver}</p>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
