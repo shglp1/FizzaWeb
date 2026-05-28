@@ -41,3 +41,38 @@ export function shouldTriggerNearEvent(
 ): boolean {
   return etaMinutes <= thresholdMinutes || distanceMeters <= thresholdMeters;
 }
+
+export type LiveEtaTarget = 'pickup' | 'dropoff';
+
+export function resolveEtaTarget(status: string): LiveEtaTarget | null {
+  if (['ON_THE_WAY', 'PRE_TRIP', 'DRIVER_ASSIGNED', 'ARRIVED_PICKUP'].includes(status)) return 'pickup';
+  if (['PICKED_UP', 'EN_ROUTE_DROPOFF', 'ARRIVED_DROPOFF'].includes(status)) return 'dropoff';
+  return null;
+}
+
+export async function calculateLiveEtaForTrip(
+  status: string,
+  driverLat: number,
+  driverLng: number,
+  pickupLat: number | null,
+  pickupLng: number | null,
+  dropoffLat: number | null,
+  dropoffLng: number | null,
+  config: TripOpsConfig,
+): Promise<{ liveEtaMinutes: number | null; etaTarget: LiveEtaTarget; etaSource: 'ORS' | 'FALLBACK' | 'UNAVAILABLE' } | null> {
+  const etaTarget = resolveEtaTarget(status);
+  if (!etaTarget) return null;
+  const destLat = etaTarget === 'pickup' ? pickupLat : dropoffLat;
+  const destLng = etaTarget === 'pickup' ? pickupLng : dropoffLng;
+  if (destLat == null || destLng == null) return null;
+  try {
+    const result = await calculateEtaMinutes(driverLat, driverLng, destLat, destLng, config);
+    return {
+      liveEtaMinutes: Math.max(1, Math.round(result.etaMinutes)),
+      etaTarget,
+      etaSource: result.source,
+    };
+  } catch {
+    return { liveEtaMinutes: null, etaTarget, etaSource: 'UNAVAILABLE' };
+  }
+}

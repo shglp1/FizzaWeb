@@ -30,7 +30,15 @@ function parseNum(value: unknown, fallback: number): number {
   return fallback;
 }
 
+const CONFIG_CACHE_TTL_MS = 5 * 60 * 1000;
+let cachedConfig: { value: TripOpsConfig; at: number } | null = null;
+
 export async function getTripOpsConfig(): Promise<TripOpsConfig> {
+  const now = Date.now();
+  if (cachedConfig && now - cachedConfig.at < CONFIG_CACHE_TTL_MS) {
+    return cachedConfig.value;
+  }
+
   const keys = Object.keys(DEFAULTS);
   const rows = await prisma.systemConfiguration.findMany({
     where: { key: { in: keys } },
@@ -44,6 +52,7 @@ export async function getTripOpsConfig(): Promise<TripOpsConfig> {
       config[k] = parseNum(row.value, DEFAULTS[k]);
     }
   }
+  cachedConfig = { value: config, at: now };
   return config;
 }
 

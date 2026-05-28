@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { ensureLeafletCssBundled, TRACKING_MARKER_COLORS, trackingMarkerHtml } from '@/components/tracking/mapMarkerHelpers';
+import { getMapTileLayer } from '@/lib/maps/mapTiles';
 
 export type TripMapPoint = {
   driverLat?: number | null;
@@ -18,10 +20,6 @@ function toCoord(value: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-function markerHtml(color: string, size: number): string {
-  return `<div style="background:${color};width:${size}px;height:${size}px;border-radius:50%;border:3px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.35)"></div>`;
-}
-
 /**
  * SSR-safe Leaflet map using DivIcon markers only — no default marker assets.
  */
@@ -33,12 +31,18 @@ export function TripTrackingMap({
   dropoffLat,
   dropoffLng,
   stale = false,
+  pickupLabel = 'Pickup',
+  dropoffLabel = 'Drop-off',
+  driverLabel = 'Driver',
   className = '',
   height = 360,
   onReadyChange,
   routeGeometry,
   routeSource = 'approximate',
 }: TripMapPoint & {
+  pickupLabel?: string;
+  dropoffLabel?: string;
+  driverLabel?: string;
   className?: string;
   height?: number;
   onReadyChange?: (ready: boolean) => void;
@@ -60,13 +64,7 @@ export function TripTrackingMap({
   }, [tilesReady, onReadyChange]);
 
   useEffect(() => {
-    if (!document.querySelector('#leaflet-css')) {
-      const link = document.createElement('link');
-      link.id = 'leaflet-css';
-      link.rel = 'stylesheet';
-      link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
-      document.head.appendChild(link);
-    }
+    ensureLeafletCssBundled();
   }, []);
 
   useEffect(() => {
@@ -98,9 +96,11 @@ export function TripTrackingMap({
         });
         mapInstanceRef.current = map;
 
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-          attribution: '&copy; OpenStreetMap contributors',
-          maxZoom: 19,
+        const tiles = getMapTileLayer('standard');
+        L.tileLayer(tiles.url, {
+          attribution: tiles.attribution,
+          maxZoom: tiles.maxZoom,
+          minZoom: tiles.minZoom,
         }).addTo(map).on('load', () => {
           if (!cancelled) setTilesReady(true);
         });
@@ -116,6 +116,7 @@ export function TripTrackingMap({
         html: string,
         label: string,
         size: number,
+        ariaLabel: string,
       ) => {
         const icon = L.divIcon({
           html,
@@ -127,8 +128,11 @@ export function TripTrackingMap({
         if (existing) {
           existing.setLatLng([lat, lng]);
           existing.setIcon(icon);
+          existing.bindPopup(label);
         } else {
-          layersRef.current[key] = L.marker([lat, lng], { icon }).addTo(map).bindPopup(label);
+          layersRef.current[key] = L.marker([lat, lng], { icon, alt: ariaLabel, title: ariaLabel })
+            .addTo(map)
+            .bindPopup(label);
         }
       };
 
@@ -137,9 +141,10 @@ export function TripTrackingMap({
           'driver',
           dLat,
           dLng,
-          markerHtml(stale ? '#9CA3AF' : '#2563EB', 18),
-          'Driver',
+          trackingMarkerHtml(stale ? TRACKING_MARKER_COLORS.driverStale : TRACKING_MARKER_COLORS.driver, 18),
+          driverLabel,
           18,
+          stale ? `${driverLabel} (location may be outdated)` : driverLabel,
         );
       } else if (layersRef.current.driver) {
         map.removeLayer(layersRef.current.driver);
@@ -147,14 +152,30 @@ export function TripTrackingMap({
       }
 
       if (pLat != null && pLng != null) {
-        upsertMarker('pickup', pLat, pLng, markerHtml('#10B981', 16), 'Pickup', 16);
+        upsertMarker(
+          'pickup',
+          pLat,
+          pLng,
+          trackingMarkerHtml(TRACKING_MARKER_COLORS.pickup, 16),
+          pickupLabel,
+          16,
+          pickupLabel,
+        );
       } else if (layersRef.current.pickup) {
         map.removeLayer(layersRef.current.pickup);
         delete layersRef.current.pickup;
       }
 
       if (doLat != null && doLng != null) {
-        upsertMarker('dropoff', doLat, doLng, markerHtml('#EF4444', 16), 'Drop-off', 16);
+        upsertMarker(
+          'dropoff',
+          doLat,
+          doLng,
+          trackingMarkerHtml(TRACKING_MARKER_COLORS.dropoff, 16),
+          dropoffLabel,
+          16,
+          dropoffLabel,
+        );
       } else if (layersRef.current.dropoff) {
         map.removeLayer(layersRef.current.dropoff);
         delete layersRef.current.dropoff;
@@ -174,7 +195,7 @@ export function TripTrackingMap({
 
       if (routePoints.length >= 2) {
         const style = {
-          color: '#0B683A',
+          color: TRACKING_MARKER_COLORS.route,
           weight: isApprox ? 3 : 5,
           opacity: isApprox ? 0.55 : 0.85,
           dashArray: isApprox ? '8 6' : undefined as string | undefined,
@@ -207,7 +228,7 @@ export function TripTrackingMap({
     }).catch(() => { /* leaflet load failed */ });
 
     return () => { cancelled = true; };
-  }, [driverLat, driverLng, pickupLat, pickupLng, dropoffLat, dropoffLng, stale, routeGeometry, routeSource]);
+  }, [driverLat, driverLng, pickupLat, pickupLng, dropoffLat, dropoffLng, stale, routeGeometry, routeSource, pickupLabel, dropoffLabel, driverLabel]);
 
   useEffect(() => () => {
     mapInstanceRef.current?.remove();

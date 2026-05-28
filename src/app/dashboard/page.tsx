@@ -22,8 +22,8 @@ import { tripService } from '@/services/tripService';
 import { walletService } from '@/services/walletService';
 import { subscriptionService } from '@/services/subscriptionService';
 import { riderService } from '@/services/riderService';
-import { formatSarParent, formatTripDateTime, formatDriverSummary, formatVehicleSummary, getTrackingAvailability, trackingAvailabilityLabel, pickNextTrip } from '@/lib/parent/parentFormatters';
-import { TRIP_STATUS_LABEL, type TripStatus, isTrackableStatus } from '@/lib/trips/tripLifecycle';
+import { formatSarParent, formatTripDateTime, formatDriverSummary, formatVehicleSummary, getTrackingAvailability, trackingAvailabilityLabel, pickNextTrip, parentTrackingHeadline } from '@/lib/parent/parentFormatters';
+import { type TripStatus, isTrackableStatus } from '@/lib/trips/tripLifecycle';
 import { emergencyContactComplete, hasSpecialNeedsIndicator, riderProfileComplete } from '@/lib/riders/riderExposure';
 import {
   Bell, CalendarDays, Car, ClipboardList, CreditCard, Gift, MapPin, MessageSquare, Shield, UserPlus, Users, Wallet,
@@ -172,7 +172,7 @@ export default function DashboardPage() {
             }
             badge={nextTrip ? (
               <StatusBadge variant={tripStatusVariant(nextTrip.status)}>
-                {TRIP_STATUS_LABEL[nextTrip.status as TripStatus] ?? nextTrip.status.replace(/_/g, ' ').toLowerCase()}
+                {parentTrackingHeadline(nextTrip)}
               </StatusBadge>
             ) : undefined}
             details={nextTrip ? (
@@ -246,7 +246,7 @@ export default function DashboardPage() {
                               )}
                             </div>
                             <StatusBadge variant={tripStatusVariant(trip.status)}>
-                              {TRIP_STATUS_LABEL[trip.status as TripStatus] ?? trip.status}
+                              {parentTrackingHeadline(trip)}
                             </StatusBadge>
                           </div>
                         </li>

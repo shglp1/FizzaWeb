@@ -41,8 +41,8 @@ test('mobile nav for approved driver uses route sheet label', () => {
 });
 
 test('driver status action labels', () => {
-  assert.equal(getDriverStatusActionLabel('ARRIVED_PICKUP'), 'Rider picked up');
-  assert.equal(getDriverPrimaryAction('DRIVER_ASSIGNED', true).label, 'Start pre-trip');
+  assert.equal(getDriverStatusActionLabel('ARRIVED_PICKUP'), 'Student picked up');
+  assert.equal(getDriverPrimaryAction('DRIVER_ASSIGNED', true).label, 'Start trip');
   const blocked = getDriverPrimaryAction('DRIVER_ASSIGNED', false);
   assert.equal(blocked.kind, 'navigate');
   assert.equal(blocked.disabled, true);

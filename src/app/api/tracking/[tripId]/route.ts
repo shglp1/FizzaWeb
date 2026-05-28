@@ -8,6 +8,8 @@ import { prisma } from '@/lib/prisma';
 import { requireAuth } from '@/lib/session';
 import { isParentLocationVisible } from '@/lib/trips/tripLifecycle';
 import type { TripStatus } from '@/lib/trips/tripLifecycle';
+import { resolveTrackingLiveEta } from '@/lib/tracking/resolveTrackingLiveEta';
+import { isTerminalTripStatus } from '@/lib/tracking/trackingVisibility';
 
 export async function GET(
   _req: Request,
@@ -86,6 +88,8 @@ export async function GET(
       auth.role === 'DRIVER' ||
       isParentLocationVisible(trip.status as TripStatus, trip.scheduledPickupTime);
 
+    const tooEarly = auth.role !== 'ADMIN' && auth.role !== 'DRIVER' && !parentCanSeeLocation;
+
     let latestLocation = trip.driver
       ? await prisma.driverLocation.findFirst({
           where: { tripId },
@@ -103,12 +107,23 @@ export async function GET(
       ? (Date.now() - new Date(latestLocation.recordedAt).getTime()) > 60_000
       : null;
 
+    let liveEta = null;
+    if (latestLocation && parentCanSeeLocation && !isTerminalTripStatus(trip.status)) {
+      liveEta = await resolveTrackingLiveEta(
+        tripId,
+        trip,
+        latestLocation,
+      );
+    }
+
     return NextResponse.json({
       data: {
         trip,
         location: latestLocation
           ? { lat: latestLocation.lat, lng: latestLocation.lng, recordedAt: latestLocation.recordedAt, stale: gpsStale ?? false }
           : null,
+        tooEarly,
+        liveEta,
       },
       error: null,
     });

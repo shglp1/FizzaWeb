@@ -1,14 +1,19 @@
 /**
- * POST /api/tracking/[tripId]/location  — driver pushes GPS update
- * GET  /api/tracking/[tripId]/location  — parent/admin fetches latest location
+ * GET /api/tracking/[tripId]/location  — parent/admin fetches latest location
+ * POST — driver pushes GPS update
  */
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireAuth } from '@/lib/session';
 import { z } from 'zod';
-import { isLocationSharingAllowed, isParentLocationVisible } from '@/lib/trips/tripLifecycle';
+import { isLocationSharingAllowed } from '@/lib/trips/tripLifecycle';
 import type { TripStatus } from '@/lib/trips/tripLifecycle';
 import { processLocationProximityUpdate } from '@/lib/trips/tripProximity';
+import { getCachedLiveEta } from '@/lib/tracking/liveEtaCache';
+import {
+  isTerminalTripStatus,
+  parentCanSeeLiveLocation,
+} from '@/lib/tracking/trackingVisibility';
 
 const locationSchema = z.object({
   lat: z.number().min(-90).max(90),
@@ -39,7 +44,6 @@ export async function POST(
 
     const { lat, lng } = parsed.data;
 
-    // Find the driver record
     const driver = await prisma.driver.findFirst({
       where: { profileId: auth.userId },
       select: { id: true },
@@ -48,7 +52,6 @@ export async function POST(
       return NextResponse.json({ data: null, error: { message: 'Driver profile not found' } }, { status: 404 });
     }
 
-    // Verify the driver is assigned to this trip
     const trip = await prisma.trip.findUnique({
       where: { id: tripId },
       select: {
@@ -106,6 +109,7 @@ export async function GET(
       where: { id: tripId },
       select: {
         id: true, status: true, scheduledPickupTime: true,
+        pickupLat: true, pickupLng: true, dropoffLat: true, dropoffLng: true,
         subscription: { select: { userId: true } },
         riderId: true, driverId: true,
       },
@@ -127,9 +131,6 @@ export async function GET(
       if (!isParent) {
         return NextResponse.json({ data: null, error: { message: 'Forbidden' } }, { status: 403 });
       }
-      if (!isParentLocationVisible(trip.status as TripStatus, trip.scheduledPickupTime)) {
-        return NextResponse.json({ data: { location: null, tooEarly: true }, error: null });
-      }
     }
 
     if (auth.role === 'DRIVER') {
@@ -142,6 +143,30 @@ export async function GET(
       }
     }
 
+    const terminal = isTerminalTripStatus(trip.status);
+    const isParentRole = auth.role !== 'ADMIN' && auth.role !== 'DRIVER';
+    const trackingVisible = isParentRole
+      ? parentCanSeeLiveLocation(trip.status, trip.scheduledPickupTime)
+      : !terminal;
+
+    const cachedLiveEta = getCachedLiveEta(tripId);
+    const liveEta = cachedLiveEta === undefined ? null : cachedLiveEta;
+
+    if (!trackingVisible) {
+      const tooEarly = isParentRole && !terminal;
+      return NextResponse.json({
+        data: {
+          location: null,
+          tooEarly,
+          trackingVisible: false,
+          terminal,
+          tripStatus: trip.status,
+          liveEta: null,
+        },
+        error: null,
+      });
+    }
+
     const location = await prisma.driverLocation.findFirst({
       where: { tripId },
       orderBy: { recordedAt: 'desc' },
@@ -149,12 +174,28 @@ export async function GET(
     });
 
     if (!location) {
-      return NextResponse.json({ data: { location: null }, error: null });
+      return NextResponse.json({
+        data: {
+          location: null,
+          trackingVisible: true,
+          terminal: false,
+          tripStatus: trip.status,
+          liveEta,
+        },
+        error: null,
+      });
     }
 
     const stale = (Date.now() - new Date(location.recordedAt).getTime()) > 60_000;
+
     return NextResponse.json({
-      data: { location: { lat: location.lat, lng: location.lng, recordedAt: location.recordedAt, stale } },
+      data: {
+        location: { lat: location.lat, lng: location.lng, recordedAt: location.recordedAt, stale },
+        trackingVisible: true,
+        terminal: false,
+        tripStatus: trip.status,
+        liveEta,
+      },
       error: null,
     });
   } catch {

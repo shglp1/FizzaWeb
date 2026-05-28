@@ -12,9 +12,9 @@ import {
   driverLocationSchema,
   driverAssignSchema,
   tripGenerateSchema,
-  isValidStatusTransition,
   CANCELLABLE_BY_PARENT,
 } from '../lib/validations/trip.ts';
+import { isValidTransition as isValidStatusTransition } from '../lib/trips/tripLifecycle.ts';
 
 // ─── tripStatusUpdateSchema ───────────────────────────────────────────────────
 
@@ -140,16 +140,20 @@ describe('tripGenerateSchema', () => {
 // ─── isValidStatusTransition ──────────────────────────────────────────────────
 
 describe('isValidStatusTransition (driver)', () => {
-  it('DRIVER_ASSIGNED → ON_THE_WAY is allowed', () => {
-    assert.ok(isValidStatusTransition('DRIVER_ASSIGNED', 'ON_THE_WAY', 'DRIVER'));
+  it('DRIVER_ASSIGNED → PRE_TRIP is allowed', () => {
+    assert.ok(isValidStatusTransition('DRIVER_ASSIGNED', 'PRE_TRIP', 'DRIVER'));
   });
 
-  it('ON_THE_WAY → PICKED_UP is allowed', () => {
-    assert.ok(isValidStatusTransition('ON_THE_WAY', 'PICKED_UP', 'DRIVER'));
+  it('DRIVER_ASSIGNED → ON_THE_WAY is NOT allowed', () => {
+    assert.ok(!isValidStatusTransition('DRIVER_ASSIGNED', 'ON_THE_WAY', 'DRIVER'));
   });
 
-  it('PICKED_UP → COMPLETED is allowed', () => {
-    assert.ok(isValidStatusTransition('PICKED_UP', 'COMPLETED', 'DRIVER'));
+  it('ON_THE_WAY → ARRIVED_PICKUP is allowed', () => {
+    assert.ok(isValidStatusTransition('ON_THE_WAY', 'ARRIVED_PICKUP', 'DRIVER'));
+  });
+
+  it('ARRIVED_DROPOFF → COMPLETED is allowed', () => {
+    assert.ok(isValidStatusTransition('ARRIVED_DROPOFF', 'COMPLETED', 'DRIVER'));
   });
 
   it('SCHEDULED → ON_THE_WAY is NOT allowed for driver', () => {
@@ -174,12 +178,16 @@ describe('isValidStatusTransition (admin)', () => {
     assert.ok(isValidStatusTransition('SCHEDULED', 'DRIVER_ASSIGNED', 'ADMIN'));
   });
 
-  it('SCHEDULED → COMPLETED is allowed for admin (skip ahead)', () => {
-    assert.ok(isValidStatusTransition('SCHEDULED', 'COMPLETED', 'ADMIN'));
+  it('DRIVER_ASSIGNED → ON_THE_WAY is allowed for admin (skip PRE_TRIP)', () => {
+    assert.ok(isValidStatusTransition('DRIVER_ASSIGNED', 'ON_THE_WAY', 'ADMIN'));
   });
 
-  it('DRIVER_ASSIGNED → COMPLETED is allowed for admin', () => {
-    assert.ok(isValidStatusTransition('DRIVER_ASSIGNED', 'COMPLETED', 'ADMIN'));
+  it('ARRIVED_DROPOFF → COMPLETED is allowed for admin', () => {
+    assert.ok(isValidStatusTransition('ARRIVED_DROPOFF', 'COMPLETED', 'ADMIN'));
+  });
+
+  it('SCHEDULED → COMPLETED is NOT allowed for admin', () => {
+    assert.ok(!isValidStatusTransition('SCHEDULED', 'COMPLETED', 'ADMIN'));
   });
 
   it('COMPLETED → PICKED_UP is NOT allowed even for admin', () => {

@@ -40,8 +40,8 @@ describe('isValidTransition — Driver', () => {
     assert.ok(isValidTransition('DRIVER_ASSIGNED', 'PRE_TRIP', 'DRIVER'));
   });
 
-  it('DRIVER_ASSIGNED → ON_THE_WAY allowed (skip PRE_TRIP)', () => {
-    assert.ok(isValidTransition('DRIVER_ASSIGNED', 'ON_THE_WAY', 'DRIVER'));
+  it('DRIVER_ASSIGNED → ON_THE_WAY is NOT allowed (must go through PRE_TRIP)', () => {
+    assert.ok(!isValidTransition('DRIVER_ASSIGNED', 'ON_THE_WAY', 'DRIVER'));
   });
 
   it('PRE_TRIP → ON_THE_WAY allowed', () => {
@@ -324,9 +324,9 @@ describe('haversineMetres', () => {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 describe('DRIVER_TRANSITIONS structure', () => {
-  it('DRIVER_ASSIGNED has at least PRE_TRIP and ON_THE_WAY', () => {
+  it('DRIVER_ASSIGNED only allows PRE_TRIP for drivers', () => {
     assert.ok(DRIVER_TRANSITIONS['DRIVER_ASSIGNED']?.includes('PRE_TRIP'));
-    assert.ok(DRIVER_TRANSITIONS['DRIVER_ASSIGNED']?.includes('ON_THE_WAY'));
+    assert.ok(!DRIVER_TRANSITIONS['DRIVER_ASSIGNED']?.includes('ON_THE_WAY'));
   });
 
   it('ARRIVED_DROPOFF leads to COMPLETED', () => {

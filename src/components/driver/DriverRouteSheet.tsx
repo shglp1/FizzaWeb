@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { DriverGpsPanel } from '@/components/DriverGpsPanel';
 import { DriverTripMoreMenu } from '@/components/driver/DriverTripMoreMenu';
+import { DriverStatusConfirmDialog } from '@/components/driver/DriverStatusConfirmDialog';
 import { TripChatDrawer } from '@/components/trips/TripChatDrawer';
 import {
   DriverActionHero,
@@ -46,6 +47,11 @@ import { formatDriverRiderMeta } from '@/lib/riders/riderExposure';
 import { groupTripsByDate as groupByDate } from '@/lib/ui/driverRouteSheet';
 import { Calendar, CheckCircle2, Clock, MapPin, MessageSquare, Shield } from 'lucide-react';
 import { tripToGoogleMapsUrl } from '@/lib/maps/googleMapsLink';
+import {
+  getStatusConfirmKind,
+  getStatusConfirmCopy,
+  statusAdvanceNeedsGpsWarning,
+} from '@/lib/ui/driverLifecycleConfirm';
 
 type Trip = {
   id: string;
@@ -80,6 +86,8 @@ export function DriverRouteSheet() {
   const [chatMeta, setChatMeta] = useState<Record<string, { windowOpen: boolean }>>({});
   const [noShowTarget, setNoShowTarget] = useState<Trip | null>(null);
   const [noShowReason, setNoShowReason] = useState('');
+  const [confirmTarget, setConfirmTarget] = useState<{ trip: Trip; nextStatus: TripStatus } | null>(null);
+  const [confirmReason, setConfirmReason] = useState('');
   const [lateTarget, setLateTarget] = useState<Trip | null>(null);
   const [lateReason, setLateReason] = useState('');
   const [actionMsg, setActionMsg] = useState('');
@@ -154,17 +162,47 @@ export function DriverRouteSheet() {
   const showingFrom = trips.length === 0 ? 0 : (page - 1) * 50 + 1;
   const showingTo = trips.length === 0 ? 0 : (page - 1) * 50 + trips.length;
 
+  async function executeStatusAdvance(tripId: string, nextStatus: TripStatus, statusReason?: string) {
+    setActionLoading(true);
+    await tripService.updateStatus(tripId, nextStatus, statusReason ? { statusReason } : undefined);
+    setActionLoading(false);
+    setLoading(true);
+    loadTrips(page, false);
+  }
+
+  function requestStatusAdvance(trip: Trip, nextStatus: TripStatus) {
+    if (getStatusConfirmKind(nextStatus)) {
+      setConfirmTarget({ trip, nextStatus });
+      setConfirmReason('');
+      return;
+    }
+    if (statusAdvanceNeedsGpsWarning(nextStatus) && !gpsActive) {
+      setConfirmTarget({ trip, nextStatus });
+      setConfirmReason('');
+      return;
+    }
+    void executeStatusAdvance(trip.id, nextStatus);
+  }
+
+  async function handleConfirmAdvance() {
+    if (!confirmTarget) return;
+    const { trip, nextStatus } = confirmTarget;
+    const kind = getStatusConfirmKind(nextStatus);
+    if (kind === 'no_show' && !confirmReason.trim()) return;
+    setConfirmTarget(null);
+    const reason = kind === 'no_show' ? confirmReason.trim() : undefined;
+    setConfirmReason('');
+    await executeStatusAdvance(trip.id, nextStatus, reason);
+  }
+
   async function handlePrimary(trip: Trip) {
     const status = trip.status as TripStatus;
     const action = getDriverPrimaryAction(status, isWithinTrackingWindow(trip.scheduledPickupTime, nowMs), {
       isAssignedToCurrentDriver: true,
+      legType: trip.legType,
     });
     if (action.kind === 'status' && action.nextStatus) {
-      setActionLoading(true);
-      await tripService.updateStatus(trip.id, action.nextStatus);
-      setActionLoading(false);
-      setLoading(true);
-      loadTrips(page, false);
+      requestStatusAdvance(trip, action.nextStatus);
     }
   }
 
@@ -172,19 +210,16 @@ export function DriverRouteSheet() {
     if (!activeTrip) return;
     const action = getDriverPrimaryAction(activeTrip.status as TripStatus, isWithinTrackingWindow(activeTrip.scheduledPickupTime, nowMs), {
       isAssignedToCurrentDriver: true,
+      legType: activeTrip.legType,
     });
     if (!action.nextStatus) return;
-    setActionLoading(true);
-    await tripService.updateStatus(activeTrip.id, action.nextStatus);
-    setActionLoading(false);
-    setLoading(true);
-    loadTrips(page, false);
+    requestStatusAdvance(activeTrip, action.nextStatus);
   }
 
   async function submitNoShow() {
-    if (!noShowTarget) return;
+    if (!noShowTarget || !noShowReason.trim()) return;
     setActionLoading(true);
-    const res = await tripService.updateStatus(noShowTarget.id, 'NO_SHOW', { statusReason: noShowReason.trim() || 'Rider no-show' });
+    const res = await tripService.updateStatus(noShowTarget.id, 'NO_SHOW', { statusReason: noShowReason.trim() });
     setActionLoading(false);
     setNoShowTarget(null);
     setNoShowReason('');
@@ -230,6 +265,7 @@ export function DriverRouteSheet() {
   const activeAction = activeTrip
     ? getDriverPrimaryAction(activeTrip.status as TripStatus, isWithinTrackingWindow(activeTrip.scheduledPickupTime, nowMs), {
       isAssignedToCurrentDriver: true,
+      legType: activeTrip.legType,
     })
     : null;
   const navUrl = activeTrip
@@ -303,7 +339,7 @@ export function DriverRouteSheet() {
             countdown={formatCountdown(minutesUntilPickup(nextTrip.scheduledPickupTime, nowMs))}
             statusLabel="Scheduled"
             gpsStatus="unavailable"
-            primaryAction={isWithinTrackingWindow(nextTrip.scheduledPickupTime, nowMs) ? 'Start pre-trip' : 'View details'}
+            primaryAction={isWithinTrackingWindow(nextTrip.scheduledPickupTime, nowMs) ? 'Start trip' : 'View details'}
             onPrimaryAction={() => handlePrimary(nextTrip)}
             secondaryActions={
               <>
@@ -383,18 +419,46 @@ export function DriverRouteSheet() {
       )}
 
       {noShowTarget && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/40" role="dialog" aria-modal="true">
-          <div className="bg-white rounded-2xl p-5 w-full max-w-sm shadow-xl">
-            <h3 className="font-bold text-gray-900">Mark rider no-show?</h3>
-            <p className="text-sm text-gray-500 mt-1">Only if the rider did not appear after you arrived.</p>
-            <textarea value={noShowReason} onChange={(e) => setNoShowReason(e.target.value)} placeholder="Reason (optional)" rows={2} className="mt-3 w-full rounded-xl border border-gray-200 px-3 py-2 text-sm" />
-            <div className="flex gap-2 mt-4">
-              <Button variant="danger" size="sm" loading={actionLoading} onClick={submitNoShow} className="flex-1">Mark no-show</Button>
-              <Button variant="ghost" size="sm" onClick={() => { setNoShowTarget(null); setNoShowReason(''); }}>Cancel</Button>
-            </div>
-          </div>
-        </div>
+        <DriverStatusConfirmDialog
+          open
+          title="Mark student no-show?"
+          body="Only if the student did not appear after you arrived at pickup."
+          confirmLabel="Mark no-show"
+          requireReason
+          reason={noShowReason}
+          onReasonChange={setNoShowReason}
+          loading={actionLoading}
+          onConfirm={submitNoShow}
+          onCancel={() => { setNoShowTarget(null); setNoShowReason(''); }}
+        />
       )}
+
+      {confirmTarget && (() => {
+        const kind = getStatusConfirmKind(confirmTarget.nextStatus);
+        const copy = kind
+          ? getStatusConfirmCopy(kind, confirmTarget.trip.rider?.name ?? 'Student', confirmTarget.trip.legType)
+          : {
+              title: 'Continue without GPS?',
+              body: 'Families may not see your live location until GPS sharing is enabled.',
+              confirmLabel: 'Continue anyway',
+              requireReason: false,
+            };
+        return (
+          <DriverStatusConfirmDialog
+            open
+            title={copy.title}
+            body={copy.body}
+            confirmLabel={copy.confirmLabel}
+            requireReason={copy.requireReason}
+            reason={confirmReason}
+            onReasonChange={setConfirmReason}
+            showGpsWarning={!gpsActive && statusAdvanceNeedsGpsWarning(confirmTarget.nextStatus)}
+            loading={actionLoading}
+            onConfirm={handleConfirmAdvance}
+            onCancel={() => { setConfirmTarget(null); setConfirmReason(''); }}
+          />
+        );
+      })()}
 
       {lateTarget && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/40" role="dialog" aria-modal="true">
@@ -415,7 +479,7 @@ export function DriverRouteSheet() {
   function renderTripCard(trip: Trip) {
     const status = trip.status as TripStatus;
     const within = isWithinTrackingWindow(trip.scheduledPickupTime, nowMs);
-    const action = getDriverPrimaryAction(status, within, { isAssignedToCurrentDriver: true });
+    const action = getDriverPrimaryAction(status, within, { isAssignedToCurrentDriver: true, legType: trip.legType });
     const isCancelled = CANCELLED.has(trip.status);
     const chatOpen = chatMeta[trip.id]?.windowOpen;
     const chatReason = chatOpen === false ? CHAT_UNAVAILABLE_BEFORE_LABEL : undefined;
