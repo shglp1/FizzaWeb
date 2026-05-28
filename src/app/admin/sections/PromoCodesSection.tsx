@@ -19,8 +19,14 @@ import {
   AdminMetaItem,
   AdminFilterSelect,
 } from '@/components/admin/AdminUI';
+import { AdminPagination } from '@/components/admin/AdminPagination';
 import { downloadCsv } from '@/lib/ui/adminExport';
 import { formatSar } from '@/lib/ui/adminCurrency';
+import {
+  clientPaginationMeta,
+  DEFAULT_ADMIN_PAGE_LIMIT,
+  paginateClientList,
+} from '@/lib/ui/adminPagination';
 import {
   averageOrderAfterDiscount,
   computePromoKpis,
@@ -96,6 +102,57 @@ function statusBadge(status: ReturnType<typeof getPromoCodeStatus>) {
   }
 }
 
+function PromoCodeChip({ code }: { code: string }) {
+  return (
+    <span className="inline-flex items-center rounded-lg bg-emerald-50 border border-emerald-100 px-2.5 py-1 font-mono text-sm font-bold text-emerald-800 tracking-wide">
+      {code}
+    </span>
+  );
+}
+
+function UsageCell({ row }: { row: PromoCode }) {
+  const rem = remainingPromoUses(row);
+  const maxLabel = row.maxUses != null ? row.maxUses : null;
+  const pct = maxLabel != null && maxLabel > 0
+    ? Math.min(100, Math.round((row.useCount / maxLabel) * 100))
+    : null;
+
+  return (
+    <div className="min-w-[7rem]">
+      <p className="font-medium text-gray-900 tabular-nums">
+        {row.useCount}
+        {maxLabel != null ? ` / ${maxLabel}` : ' / ∞'}
+      </p>
+      {rem != null && (
+        <p className="text-xs text-gray-500 mt-0.5">{rem} remaining</p>
+      )}
+      {pct != null && (
+        <div className="mt-1.5 h-1.5 w-full max-w-[6rem] rounded-full bg-gray-100 overflow-hidden">
+          <div
+            className={`h-full rounded-full ${pct >= 90 ? 'bg-amber-500' : 'bg-emerald-500'}`}
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RevenueCell({ row }: { row: PromoCode }) {
+  return (
+    <div className="space-y-1 text-sm min-w-[8rem]">
+      <p>
+        <span className="text-gray-400 text-xs block">Discount</span>
+        <span className="font-medium text-red-700 tabular-nums">{formatSar(Number(row.totalDiscountSar))}</span>
+      </p>
+      <p>
+        <span className="text-gray-400 text-xs block">Paid</span>
+        <span className="font-medium text-emerald-700 tabular-nums">{formatSar(Number(row.totalPaidSar))}</span>
+      </p>
+    </div>
+  );
+}
+
 function toDatetimeLocalValue(iso: string | Date | null): string {
   if (!iso) return '';
   const d = iso instanceof Date ? iso : new Date(iso);
@@ -113,6 +170,9 @@ export function PromoCodesSection() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<PromoStatusFilter>('all');
   const [sortKey, setSortKey] = useState<PromoSortKey>('newest');
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(DEFAULT_ADMIN_PAGE_LIMIT);
+  const [redemptionPage, setRedemptionPage] = useState(1);
 
   const [formOpen, setFormOpen] = useState(false);
   const [form, setForm] = useState<PromoFormInput>(EMPTY_FORM);
@@ -134,9 +194,37 @@ export function PromoCodesSection() {
 
   useEffect(() => { load(); }, [load]);
 
+  useEffect(() => {
+    setPage(1);
+  }, [search, statusFilter, sortKey]);
+
+  useEffect(() => {
+    setRedemptionPage(1);
+  }, [detail?.id]);
+
   const filtered = useMemo(
     () => sortPromoCodes(filterPromoCodes(codes, search, statusFilter), sortKey),
     [codes, search, statusFilter, sortKey],
+  );
+
+  const pageMeta = useMemo(
+    () => clientPaginationMeta(filtered.length, page, limit),
+    [filtered.length, page, limit],
+  );
+
+  const pagedRows = useMemo(
+    () => paginateClientList(filtered, pageMeta.page, limit),
+    [filtered, pageMeta.page, limit],
+  );
+
+  const redemptionMeta = useMemo(
+    () => clientPaginationMeta(detail?.redemptions.length ?? 0, redemptionPage, DEFAULT_ADMIN_PAGE_LIMIT),
+    [detail?.redemptions.length, redemptionPage],
+  );
+
+  const pagedRedemptions = useMemo(
+    () => paginateClientList(detail?.redemptions ?? [], redemptionMeta.page, DEFAULT_ADMIN_PAGE_LIMIT),
+    [detail?.redemptions, redemptionMeta.page],
   );
 
   const kpis = useMemo(() => computePromoKpis(codes), [codes]);
@@ -295,6 +383,14 @@ export function PromoCodesSection() {
         ]}
       />
 
+      {filtered.length > 0 && (
+        <p className="text-xs text-gray-500 -mt-2 mb-1">
+          {filtered.length === codes.length
+            ? `${filtered.length} promo code${filtered.length === 1 ? '' : 's'}`
+            : `${filtered.length} of ${codes.length} codes match your filters`}
+        </p>
+      )}
+
       {filtered.length === 0 ? (
         <AdminEmptyState
           icon={TicketPercent}
@@ -303,47 +399,61 @@ export function PromoCodesSection() {
           action={<Button variant="primary" onClick={openCreate}>Create Promo Code</Button>}
         />
       ) : (
+        <>
         <AdminTable
           columns={[
-            { key: 'code', header: 'Code', cell: (r) => <span className="font-semibold">{r.code}</span> },
-            { key: 'discount', header: 'Discount', cell: (r) => `${r.discountPercent}%` },
+            {
+              key: 'code',
+              header: 'Code',
+              className: 'min-w-[9rem]',
+              cell: (r) => (
+                <div className="flex items-center gap-2">
+                  <PromoCodeChip code={r.code} />
+                  <span className="inline-flex items-center rounded-md bg-gray-100 px-1.5 py-0.5 text-xs font-semibold text-gray-700">
+                    {r.discountPercent}% off
+                  </span>
+                </div>
+              ),
+            },
             {
               key: 'partner',
-              header: 'Partner',
-              cell: (r) => r.partnerName ?? decodePromoNotes(r.notes).campaignName ?? '—',
+              header: 'Campaign',
+              className: 'min-w-[10rem]',
+              cell: (r) => {
+                const { campaignName } = decodePromoNotes(r.notes);
+                const partner = r.partnerName ?? campaignName ?? '—';
+                return (
+                  <div>
+                    <p className="font-medium text-gray-900">{partner}</p>
+                    {r.partnerName && campaignName && (
+                      <p className="text-xs text-gray-500 mt-0.5">{campaignName}</p>
+                    )}
+                  </div>
+                );
+              },
             },
             { key: 'status', header: 'Status', cell: (r) => statusBadge(getPromoCodeStatus(r)) },
             {
               key: 'uses',
-              header: 'Uses',
-              cell: (r) =>
-                `${r.useCount}${r.maxUses != null ? ` / ${r.maxUses}` : ' / ∞'}`,
+              header: 'Usage',
+              cell: (r) => <UsageCell row={r} />,
             },
             {
-              key: 'remaining',
-              header: 'Remaining',
-              cell: (r) => {
-                const rem = remainingPromoUses(r);
-                return rem != null ? rem : '∞';
-              },
+              key: 'revenue',
+              header: 'Revenue impact',
+              cell: (r) => <RevenueCell row={r} />,
             },
             {
               key: 'expiry',
               header: 'Expiry',
               cell: (r) =>
                 r.expiresAt
-                  ? new Date(r.expiresAt).toLocaleDateString('en-SA')
+                  ? new Date(r.expiresAt).toLocaleDateString('en-SA', {
+                      year: 'numeric',
+                      month: 'short',
+                      day: 'numeric',
+                    })
                   : 'Never',
-            },
-            {
-              key: 'discountTotal',
-              header: 'Discount given',
-              cell: (r) => formatSar(Number(r.totalDiscountSar)),
-            },
-            {
-              key: 'paidTotal',
-              header: 'Paid after discount',
-              cell: (r) => formatSar(Number(r.totalPaidSar)),
             },
             {
               key: 'created',
@@ -351,7 +461,7 @@ export function PromoCodesSection() {
               cell: (r) => new Date(r.createdAt).toLocaleDateString('en-SA'),
             },
           ]}
-          rows={filtered}
+          rows={pagedRows}
           onRowClick={(r) => void openDetails(r)}
           rowActions={(r) => (
             <div className="flex flex-wrap gap-1">
@@ -373,10 +483,16 @@ export function PromoCodesSection() {
               <AdminDataCard
                 title={r.code}
                 subtitle={r.partnerName ?? campaignName ?? undefined}
-                badges={statusBadge(getPromoCodeStatus(r))}
+                badges={
+                  <>
+                    {statusBadge(getPromoCodeStatus(r))}
+                    <span className="inline-flex items-center rounded-md bg-gray-100 px-1.5 py-0.5 text-[10px] font-semibold text-gray-700">
+                      {r.discountPercent}% off
+                    </span>
+                  </>
+                }
                 metadata={
                   <>
-                    <AdminMetaItem label="Discount" value={`${r.discountPercent}%`} />
                     <AdminMetaItem
                       label="Uses"
                       value={`${r.useCount}${r.maxUses != null ? ` / ${r.maxUses}` : ' / ∞'}`}
@@ -393,6 +509,9 @@ export function PromoCodesSection() {
                 actions={
                   <div className="flex flex-wrap gap-1">
                     <Button variant="ghost" size="sm" onClick={() => openEdit(r)}>Edit</Button>
+                    <Button variant="ghost" size="sm" onClick={() => toggleActive(r)}>
+                      {r.isActive ? 'Disable' : 'Enable'}
+                    </Button>
                     <Button variant="ghost" size="sm" onClick={() => void copyCode(r.code)}>Copy</Button>
                     <Button variant="ghost" size="sm" onClick={() => void openDetails(r)}>Details</Button>
                   </div>
@@ -403,6 +522,20 @@ export function PromoCodesSection() {
             );
           }}
         />
+
+        <AdminPagination
+          meta={pageMeta}
+          onPageChange={(p) => {
+            setPage(p);
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          }}
+          onLimitChange={(l) => {
+            setLimit(l);
+            setPage(1);
+          }}
+          className="mt-5"
+        />
+        </>
       )}
 
       <AdminDrawer
@@ -509,22 +642,32 @@ export function PromoCodesSection() {
               {detail.redemptions.length === 0 ? (
                 <p className="text-sm text-gray-500">No redemptions yet.</p>
               ) : (
-                <div className="space-y-3">
-                  {detail.redemptions.map((r) => (
-                    <div key={r.id} className="rounded-lg border border-gray-100 bg-white p-3 text-sm">
-                      <p className="font-medium text-gray-900">{r.user.fullName}</p>
-                      <p className="text-xs text-gray-500">{r.user.user.email}</p>
-                      <div className="grid grid-cols-2 gap-2 mt-2 text-xs">
-                        <div><span className="text-gray-400">Subscription</span><br />{r.subscription?.package?.name ?? r.subscription?.id ?? '—'}</div>
-                        <div><span className="text-gray-400">Redeemed</span><br />{new Date(r.createdAt).toLocaleString('en-SA')}</div>
-                        <div><span className="text-gray-400">Original</span><br />{formatSar(Number(r.subtotalSar))}</div>
-                        <div><span className="text-gray-400">Discount</span><br />{formatSar(Number(r.discountSar))}</div>
-                        <div><span className="text-gray-400">Paid</span><br />{formatSar(Number(r.finalSar))}</div>
-                        <div><span className="text-gray-400">Payment ID</span><br />{r.paymentId ?? '—'}</div>
+                <>
+                  <div className="space-y-3">
+                    {pagedRedemptions.map((r) => (
+                      <div key={r.id} className="rounded-lg border border-gray-100 bg-white p-3 text-sm">
+                        <p className="font-medium text-gray-900">{r.user.fullName}</p>
+                        <p className="text-xs text-gray-500">{r.user.user.email}</p>
+                        <div className="grid grid-cols-2 gap-2 mt-2 text-xs">
+                          <div><span className="text-gray-400">Subscription</span><br />{r.subscription?.package?.name ?? r.subscription?.id ?? '—'}</div>
+                          <div><span className="text-gray-400">Redeemed</span><br />{new Date(r.createdAt).toLocaleString('en-SA')}</div>
+                          <div><span className="text-gray-400">Original</span><br />{formatSar(Number(r.subtotalSar))}</div>
+                          <div><span className="text-gray-400">Discount</span><br />{formatSar(Number(r.discountSar))}</div>
+                          <div><span className="text-gray-400">Paid</span><br />{formatSar(Number(r.finalSar))}</div>
+                          <div><span className="text-gray-400">Payment ID</span><br />{r.paymentId ?? '—'}</div>
+                        </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                  {detail.redemptions.length > DEFAULT_ADMIN_PAGE_LIMIT && (
+                    <AdminPagination
+                      meta={redemptionMeta}
+                      onPageChange={setRedemptionPage}
+                      className="mt-4"
+                      alwaysShow={false}
+                    />
+                  )}
+                </>
               )}
             </AdminDrawerSection>
           </>
