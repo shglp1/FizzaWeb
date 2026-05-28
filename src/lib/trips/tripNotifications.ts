@@ -361,15 +361,46 @@ export async function recordStatusChange(
   actorRole: string,
   fromStatus: string,
   toStatus: string,
+  opts?: { statusReason?: string | null; adminOverride?: boolean },
 ): Promise<void> {
+  const reason = opts?.statusReason?.trim();
+  let message = `Status changed: ${fromStatus} → ${toStatus}`;
+  const metadata: Record<string, string | boolean> = { from: fromStatus, to: toStatus };
+  if (opts?.adminOverride && reason) {
+    message = `Status changed: ${fromStatus} → ${toStatus} (admin override: ${reason})`;
+    metadata.adminOverride = true;
+    metadata.statusReason = reason;
+  } else if (reason && toStatus === 'NO_SHOW') {
+    metadata.statusReason = reason;
+  }
+
   await prisma.tripEvent.create({
     data: {
       tripId,
       actorUserId,
       actorRole,
       eventType: 'STATUS_CHANGED',
-      message: `Status changed: ${fromStatus} → ${toStatus}`,
-      metadata: toTripEventMetadata({ from: fromStatus, to: toStatus }),
+      message,
+      metadata: toTripEventMetadata(metadata),
+    },
+  });
+}
+
+/** Audit when a driver advances status without active GPS sharing. */
+export async function recordContinuedWithoutGps(
+  tripId: string,
+  actorUserId: string,
+  actorRole: string,
+  targetStatus: string,
+): Promise<void> {
+  await prisma.tripEvent.create({
+    data: {
+      tripId,
+      actorUserId,
+      actorRole,
+      eventType: 'CONTINUED_WITHOUT_GPS',
+      message: `Driver continued without GPS sharing while advancing to ${targetStatus}`,
+      metadata: toTripEventMetadata({ targetStatus }),
     },
   });
 }

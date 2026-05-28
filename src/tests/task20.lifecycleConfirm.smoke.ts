@@ -104,4 +104,27 @@ test('driver confirm dialog component exists and is wired', () => {
   assert.match(trackingView, /DriverStatusConfirmDialog/);
   assert.match(routeSheet, /DriverStatusConfirmDialog/);
   assert.match(trackingView, /ARRIVED_DROPOFF/);
+  assert.match(trackingView, /requestNoShow/);
+});
+
+test('runtime uploads are gitignored', () => {
+  const gitignore = readFileSync(join(process.cwd(), '.gitignore'), 'utf8');
+  assert.match(gitignore, /public\/uploads\//);
+});
+
+test('status route records GPS-off audit and admin override reason', () => {
+  const statusRoute = readFileSync(join(process.cwd(), 'src/app/api/trips/[id]/status/route.ts'), 'utf8');
+  const notifications = readFileSync(join(process.cwd(), 'src/lib/trips/tripNotifications.ts'), 'utf8');
+  assert.match(statusRoute, /continuedWithoutGps/);
+  assert.match(statusRoute, /recordContinuedWithoutGps/);
+  assert.match(statusRoute, /adminOverride/);
+  assert.match(notifications, /recordContinuedWithoutGps/);
+  assert.match(notifications, /admin override/);
+});
+
+test('parent pending vs completed messaging remains split', () => {
+  const banner = readFileSync(join(process.cwd(), 'src/components/parent/tracking/ParentSafetyBanner.tsx'), 'utf8');
+  assert.match(banner, /arrived_at_destination/);
+  assert.match(banner, /trip_completed/);
+  assert.match(banner, /Arrived safely/);
 });

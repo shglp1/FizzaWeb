@@ -136,6 +136,9 @@ test('ParentTrackingView module exists and branches from tracking page', () => {
   assert.ok(page.includes('ParentTrackingView'));
   assert.ok(page.includes('DriverTrackingView'));
   assert.ok(page.includes('useTripTracking'));
+  assert.ok(page.includes('TrackingPageLoading'));
+  assert.ok(page.includes('roleKnown'));
+  assert.ok(!page.includes('ParentTrackingLoading'));
 });
 
 test('TripTrackingMap uses mapTiles and marker helpers', () => {
@@ -310,4 +313,6 @@ test('driver tracking view remains wired on tracking page', () => {
   assert.ok(driverView.includes('DriverGpsPanel'));
   assert.ok(driverView.includes('requestStatusAdvance'));
   assert.ok(driverView.includes('DriverStatusConfirmDialog'));
+  assert.ok(driverView.includes('requestNoShow'));
+  assert.match(driverView, /ARRIVED_PICKUP/);
 });

@@ -41,7 +41,7 @@ export const tripService = {
   updateStatus: async (
     id: string,
     status: string,
-    opts?: { statusReason?: string; lat?: number; lng?: number },
+    opts?: { statusReason?: string; lat?: number; lng?: number; continuedWithoutGps?: boolean },
   ) => {
     const res = await fetch(`/api/trips/${encodeURIComponent(id)}/status`, {
       method: 'PATCH',

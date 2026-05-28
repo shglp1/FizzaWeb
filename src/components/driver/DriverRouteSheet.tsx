@@ -162,9 +162,13 @@ export function DriverRouteSheet() {
   const showingFrom = trips.length === 0 ? 0 : (page - 1) * 50 + 1;
   const showingTo = trips.length === 0 ? 0 : (page - 1) * 50 + trips.length;
 
-  async function executeStatusAdvance(tripId: string, nextStatus: TripStatus, statusReason?: string) {
+  async function executeStatusAdvance(
+    tripId: string,
+    nextStatus: TripStatus,
+    opts?: { statusReason?: string; continuedWithoutGps?: boolean },
+  ) {
     setActionLoading(true);
-    await tripService.updateStatus(tripId, nextStatus, statusReason ? { statusReason } : undefined);
+    await tripService.updateStatus(tripId, nextStatus, opts);
     setActionLoading(false);
     setLoading(true);
     loadTrips(page, false);
@@ -189,10 +193,11 @@ export function DriverRouteSheet() {
     const { trip, nextStatus } = confirmTarget;
     const kind = getStatusConfirmKind(nextStatus);
     if (kind === 'no_show' && !confirmReason.trim()) return;
+    const continuedWithoutGps = !gpsActive && statusAdvanceNeedsGpsWarning(nextStatus);
     setConfirmTarget(null);
     const reason = kind === 'no_show' ? confirmReason.trim() : undefined;
     setConfirmReason('');
-    await executeStatusAdvance(trip.id, nextStatus, reason);
+    await executeStatusAdvance(trip.id, nextStatus, { statusReason: reason, continuedWithoutGps });
   }
 
   async function handlePrimary(trip: Trip) {

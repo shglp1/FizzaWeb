@@ -180,11 +180,22 @@ export function DriverTrackingView({
   );
   const riderName = trip.rider?.name ?? 'Student';
 
-  async function executeStatusAdvance(nextStatus: TripStatus, statusReason?: string) {
+  async function executeStatusAdvance(
+    nextStatus: TripStatus,
+    opts?: { statusReason?: string; continuedWithoutGps?: boolean },
+  ) {
     setStatusUpdating(true);
-    await tripService.updateStatus(trip!.id, nextStatus, statusReason ? { statusReason } : undefined);
+    await tripService.updateStatus(trip!.id, nextStatus, {
+      statusReason: opts?.statusReason,
+      continuedWithoutGps: opts?.continuedWithoutGps,
+    });
     setStatusUpdating(false);
     void refresh();
+  }
+
+  function requestNoShow() {
+    setConfirmNext('NO_SHOW');
+    setConfirmReason('');
   }
 
   function requestStatusAdvance() {
@@ -209,9 +220,10 @@ export function DriverTrackingView({
     if (kind === 'no_show' && !confirmReason.trim()) return;
     const reason = kind === 'no_show' ? confirmReason.trim() : undefined;
     const next = confirmNext;
+    const continuedWithoutGps = !gpsSharing && statusAdvanceNeedsGpsWarning(next);
     setConfirmNext(null);
     setConfirmReason('');
-    await executeStatusAdvance(next, reason);
+    await executeStatusAdvance(next, { statusReason: reason, continuedWithoutGps });
   }
 
   const confirmKind = confirmNext ? getStatusConfirmKind(confirmNext) : null;
@@ -257,8 +269,8 @@ export function DriverTrackingView({
       {trip.status === 'ARRIVED_DROPOFF' && (
         <DriverNotice
           variant="late"
-          title="Complete the trip"
-          message="Confirm the student was safely delivered to close live tracking for the family."
+          title="Action required — complete the trip"
+          message="The family still sees live tracking. Tap Complete trip to confirm safe delivery and close tracking."
         />
       )}
 
@@ -335,6 +347,11 @@ export function DriverTrackingView({
                 <Button variant="primary" size="sm" loading={statusUpdating} onClick={requestStatusAdvance} className="min-h-9">
                   {driverAction.label}
                 </Button>
+                {trip.status === 'ARRIVED_PICKUP' && (
+                  <Button variant="danger" size="sm" loading={statusUpdating} onClick={requestNoShow} className="min-h-9">
+                    Mark no-show
+                  </Button>
+                )}
                 <a href={routeMapsUrl} target="_blank" rel="noopener noreferrer">
                   <Button variant="outline" size="sm"><Navigation className="h-3.5 w-3.5" aria-hidden />Navigate</Button>
                 </a>
@@ -394,10 +411,18 @@ export function DriverTrackingView({
       <DriverTripActivityPanel events={trip.events ?? []} defaultOpen={false} />
 
       {trackable && driverAction?.kind === 'status' && (
-        <DriverBottomActionBar label="Trip actions" visible>
+        <DriverBottomActionBar
+          label={trip.status === 'ARRIVED_DROPOFF' ? 'Complete delivery' : 'Trip actions'}
+          visible
+        >
           <Button variant="primary" size="sm" loading={statusUpdating} onClick={requestStatusAdvance} className="flex-1 min-h-10" disabled={!driverAction.nextStatus}>
             {driverAction.label}
           </Button>
+          {trip.status === 'ARRIVED_PICKUP' && (
+            <Button variant="danger" size="sm" loading={statusUpdating} onClick={requestNoShow} className="min-h-10">
+              No-show
+            </Button>
+          )}
           <a href={routeMapsUrl} target="_blank" rel="noopener noreferrer" className="flex-1">
             <Button variant="outline" size="sm" className="w-full min-h-10">Navigate</Button>
           </a>

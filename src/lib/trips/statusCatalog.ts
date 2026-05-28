@@ -193,4 +193,5 @@ export const EVENT_DISPLAY_LABELS: Record<string, string> = {
   NO_SHOW: 'No show',
   MODERATION_FLAGGED: 'Chat flagged',
   STATUS_CHANGED: 'Status changed',
+  CONTINUED_WITHOUT_GPS: 'Continued without GPS sharing',
 };

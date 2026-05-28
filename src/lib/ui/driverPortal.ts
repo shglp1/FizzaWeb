@@ -511,6 +511,8 @@ const ACTIVITY_LABELS: Record<string, string> = {
   TRIP_CANCELLED: 'Trip cancelled',
   NO_SHOW: 'No-show recorded',
   STATUS_CHANGE: 'Status updated',
+  STATUS_CHANGED: 'Status updated',
+  CONTINUED_WITHOUT_GPS: 'Continued without GPS',
   MODERATION_FLAGGED: 'Chat message flagged',
   CHAT_MESSAGE_FLAGGED: 'Chat message flagged',
 };
