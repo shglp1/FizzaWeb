@@ -16,6 +16,7 @@ import {
   notifyNearPickup,
   notifyNearDropoff,
   recordStatusChange,
+  recordContinuedWithoutGps,
 } from '@/lib/trips/tripNotifications';
 import type { TripStatus } from '@/lib/trips/tripLifecycle';
 
@@ -26,6 +27,7 @@ const statusUpdateSchema = z.object({
     'ARRIVED_DROPOFF', 'COMPLETED', 'CANCELLED', 'NO_SHOW',
   ]),
   statusReason: z.string().max(500).optional(),
+  continuedWithoutGps: z.boolean().optional(),
   /** Current driver lat (for geofence-based notifications). */
   lat: z.number().optional(),
   lng: z.number().optional(),
@@ -54,7 +56,7 @@ export async function PATCH(
       return NextResponse.json({ data: null, error: { message: parsed.error.issues[0]?.message ?? 'Invalid input' } }, { status: 400 });
     }
 
-    const { status: newStatus, statusReason, lat, lng } = parsed.data;
+    const { status: newStatus, statusReason, continuedWithoutGps, lat, lng } = parsed.data;
 
     const trip = await prisma.trip.findUnique({
       where: { id },
@@ -103,6 +105,10 @@ export async function PATCH(
       }
     }
 
+    const driverAllowed = DRIVER_TRANSITIONS[trip.status as TripStatus] ?? [];
+    const isAdminOverride =
+      auth.role === 'ADMIN' && !driverAllowed.includes(newStatus as TripStatus);
+
     if (newStatus === 'NO_SHOW' && !statusReason?.trim()) {
       return NextResponse.json({
         data: null,
@@ -130,7 +136,18 @@ export async function PATCH(
 
     if (shouldOpenChat) await notifyChatOpened(notifInput);
 
-    await recordStatusChange(id, auth.userId, auth.role, trip.status, newStatus);
+    await recordStatusChange(id, auth.userId, auth.role, trip.status, newStatus, {
+      statusReason: statusReason ?? null,
+      adminOverride: isAdminOverride,
+    });
+
+    if (
+      auth.role === 'DRIVER' &&
+      continuedWithoutGps &&
+      auth.userId
+    ) {
+      await recordContinuedWithoutGps(id, auth.userId, auth.role, newStatus);
+    }
 
     const statusNow = newStatus as TripStatus;
     if (statusNow === 'PRE_TRIP' || statusNow === 'ON_THE_WAY') {

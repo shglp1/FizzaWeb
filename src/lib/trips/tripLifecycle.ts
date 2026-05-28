@@ -22,7 +22,7 @@ export type TripStatus =
 
 /** All valid forward transitions (driver-initiated). */
 export const DRIVER_TRANSITIONS: Partial<Record<TripStatus, TripStatus[]>> = {
-  DRIVER_ASSIGNED:  ['PRE_TRIP', 'ON_THE_WAY'],
+  DRIVER_ASSIGNED:  ['PRE_TRIP'],
   PRE_TRIP:         ['ON_THE_WAY', 'CANCELLED'],
   ON_THE_WAY:       ['ARRIVED_PICKUP', 'CANCELLED'],
   ARRIVED_PICKUP:   ['PICKED_UP', 'NO_SHOW'],

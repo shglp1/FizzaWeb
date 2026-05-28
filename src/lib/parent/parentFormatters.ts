@@ -1,5 +1,8 @@
 import type { TripStatus } from '../trips/tripLifecycle.ts';
 import { isTrackableStatus } from '../trips/tripLifecycle.ts';
+import type { TripLegType } from '../tracking/trackingTypes.ts';
+import { headlineForState, getParentTrackingCopy } from './parentTrackingCopy.ts';
+import { resolveParentTrackingState } from './parentTrackingState.ts';
 
 export function formatSarParent(amount: number | string | null | undefined): string {
   const n = Number(amount ?? 0);
@@ -85,14 +88,36 @@ export function getTrackingAvailability(
 }
 
 export function trackingAvailabilityLabel(a: TrackingAvailability): string {
+  const c = getParentTrackingCopy('en');
   switch (a) {
-    case 'available': return 'Tracking available now';
-    case 'opens_soon': return 'Opens soon';
-    case 'not_yet': return 'Available before pickup';
-    case 'unassigned': return 'Driver is being assigned';
-    case 'closed': return 'Trip completed';
+    case 'available': return c.gpsActive;
+    case 'opens_soon': return c.gpsOpensSoon;
+    case 'not_yet': return c.waitingForWindow;
+    case 'unassigned': return c.driverNotAssigned;
+    case 'closed': return c.tripCompleted;
     default: return '';
   }
+}
+
+/** Parent-friendly headline for dashboard hero badge (no live location required). */
+export function parentTrackingHeadline(trip: {
+  status: string;
+  legType?: TripLegType | null;
+  scheduledPickupTime?: string | null;
+  driver?: unknown;
+  actualPickupTime?: string | null;
+  actualDropoffTime?: string | null;
+}): string {
+  const state = resolveParentTrackingState({
+    status: trip.status,
+    legType: trip.legType,
+    hasDriver: Boolean(trip.driver),
+    location: null,
+    scheduledPickupTime: trip.scheduledPickupTime ?? null,
+    actualPickupTime: trip.actualPickupTime ?? null,
+    actualDropoffTime: trip.actualDropoffTime ?? null,
+  });
+  return headlineForState(state.id, 'en', state.etaMinutes);
 }
 
 export function formatSubscriptionRoute(pickup: string, dropoff: string): string {

@@ -101,7 +101,7 @@ export default function TrackingIndexPage() {
 
     trackingService.listTrackable().then((res) => {
       if (res.data?.trips) {
-        const list: TrackableTrip[] = res.data.trips;
+        const list: TrackableTrip[] = res.data.trips as TrackableTrip[];
         if (list.length === 1 && userRole !== 'DRIVER') {
           router.replace(`/tracking/${list[0]!.id}`);
           return;

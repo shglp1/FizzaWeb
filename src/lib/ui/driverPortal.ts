@@ -3,6 +3,8 @@
  */
 
 import type { TripStatus } from '../trips/tripLifecycle.ts';
+import type { TripLegType } from '../tracking/trackingTypes.ts';
+import { getDriverActionLabel } from './driverLifecycleConfirm.ts';
 import { isActiveStatus, isTrackableStatus, TRIP_STATUS_LABEL } from '../trips/tripLifecycle.ts';
 import {
   DRIVER_TIMEZONE as DRIVER_TZ,
@@ -94,23 +96,28 @@ const NEXT_STATUS: Partial<Record<TripStatus, TripStatus>> = {
 
 const ACTION_LABEL: Partial<Record<TripStatus, string>> = {
   SCHEDULED: 'Awaiting assignment',
-  DRIVER_ASSIGNED: 'Start pre-trip',
-  PRE_TRIP: 'Mark en route',
+  DRIVER_ASSIGNED: 'Start trip',
+  PRE_TRIP: 'Heading to pickup',
   ON_THE_WAY: 'Arrived at pickup',
-  ARRIVED_PICKUP: 'Rider picked up',
+  ARRIVED_PICKUP: 'Student picked up',
   PICKED_UP: 'En route to drop-off',
   EN_ROUTE_DROPOFF: 'Arrived at drop-off',
-  ARRIVED_DROPOFF: 'Complete trip',
+  ARRIVED_DROPOFF: 'Complete trip — student delivered',
   COMPLETED: 'View summary',
   CANCELLED: 'Cancelled',
   NO_SHOW: 'No show',
 };
 
+function actionLabel(status: TripStatus, legType?: TripLegType | null): string {
+  return getDriverActionLabel(status, legType) || ACTION_LABEL[status] || status;
+}
+
 export function getDriverPrimaryAction(
   status: TripStatus,
   withinTrackingWindow = true,
-  options?: { isAssignedToCurrentDriver?: boolean },
+  options?: { isAssignedToCurrentDriver?: boolean; legType?: TripLegType | null },
 ): DriverPrimaryAction {
+  const legType = options?.legType;
   const isAssigned = options?.isAssignedToCurrentDriver ?? false;
   if (status === 'COMPLETED') {
     return { label: 'View summary', kind: 'view' };
@@ -129,7 +136,7 @@ export function getDriverPrimaryAction(
         };
       }
       return {
-        label: 'Start pre-trip',
+        label: 'Start trip',
         nextStatus: 'PRE_TRIP',
         kind: 'status',
       };
@@ -151,7 +158,7 @@ export function getDriverPrimaryAction(
   }
   if (status === 'DRIVER_ASSIGNED' || status === 'PRE_TRIP') {
     return {
-      label: status === 'DRIVER_ASSIGNED' ? 'Start pre-trip' : 'Mark en route',
+      label: status === 'DRIVER_ASSIGNED' ? 'Start trip' : actionLabel(status, legType),
       nextStatus: NEXT_STATUS[status],
       kind: 'status',
     };
@@ -159,7 +166,7 @@ export function getDriverPrimaryAction(
   const next = NEXT_STATUS[status];
   if (next) {
     return {
-      label: ACTION_LABEL[status] ?? 'Update status',
+      label: actionLabel(status, legType),
       nextStatus: next,
       kind: 'status',
     };
@@ -504,6 +511,8 @@ const ACTIVITY_LABELS: Record<string, string> = {
   TRIP_CANCELLED: 'Trip cancelled',
   NO_SHOW: 'No-show recorded',
   STATUS_CHANGE: 'Status updated',
+  STATUS_CHANGED: 'Status updated',
+  CONTINUED_WITHOUT_GPS: 'Continued without GPS',
   MODERATION_FLAGGED: 'Chat message flagged',
   CHAT_MESSAGE_FLAGGED: 'Chat message flagged',
 };
