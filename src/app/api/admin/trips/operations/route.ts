@@ -5,20 +5,26 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireRole } from '@/lib/session';
+import { getBusinessDateKey } from '@/lib/time/businessTimezone';
+
+const STALE_STATUSES = [
+  'DRIVER_ASSIGNED', 'PRE_TRIP', 'ON_THE_WAY',
+  'ARRIVED_PICKUP', 'PICKED_UP', 'EN_ROUTE_DROPOFF', 'ARRIVED_DROPOFF',
+] as const;
 
 export async function GET(_req: Request) {
   try {
     const auth = await requireRole(['ADMIN']);
     if (auth instanceof NextResponse) return auth;
 
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
+    const todayKey = getBusinessDateKey(new Date());
+    const todayStart = new Date(`${todayKey}T00:00:00.000Z`);
     const todayEnd = new Date(todayStart);
-    todayEnd.setDate(todayEnd.getDate() + 1);
+    todayEnd.setUTCDate(todayEnd.getUTCDate() + 1);
 
     const [
       totalToday, activeTrips, unassignedTrips, needsDispatchTrips, completedToday,
-      cancelledToday, flaggedMessages, driverCount,
+      cancelledToday, flaggedMessages, driverCount, staleNonTerminal,
     ] = await Promise.all([
       prisma.trip.count({ where: { scheduledDate: { gte: todayStart, lt: todayEnd } } }),
       prisma.trip.count({
@@ -45,6 +51,12 @@ export async function GET(_req: Request) {
       prisma.trip.count({ where: { scheduledDate: { gte: todayStart, lt: todayEnd }, status: 'CANCELLED' } }),
       prisma.tripChatMessage.count({ where: { moderationStatus: { in: ['FLAGGED', 'BLOCKED'] } } }),
       prisma.driver.count({ where: { isSuspended: false } }),
+      prisma.trip.count({
+        where: {
+          scheduledDate: { lt: todayStart },
+          status: { in: [...STALE_STATUSES] },
+        },
+      }),
     ]);
 
     // Detect GPS stale: active trips where latest location is > 60s old or missing
@@ -112,6 +124,7 @@ export async function GET(_req: Request) {
           noShow: noShowCount,
           gpsStale: gpsStaleCount,
           chatFlagged: flaggedMessages,
+          staleNonTerminal,
         },
         driverCount,
         driverWorkload,

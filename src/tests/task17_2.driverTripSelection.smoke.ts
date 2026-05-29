@@ -13,6 +13,7 @@ import {
   getTimezoneDateKey,
   isDriverNextTripCandidate,
   pickNextDriverTrip,
+  resolveDriverHeroTrip,
   resolveTripStartMs,
 } from '../lib/ui/driverTripSelection.ts';
 import { getDriverPrimaryAction, minutesUntilPickup } from '../lib/ui/driverPortal.ts';
@@ -45,16 +46,19 @@ test('next trip skips passed today pickup and selects later today trip', () => {
   ];
   const next = pickNextDriverTrip(trips, nowMs, DRIVER);
   assert.equal(next?.id, 'later');
-  assert.equal(explainNextTripExclusion(trips[0]!, nowMs, DRIVER), 'past_pickup');
+  assert.equal(explainNextTripExclusion(trips[0]!, nowMs, DRIVER), 'stale');
 });
 
-test('when all today trips passed, next trip is tomorrow first assigned trip', () => {
+test('when all today trips passed, next trip is tomorrow with upcoming kind', () => {
   const nowMs = new Date(`${today}T18:00:00.000Z`).getTime();
   const trips = [
     trip('today-past', { scheduledPickupTime: `${today}T04:00:00.000Z` }),
     trip('tomorrow-first', { scheduledDate: tomorrow, scheduledPickupTime: `${tomorrow}T07:00:00.000Z` }),
     trip('tomorrow-second', { scheduledDate: tomorrow, scheduledPickupTime: `${tomorrow}T15:00:00.000Z` }),
   ];
+  const hero = resolveDriverHeroTrip(trips, nowMs, DRIVER);
+  assert.equal(hero?.trip.id, 'tomorrow-first');
+  assert.equal(hero?.kind, 'upcoming');
   const next = pickNextDriverTrip(trips, nowMs, DRIVER);
   assert.equal(next?.id, 'tomorrow-first');
 });
@@ -117,10 +121,11 @@ test('today total and remaining counts use assigned trips only', () => {
     trip('other-driver', { driverId: 'driver-2', scheduledPickupTime: `${today}T16:00:00.000Z` }),
   ];
   const counts = computeDriverTripCounts(trips, nowMs, now, 'Asia/Riyadh', DRIVER);
-  assert.equal(counts.todayTotal, 3);
+  assert.equal(counts.todayTotal, 2);
   assert.equal(counts.completedToday, 1);
   assert.equal(counts.remainingToday, 1);
   assert.equal(counts.upcoming, 1);
+  assert.equal(counts.stale, 1);
   assert.equal(filterTripsForLocalDate(filterDriverAssignedTrips(trips, DRIVER), todayKey).length, 3);
 });
 

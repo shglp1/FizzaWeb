@@ -20,7 +20,8 @@ import type { TripStatus } from '@/lib/trips/tripLifecycle';
 import {
   DRIVER_TRACKING_LIST_COPY,
   TRACKING_GROUP_LABELS,
-  fmtDriverTime,
+  explainStaleTripReason,
+  formatTripDateTimeInBusinessTz,
   getTrackingAvailability,
   groupTripsByTrackingAvailability,
 } from '@/lib/ui/driverPortal';
@@ -38,28 +39,32 @@ type TrackableTrip = {
   driver: { profile: { fullName: string } | null } | null;
 };
 
-function fmtDate(d: string) {
-  return new Date(d).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-}
-
 function TrackingTripCard({ trip, isDriver }: { trip: TrackableTrip; isDriver: boolean }) {
   const avail = getTrackingAvailability({
     status: trip.status,
+    scheduledDate: trip.scheduledDate,
     scheduledPickupTime: trip.scheduledPickupTime,
   });
+  const needsReview = avail.availability === 'needs_review';
 
   return (
     <DriverRouteCard
-      time={fmtDriverTime(trip.scheduledPickupTime)}
-      dateLabel={fmtDate(trip.scheduledDate)}
+      time={formatTripDateTimeInBusinessTz(trip)}
       riderName={trip.rider?.name ?? 'Rider'}
+      riderMeta={needsReview ? explainStaleTripReason(trip) : undefined}
       pickup={trip.pickupLocation}
       dropoff={trip.dropoffLocation}
       legType={trip.legType ?? 'OUTBOUND'}
       status={trip.status as TripStatus}
       primaryAction={isDriver && avail.availability === 'available_now' ? 'Start sharing' : undefined}
-      primaryDisabled={avail.availability === 'opens_soon'}
-      primaryDisabledReason={avail.availability === 'opens_soon' ? avail.label : undefined}
+      primaryDisabled={needsReview || avail.availability === 'opens_soon' || avail.availability === 'not_assigned'}
+      primaryDisabledReason={
+        needsReview
+          ? explainStaleTripReason(trip)
+          : avail.availability === 'opens_soon'
+          ? avail.label
+          : undefined
+      }
       secondaryActions={
         <>
           <Link href={`/tracking/${trip.id}`}>
@@ -76,6 +81,8 @@ function TrackingTripCard({ trip, isDriver }: { trip: TrackableTrip; isDriver: b
     />
   );
 }
+
+const DRIVER_GROUP_ORDER = ['available_now', 'opens_soon', 'upcoming', 'needs_review'] as const;
 
 export default function TrackingIndexPage() {
   const router = useRouter();
@@ -128,6 +135,9 @@ export default function TrackingIndexPage() {
   }
 
   const grouped = isDriver ? groupTripsByTrackingAvailability(trips) : null;
+  const hasTrackableTrips = grouped
+    ? DRIVER_GROUP_ORDER.some((key) => grouped[key].length > 0)
+    : trips.length > 0;
 
   return (
     <AppShell>
@@ -151,7 +161,7 @@ export default function TrackingIndexPage() {
           <DriverLoadingState message="Loading tracking trips…" />
         ) : pageError ? (
           <DriverErrorState message={pageError} onRetry={() => window.location.reload()} />
-        ) : trips.length === 0 ? (
+        ) : !hasTrackableTrips ? (
           <DriverEmptyState
             icon={MapPin}
             title={isDriver ? 'No active tracking trips' : 'No active trips to track'}
@@ -159,9 +169,13 @@ export default function TrackingIndexPage() {
           />
         ) : isDriver && grouped ? (
           <div className="space-y-5">
-            {(['available_now', 'opens_soon', 'upcoming'] as const).map((key) =>
+            {DRIVER_GROUP_ORDER.map((key) =>
               grouped[key].length > 0 ? (
-                <DriverTrackingGroup key={key} title={TRACKING_GROUP_LABELS[key]}>
+                <DriverTrackingGroup
+                  key={key}
+                  title={TRACKING_GROUP_LABELS[key]}
+                  description={key === 'needs_review' ? 'Contact dispatch — these trips require admin review before GPS sharing.' : undefined}
+                >
                   {grouped[key].map((trip) => (
                     <TrackingTripCard key={trip.id} trip={trip as TrackableTrip} isDriver />
                   ))}

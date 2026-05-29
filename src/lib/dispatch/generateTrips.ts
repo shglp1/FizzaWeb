@@ -11,29 +11,31 @@ import {
   notifyTripNeedsDispatch,
 } from './notifications';
 import type { GenerateTripsResult, TimelineTrip, TripDispatchDecision } from './types';
+import {
+  addDaysToBusinessDateKey,
+  getBusinessDayRange,
+  parseBusinessLocalTime,
+  scheduledDateKeyFromDate,
+} from '../time/businessTimezone.ts';
 
 function toIsoDate(d: Date): string {
-  return d.toISOString().slice(0, 10);
+  return scheduledDateKeyFromDate(d);
 }
 
 function getDatesInRange(start: Date, end: Date): Date[] {
   const dates: Date[] = [];
-  const current = new Date(start);
-  current.setHours(0, 0, 0, 0);
-  const endNorm = new Date(end);
-  endNorm.setHours(0, 0, 0, 0);
-  while (current <= endNorm) {
-    dates.push(new Date(current));
-    current.setDate(current.getDate() + 1);
+  let currentKey = toIsoDate(start);
+  const endKey = toIsoDate(end);
+  while (currentKey <= endKey) {
+    dates.push(new Date(`${currentKey}T12:00:00.000Z`));
+    currentKey = addDaysToBusinessDateKey(currentKey, 1);
   }
   return dates;
 }
 
+/** School pickup times are interpreted as Asia/Riyadh local (forward generation only). */
 function parseTime(timeStr: string, baseDate: Date): Date {
-  const [h, m] = timeStr.split(':').map(Number);
-  const d = new Date(baseDate);
-  d.setHours(h ?? 0, m ?? 0, 0, 0);
-  return d;
+  return parseBusinessLocalTime(timeStr, toIsoDate(baseDate));
 }
 
 type LegDef = {
@@ -137,15 +139,15 @@ async function loadDriverDayTimeline(
   const key = `${driverId}:${toIsoDate(date)}${excludeSubscriptionId ? `:ex${excludeSubscriptionId}` : ''}`;
   if (cache.has(key)) return cache.get(key)!;
 
-  const dayStart = new Date(date);
-  dayStart.setHours(0, 0, 0, 0);
-  const dayEnd = new Date(dayStart);
-  dayEnd.setDate(dayEnd.getDate() + 1);
+  const dateKey = toIsoDate(date);
+  const { startMs, endMs } = getBusinessDayRange(dateKey);
+  const dayStart = new Date(startMs);
+  const dayEnd = new Date(endMs);
 
   const trips = await prisma.trip.findMany({
     where: {
       driverId,
-      scheduledDate: { gte: dayStart, lt: dayEnd },
+      scheduledDate: { gte: dayStart, lte: dayEnd },
       status: { notIn: ['CANCELLED', 'NO_SHOW'] },
       ...(excludeSubscriptionId ? { subscriptionId: { not: excludeSubscriptionId } } : {}),
     },

@@ -25,11 +25,20 @@ test('truncateRouteLabel shortens long addresses', () => {
 
 test('tracking availability grouping for driver list', () => {
   const groups = groupTripsByTrackingAvailability([
-    { status: 'ON_THE_WAY', scheduledPickupTime: new Date(Date.now() - 600_000).toISOString() },
-    { status: 'DRIVER_ASSIGNED', scheduledPickupTime: new Date(Date.now() + 60 * 60_000).toISOString() },
+    {
+      status: 'ON_THE_WAY',
+      scheduledDate: new Date(Date.now() - 600_000).toISOString().slice(0, 10),
+      scheduledPickupTime: new Date(Date.now() - 600_000).toISOString(),
+    },
+    {
+      status: 'DRIVER_ASSIGNED',
+      scheduledDate: new Date(Date.now() + 60 * 60_000).toISOString().slice(0, 10),
+      scheduledPickupTime: new Date(Date.now() + 60 * 60_000).toISOString(),
+    },
   ]);
   assert.equal(groups.available_now.length, 1);
   assert.equal(groups.opens_soon.length, 1);
+  assert.ok(Array.isArray(groups.needs_review));
 });
 
 test('map fallback label is user-friendly', () => {

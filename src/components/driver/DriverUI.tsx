@@ -753,10 +753,21 @@ export function DriverSafetyHero({ onNewReport }: { onNewReport: () => void }) {
   );
 }
 
-export function DriverTrackingGroup({ title, children }: { title: string; children: ReactNode }) {
+export function DriverTrackingGroup({
+  title,
+  description,
+  children,
+}: {
+  title: string;
+  description?: string;
+  children: ReactNode;
+}) {
   return (
     <section className="space-y-2">
       <p className="text-xs font-bold uppercase tracking-wider text-gray-500 px-0.5">{title}</p>
+      {description ? (
+        <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">{description}</p>
+      ) : null}
       <div className="space-y-2">{children}</div>
     </section>
   );

@@ -3,8 +3,16 @@
  */
 
 import type { TripStatus } from '../trips/tripLifecycle.ts';
+import {
+  BUSINESS_TZ,
+  addDaysToBusinessDateKey,
+  explainStaleTripReason,
+  getBusinessDateKey,
+  getTripBusinessDateKey,
+  isTripStaleNonTerminal,
+} from '../time/businessTimezone.ts';
 
-export const DRIVER_TIMEZONE = 'Asia/Riyadh';
+export const DRIVER_TIMEZONE = BUSINESS_TZ;
 
 export const DRIVER_ACTIVE_STATUSES = new Set<TripStatus>([
   'PRE_TRIP',
@@ -35,16 +43,14 @@ export type DriverTripLike = {
 };
 
 export function getTimezoneDateKey(date: Date, timeZone = DRIVER_TIMEZONE): string {
-  return date.toLocaleDateString('en-CA', { timeZone });
+  return getBusinessDateKey(date, timeZone);
 }
 
 export function getTripDateKey(
-  trip: Pick<DriverTripLike, 'scheduledDate'>,
+  trip: Pick<DriverTripLike, 'scheduledDate' | 'scheduledPickupTime'>,
   timeZone = DRIVER_TIMEZONE,
 ): string {
-  const raw = trip.scheduledDate;
-  const normalized = raw.includes('T') ? raw : `${raw.split('T')[0]}T12:00:00.000Z`;
-  return getTimezoneDateKey(new Date(normalized), timeZone);
+  return getTripBusinessDateKey(trip, timeZone);
 }
 
 /** Resolve trip start instant — prefer scheduledPickupTime over date-only fallback. */
@@ -85,6 +91,19 @@ export function isDriverTerminalTrip(trip: Pick<DriverTripLike, 'status'>): bool
   return DRIVER_TERMINAL_STATUSES.has(trip.status as TripStatus);
 }
 
+export function partitionStaleTrips<T extends DriverTripLike>(
+  trips: T[],
+  nowMs = Date.now(),
+): { normal: T[]; stale: T[] } {
+  const normal: T[] = [];
+  const stale: T[] = [];
+  for (const trip of trips) {
+    if (isTripStaleNonTerminal(trip, nowMs)) stale.push(trip);
+    else normal.push(trip);
+  }
+  return { normal, stale };
+}
+
 /** Future upcoming assigned trip candidate (excludes past pickup times unless active). */
 export function isDriverNextTripCandidate(
   trip: DriverTripLike,
@@ -92,6 +111,7 @@ export function isDriverNextTripCandidate(
   currentDriverId?: string | null,
 ): boolean {
   if (!isTripAssignedToDriver(trip, currentDriverId)) return false;
+  if (isTripStaleNonTerminal(trip, nowMs)) return false;
   if (isDriverTerminalTrip(trip)) return false;
   if (isDriverActiveTrip(trip)) return true;
 
@@ -114,18 +134,56 @@ export function sortTripsByStartAsc<T extends DriverTripLike>(trips: T[]): T[] {
   });
 }
 
-/** Active trip first, else nearest future assigned trip by full datetime. */
+export type DriverHeroTripKind = 'active' | 'today' | 'upcoming';
+
+export type DriverHeroTripResult<T extends DriverTripLike> = {
+  trip: T;
+  kind: DriverHeroTripKind;
+};
+
+/** Non-stale active first, remaining today, then nearest future (tomorrow+). */
+export function resolveDriverHeroTrip<T extends DriverTripLike>(
+  trips: T[],
+  nowMs = Date.now(),
+  currentDriverId?: string | null,
+): DriverHeroTripResult<T> | null {
+  const assigned = filterDriverAssignedTrips(trips, currentDriverId);
+  const { normal } = partitionStaleTrips(assigned, nowMs);
+  const now = new Date(nowMs);
+  const todayKey = getTimezoneDateKey(now);
+
+  const active = normal.filter((t) => isDriverActiveTrip(t));
+  if (active.length) {
+    return { trip: sortTripsByStartAsc(active)[0]!, kind: 'active' };
+  }
+
+  const todayRemaining = normal.filter((t) => {
+    if (getTripDateKey(t) !== todayKey) return false;
+    if (isDriverTerminalTrip(t)) return false;
+    if (isDriverActiveTrip(t)) return true;
+    const startMs = resolveTripStartMs(t);
+    return startMs != null && startMs >= nowMs;
+  });
+  if (todayRemaining.length) {
+    return { trip: sortTripsByStartAsc(todayRemaining)[0]!, kind: 'today' };
+  }
+
+  const future = normal.filter((t) => isDriverNextTripCandidate(t, nowMs, currentDriverId));
+  const nearestFuture = sortTripsByStartAsc(future)[0];
+  if (nearestFuture) {
+    return { trip: nearestFuture, kind: 'upcoming' };
+  }
+
+  return null;
+}
+
+/** Active trip first, else nearest future assigned trip by full datetime (excludes stale). */
 export function pickNextDriverTrip<T extends DriverTripLike>(
   trips: T[],
   nowMs = Date.now(),
   currentDriverId?: string | null,
 ): T | null {
-  const assigned = filterDriverAssignedTrips(trips, currentDriverId);
-  const active = assigned.filter((t) => isDriverActiveTrip(t));
-  if (active.length) return sortTripsByStartAsc(active)[0] ?? null;
-
-  const upcoming = assigned.filter((t) => isDriverNextTripCandidate(t, nowMs, currentDriverId));
-  return sortTripsByStartAsc(upcoming)[0] ?? null;
+  return resolveDriverHeroTrip(trips, nowMs, currentDriverId)?.trip ?? null;
 }
 
 export type DriverTripCounts = {
@@ -134,6 +192,7 @@ export type DriverTripCounts = {
   completedToday: number;
   remainingToday: number;
   upcoming: number;
+  stale: number;
 };
 
 export function computeDriverTripCounts<T extends DriverTripLike>(
@@ -144,10 +203,11 @@ export function computeDriverTripCounts<T extends DriverTripLike>(
   currentDriverId?: string | null,
 ): DriverTripCounts {
   const assigned = filterDriverAssignedTrips(trips, currentDriverId);
+  const { normal, stale } = partitionStaleTrips(assigned, nowMs);
   const todayKey = getTimezoneDateKey(now, timeZone);
-  const todayTrips = assigned.filter((t) => getTripDateKey(t, timeZone) === todayKey);
+  const todayTrips = normal.filter((t) => getTripDateKey(t, timeZone) === todayKey);
 
-  const active = assigned.filter((t) => isDriverActiveTrip(t)).length;
+  const active = normal.filter((t) => isDriverActiveTrip(t)).length;
   const completedToday = todayTrips.filter((t) => t.status === 'COMPLETED').length;
 
   const remainingToday = todayTrips.filter((t) => {
@@ -157,7 +217,7 @@ export function computeDriverTripCounts<T extends DriverTripLike>(
     return startMs != null && startMs >= nowMs;
   }).length;
 
-  const upcoming = assigned.filter((t) => isDriverNextTripCandidate(t, nowMs, currentDriverId)).length;
+  const upcoming = normal.filter((t) => isDriverNextTripCandidate(t, nowMs, currentDriverId)).length;
 
   return {
     todayTotal: todayTrips.length,
@@ -165,6 +225,7 @@ export function computeDriverTripCounts<T extends DriverTripLike>(
     completedToday,
     remainingToday,
     upcoming,
+    stale: stale.length,
   };
 }
 
@@ -177,9 +238,7 @@ export function filterTripsForLocalDate<T extends DriverTripLike>(
 }
 
 export function addDaysToDateKey(dateKey: string, days: number, timeZone = DRIVER_TIMEZONE): string {
-  const [y, m, d] = dateKey.split('-').map(Number);
-  const utc = Date.UTC(y!, m! - 1, d! + days, 12, 0, 0);
-  return getTimezoneDateKey(new Date(utc), timeZone);
+  return addDaysToBusinessDateKey(dateKey, days, timeZone);
 }
 
 export function getWeekDateRangeInTimezone(
@@ -196,7 +255,8 @@ export type NextTripExclusionReason =
   | 'terminal'
   | 'scheduled_unassigned'
   | 'past_pickup'
-  | 'invalid_status';
+  | 'invalid_status'
+  | 'stale';
 
 export function explainNextTripExclusion(
   trip: DriverTripLike,
@@ -204,6 +264,7 @@ export function explainNextTripExclusion(
   currentDriverId?: string | null,
 ): NextTripExclusionReason | null {
   if (!isTripAssignedToDriver(trip, currentDriverId)) return 'not_assigned';
+  if (isTripStaleNonTerminal(trip, nowMs)) return 'stale';
   if (isDriverTerminalTrip(trip)) return 'terminal';
   if (isDriverActiveTrip(trip)) return null;
   if ((trip.status as TripStatus) === 'SCHEDULED') return 'scheduled_unassigned';
@@ -212,3 +273,5 @@ export function explainNextTripExclusion(
   if (startMs != null && startMs < nowMs) return 'past_pickup';
   return null;
 }
+
+export { explainStaleTripReason, isTripStaleNonTerminal };

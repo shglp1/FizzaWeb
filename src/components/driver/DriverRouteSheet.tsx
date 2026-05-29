@@ -27,6 +27,7 @@ import {
   DRIVER_ROUTE_SHEET_TABS,
   buildDriverTripsListParams,
   computeDriverTripCounts,
+  explainStaleTripReason,
   filterDriverAssignedTrips,
   filterTripsForLocalDate,
   fmtDriverDate,
@@ -35,10 +36,13 @@ import {
   formatCountdown,
   getDriverPrimaryAction,
   getTimezoneDateKey,
+  getTripDateKey,
   isDriverActiveTrip,
+  isTripStaleNonTerminal,
   isWithinTrackingWindow,
   minutesUntilPickup,
-  pickNextDriverTrip,
+  partitionStaleTrips,
+  resolveDriverHeroTrip,
   sortTripsByStartAsc,
   addDaysToDateKey,
   type DriverTripTab,
@@ -137,25 +141,30 @@ export function DriverRouteSheet() {
   }, [trips]);
 
   const assignedTrips = filterDriverAssignedTrips(trips);
+  const { normal, stale } = partitionStaleTrips(assignedTrips, nowMs);
   const counts = computeDriverTripCounts(assignedTrips, nowMs, now);
-  const todayTrips = sortTripsByStartAsc(filterTripsForLocalDate(assignedTrips, todayKey));
-  const activeTrip = assignedTrips.find((t) => isDriverActiveTrip(t)) ?? null;
-  const nextTrip = pickNextDriverTrip(assignedTrips, nowMs);
+  const todayTrips = sortTripsByStartAsc(filterTripsForLocalDate(normal, todayKey));
+  const hero = resolveDriverHeroTrip(assignedTrips, nowMs);
+  const activeTrip = hero?.kind === 'active' ? hero.trip : null;
+  const nextTrip = hero?.trip ?? null;
 
   function displayTrips(): Trip[] {
     switch (activeTab) {
       case 'today':
         return todayTrips;
       case 'tomorrow':
-        return sortTripsByStartAsc(filterTripsForLocalDate(assignedTrips, tomorrowKey));
+        return sortTripsByStartAsc(filterTripsForLocalDate(normal, tomorrowKey));
       case 'week':
-        return sortTripsByStartAsc(assignedTrips);
+        return sortTripsByStartAsc(normal.filter((t) => getTripDateKey(t) >= todayKey));
       case 'active':
-        return assignedTrips.filter((t) => isDriverActiveTrip(t));
+        return normal.filter((t) => isDriverActiveTrip(t));
       default:
-        return assignedTrips;
+        return normal;
     }
   }
+
+  const activeNowTrips = normal.filter((t) => isDriverActiveTrip(t));
+  const staleActiveTrips = stale;
 
   const shown = displayTrips();
   const grouped = activeTab !== 'today' && activeTab !== 'active' ? groupByDate(shown) : null;
@@ -370,11 +379,29 @@ export function DriverRouteSheet() {
         <DriverLoadingState message="Loading route sheet…" />
       ) : pageError ? (
         <DriverErrorState message={pageError} onRetry={() => { setLoading(true); loadTrips(); }} />
-      ) : shown.length === 0 ? (
+      ) : shown.length === 0 && !(activeTab === 'active' && staleActiveTrips.length > 0) ? (
         <DriverEmptyState
           title={activeTab === 'today' ? 'No trips today' : activeTab === 'tomorrow' ? 'No trips tomorrow' : `No ${activeTab} trips`}
           description={activeTab === 'today' ? "You don't have assigned trips scheduled for today." : 'Try another tab.'}
         />
+      ) : activeTab === 'active' ? (
+        <div className="space-y-4">
+          {activeNowTrips.length > 0 && (
+            <div>
+              <DriverSectionTitle title="Active now" />
+              <div className="space-y-2">{activeNowTrips.map((trip) => renderTripCard(trip))}</div>
+            </div>
+          )}
+          {staleActiveTrips.length > 0 && (
+            <div>
+              <DriverSectionTitle title="Needs review" />
+              <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 mb-2">
+                These trips were not completed on their scheduled day. Contact dispatch — admin action required.
+              </p>
+              <div className="space-y-2">{staleActiveTrips.map((trip) => renderStaleTripCard(trip))}</div>
+            </div>
+          )}
+        </div>
       ) : grouped ? (
         <div className="space-y-4">
           {Array.from(grouped.entries()).map(([dateKey, dateTrips]) => (
@@ -481,8 +508,32 @@ export function DriverRouteSheet() {
     </div>
   );
 
+  function renderStaleTripCard(trip: Trip) {
+    return (
+      <DriverRouteCard
+        key={trip.id}
+        time={fmtDriverDateTimeLabel(trip, now)}
+        dateLabel={fmtDriverDate(trip.scheduledDate, now)}
+        riderName={trip.rider?.name ?? 'Rider'}
+        riderMeta={explainStaleTripReason(trip)}
+        pickup={trip.pickupLocation}
+        dropoff={trip.dropoffLocation}
+        legType={trip.legType ?? 'OUTBOUND'}
+        status={trip.status as TripStatus}
+        primaryDisabled
+        primaryDisabledReason="Admin review required."
+        secondaryActions={
+          <Link href={`/tracking/${trip.id}`}><Button variant="outline" size="sm"><MapPin className="h-3.5 w-3.5" aria-hidden />Details</Button></Link>
+        }
+      />
+    );
+  }
+
   function renderTripCard(trip: Trip) {
     const status = trip.status as TripStatus;
+    if (isTripStaleNonTerminal(trip, nowMs)) {
+      return renderStaleTripCard(trip);
+    }
     const within = isWithinTrackingWindow(trip.scheduledPickupTime, nowMs);
     const action = getDriverPrimaryAction(status, within, { isAssignedToCurrentDriver: true, legType: trip.legType });
     const isCancelled = CANCELLED.has(trip.status);

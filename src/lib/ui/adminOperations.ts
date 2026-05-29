@@ -2,6 +2,8 @@
  * Admin trip operations board grouping (pure, testable).
  */
 
+import { isTripStaleNonTerminal } from '../time/businessTimezone.ts';
+
 export type OpsColumnKey = 'scheduled' | 'active' | 'attention' | 'completed';
 
 const ACTIVE = new Set([
@@ -11,9 +13,14 @@ const ACTIVE = new Set([
 
 export function classifyTripForBoard(t: {
   status: string;
+  scheduledDate?: string;
+  scheduledPickupTime?: string | null;
   driver?: unknown | null;
   needsDispatch?: boolean;
 }): OpsColumnKey {
+  if (t.scheduledDate && isTripStaleNonTerminal(t as { status: string; scheduledDate: string; scheduledPickupTime?: string | null })) {
+    return 'attention';
+  }
   if (t.needsDispatch) return 'attention';
   if (t.status === 'COMPLETED') return 'completed';
   if (ACTIVE.has(t.status)) return 'active';

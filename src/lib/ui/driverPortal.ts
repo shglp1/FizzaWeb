@@ -7,11 +7,16 @@ import type { TripLegType } from '../tracking/trackingTypes.ts';
 import { getDriverActionLabel } from './driverLifecycleConfirm.ts';
 import { isActiveStatus, isTrackableStatus, TRIP_STATUS_LABEL } from '../trips/tripLifecycle.ts';
 import {
+  BUSINESS_TZ,
+  formatTripDateTimeInBusinessTz,
+} from '../time/businessTimezone.ts';
+import {
   DRIVER_TIMEZONE as DRIVER_TZ,
   addDaysToDateKey as addDaysToDateKeyInTz,
   getTimezoneDateKey as getTzDateKey,
   getTripDateKey as getTripLocalDateKey,
   getWeekDateRangeInTimezone,
+  isTripStaleNonTerminal,
 } from './driverTripSelection.ts';
 
 export {
@@ -21,6 +26,7 @@ export {
   DRIVER_UPCOMING_STATUSES,
   computeDriverTripCounts,
   explainNextTripExclusion,
+  explainStaleTripReason,
   filterDriverAssignedTrips,
   filterTripsForLocalDate,
   addDaysToDateKey,
@@ -30,10 +36,24 @@ export {
   isDriverActiveTrip,
   isDriverNextTripCandidate,
   isTripAssignedToDriver,
+  isTripStaleNonTerminal,
+  partitionStaleTrips,
   pickNextDriverTrip,
+  resolveDriverHeroTrip,
   resolveTripStartMs,
   sortTripsByStartAsc,
 } from './driverTripSelection.ts';
+
+export {
+  BUSINESS_TZ,
+  BUSINESS_TZ as BUSINESS_TIMEZONE,
+  formatTripDateTimeInBusinessTz,
+  getBusinessDateKey,
+  getBusinessDayRange,
+  getTripBusinessDateKey,
+  isSameBusinessDay,
+  parseBusinessLocalTime,
+} from '../time/businessTimezone.ts';
 
 export type DriverTripTab =
   | 'today'
@@ -74,6 +94,7 @@ export const TRACKING_GROUP_LABELS = {
   available_now: 'Available now',
   opens_soon: 'Opens soon',
   upcoming: 'Upcoming',
+  needs_review: 'Needs review',
 } as const;
 
 export type DriverPrimaryAction = {
@@ -183,51 +204,94 @@ export type TrackingAvailability =
   | 'available_now'
   | 'opens_soon'
   | 'closed'
-  | 'not_assigned';
+  | 'not_assigned'
+  | 'needs_review';
 
-export type TrackingGroupKey = 'available_now' | 'opens_soon' | 'upcoming';
+export type TrackingGroupKey = 'available_now' | 'opens_soon' | 'upcoming' | 'needs_review';
 
 export function getTrackingAvailability(input: {
   status: string;
+  scheduledDate?: string;
   scheduledPickupTime: string | null;
   hasLiveLocation?: boolean;
   nowMs?: number;
 }): { availability: TrackingAvailability; label: string; group: TrackingGroupKey } {
   const now = input.nowMs ?? Date.now();
   const status = input.status as TripStatus;
+
   if (['COMPLETED', 'CANCELLED', 'NO_SHOW'].includes(status)) {
     return { availability: 'closed', label: 'Closed', group: 'upcoming' };
   }
   if (status === 'SCHEDULED') {
     return { availability: 'not_assigned', label: 'Not yet active', group: 'upcoming' };
   }
+
+  const tripForStale = {
+    status: input.status,
+    scheduledDate: input.scheduledDate
+      ?? (input.scheduledPickupTime ? input.scheduledPickupTime.slice(0, 10) : ''),
+    scheduledPickupTime: input.scheduledPickupTime,
+  };
+  if (tripForStale.scheduledDate && isTripStaleNonTerminal(tripForStale, now)) {
+    return { availability: 'needs_review', label: 'Needs review', group: 'needs_review' };
+  }
+
   if (input.hasLiveLocation && isTrackableStatus(status)) {
     return { availability: 'active_sharing', label: 'Active sharing', group: 'available_now' };
   }
+
   const mins = input.scheduledPickupTime
     ? Math.round((new Date(input.scheduledPickupTime).getTime() - now) / 60_000)
     : null;
-  if (mins != null && mins > 10 && !isActiveStatus(status)) {
+
+  if (isTrackableStatus(status) && !isTripStaleNonTerminal(tripForStale, now)) {
+    return { availability: 'available_now', label: 'Available now', group: 'available_now' };
+  }
+
+  if (mins != null && mins > 10 && (status === 'DRIVER_ASSIGNED' || status === 'PRE_TRIP')) {
     return { availability: 'opens_soon', label: `Opens in ~${mins} min`, group: 'opens_soon' };
   }
+
+  if (mins != null && mins > 10 && isActiveStatus(status)) {
+    return { availability: 'opens_soon', label: `Opens in ~${mins} min`, group: 'opens_soon' };
+  }
+
+  if (mins != null && mins <= 10 && mins >= 0 && (status === 'DRIVER_ASSIGNED' || status === 'PRE_TRIP')) {
+    return { availability: 'available_now', label: 'Available now', group: 'available_now' };
+  }
+
+  if (mins != null && mins > 10) {
+    return { availability: 'opens_soon', label: `Opens in ~${mins} min`, group: 'upcoming' };
+  }
+
+  if (mins != null && mins < 0 && (status === 'DRIVER_ASSIGNED' || status === 'PRE_TRIP')) {
+    return { availability: 'needs_review', label: 'Missed pickup window', group: 'needs_review' };
+  }
+
   if (isTrackableStatus(status)) {
     return { availability: 'available_now', label: 'Available now', group: 'available_now' };
   }
-  return { availability: 'opens_soon', label: 'Opens soon', group: 'opens_soon' };
+
+  if (mins != null && mins < 0) {
+    return { availability: 'needs_review', label: 'Needs review', group: 'needs_review' };
+  }
+
+  return { availability: 'upcoming' as TrackingAvailability, label: 'Upcoming', group: 'upcoming' };
 }
 
-export function groupTripsByTrackingAvailability<T extends { status: string; scheduledPickupTime: string | null }>(
-  trips: T[],
-  nowMs = Date.now(),
-): Record<TrackingGroupKey, T[]> {
+export function groupTripsByTrackingAvailability<
+  T extends { status: string; scheduledDate?: string; scheduledPickupTime: string | null },
+>(trips: T[], nowMs = Date.now()): Record<TrackingGroupKey, T[]> {
   const groups: Record<TrackingGroupKey, T[]> = {
     available_now: [],
     opens_soon: [],
     upcoming: [],
+    needs_review: [],
   };
   for (const trip of trips) {
     const { group } = getTrackingAvailability({
       status: trip.status,
+      scheduledDate: trip.scheduledDate,
       scheduledPickupTime: trip.scheduledPickupTime,
       nowMs,
     });
@@ -347,10 +411,7 @@ export function fmtDriverDateTimeLabel(
   now = new Date(),
   timeZone = DRIVER_TZ,
 ): string {
-  const dateLabel = fmtDriverDate(trip.scheduledDate, now, timeZone);
-  const timeLabel = fmtDriverTime(trip.scheduledPickupTime ?? null, timeZone);
-  if (dateLabel === 'Today') return timeLabel;
-  return `${dateLabel} · ${timeLabel}`;
+  return formatTripDateTimeInBusinessTz(trip, now, timeZone);
 }
 
 /** Returns true when page should render driver-specific UI (not parent). */
