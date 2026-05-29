@@ -32,6 +32,7 @@ type OpsData = {
   today: {
     total: number; active: number; unassigned: number; needsDispatch: number;
     completed: number; cancelled: number; noShow: number; gpsStale: number; chatFlagged: number;
+    staleNonTerminal: number;
   };
   driverWorkload: {
     driverId: string; fullName: string; tripsToday: number;
@@ -180,6 +181,7 @@ export function TripOperationsBoard({
             { label: 'Driver Assigned', value: scheduledAssigned, color: '#2563EB', icon: Users, helper: 'Confirmed on board' },
             { label: 'Unassigned', value: ops.today.unassigned, color: '#D97706', icon: UserX, helper: 'No driver yet' },
             { label: 'Needs Dispatch', value: ops.today.needsDispatch, color: '#DC2626', icon: AlertTriangle, helper: 'Timeline conflict' },
+            { label: 'Stale trips', value: ops.today.staleNonTerminal, color: '#B45309', icon: AlertTriangle, helper: 'Need admin review' },
             { label: 'Scheduled', value: trips.filter((t) => classifyTripForBoard(t) === 'scheduled').length, helper: 'Upcoming today' },
             { label: 'GPS Stale', value: ops.today.gpsStale, color: '#9333EA', icon: Navigation, helper: 'Active trips' },
             { label: 'Chat Flags', value: ops.today.chatFlagged, color: '#EA580C', icon: MessageSquare, helper: 'Moderation queue' },

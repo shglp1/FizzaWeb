@@ -51,15 +51,25 @@ test('driver status action labels', () => {
 test('tracking availability for driver trips', () => {
   const soon = getTrackingAvailability({
     status: 'DRIVER_ASSIGNED',
+    scheduledDate: new Date(Date.now() + 30 * 60_000).toISOString().slice(0, 10),
     scheduledPickupTime: new Date(Date.now() + 30 * 60_000).toISOString(),
   });
   assert.equal(soon.availability, 'opens_soon');
 
   const now = getTrackingAvailability({
     status: 'ON_THE_WAY',
+    scheduledDate: new Date(Date.now() - 5 * 60_000).toISOString().slice(0, 10),
     scheduledPickupTime: new Date(Date.now() - 5 * 60_000).toISOString(),
   });
   assert.equal(now.availability, 'available_now');
+
+  const stale = getTrackingAvailability({
+    status: 'DRIVER_ASSIGNED',
+    scheduledDate: '2026-05-20',
+    scheduledPickupTime: '2026-05-20T04:10:00.000Z',
+    nowMs: new Date('2026-05-29T07:00:00.000Z').getTime(),
+  });
+  assert.equal(stale.availability, 'needs_review');
 });
 
 test('tracking map fallback when coordinates missing', () => {

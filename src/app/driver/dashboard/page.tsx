@@ -26,6 +26,7 @@ import { isTrackableStatus } from '@/lib/trips/tripLifecycle';
 import {
   buildDriverTripsListParams,
   computeDriverTripCounts,
+  explainStaleTripReason,
   filterDriverAssignedTrips,
   filterTripsForLocalDate,
   fmtDriverDateTimeLabel,
@@ -33,9 +34,11 @@ import {
   getDriverStatusActionLabel,
   getTimezoneDateKey,
   isDriverActiveTrip,
+  isTripStaleNonTerminal,
   isWithinTrackingWindow,
   minutesUntilPickup,
-  pickNextDriverTrip,
+  partitionStaleTrips,
+  resolveDriverHeroTrip,
   sortTripsByStartAsc,
 } from '@/lib/ui/driverPortal';
 import { Calendar, CheckCircle2, ClipboardList, Clock, UserRound } from 'lucide-react';
@@ -87,24 +90,39 @@ export default function DriverDashboardPage() {
   const now = useMemo(() => new Date(nowMs), [nowMs]);
   const todayKey = getTimezoneDateKey(now);
   const assignedTrips = useMemo(() => filterDriverAssignedTrips(trips), [trips]);
+  const { normal, stale } = useMemo(
+    () => partitionStaleTrips(assignedTrips, nowMs),
+    [assignedTrips, nowMs],
+  );
   const counts = useMemo(
     () => computeDriverTripCounts(assignedTrips, nowMs, now),
     [assignedTrips, nowMs, now],
   );
   const todayTrips = useMemo(
-    () => sortTripsByStartAsc(filterTripsForLocalDate(assignedTrips, todayKey)),
-    [assignedTrips, todayKey],
+    () => sortTripsByStartAsc(filterTripsForLocalDate(normal, todayKey)),
+    [normal, todayKey],
   );
-  const heroTrip = useMemo(
-    () => pickNextDriverTrip(assignedTrips, nowMs),
+  const hero = useMemo(
+    () => resolveDriverHeroTrip(assignedTrips, nowMs),
     [assignedTrips, nowMs],
   );
+  const heroTrip = hero?.trip ?? null;
   const activeTrip = useMemo(
-    () => assignedTrips.find((t) => isDriverActiveTrip(t)) ?? null,
-    [assignedTrips],
+    () => (hero?.kind === 'active' ? hero.trip : null),
+    [hero],
   );
   const minsNext = heroTrip ? minutesUntilPickup(heroTrip.scheduledPickupTime, nowMs) : null;
   const countdown = formatCountdown(minsNext);
+
+  const headerSubtitle = hero?.kind === 'upcoming'
+    ? 'Your next scheduled trip'
+    : "Your command center for today's route";
+
+  const heroStatusLabel = hero?.kind === 'active'
+    ? 'Active trip'
+    : hero?.kind === 'upcoming'
+    ? 'Upcoming trip'
+    : 'Next trip';
 
   const primaryCta = activeTrip
     ? { label: getDriverStatusActionLabel(activeTrip.status), href: `/tracking/${activeTrip.id}` }
@@ -114,7 +132,7 @@ export default function DriverDashboardPage() {
     ? { label: 'Navigate to pickup', href: '/trips' }
     : { label: 'Open route sheet', href: '/trips' };
 
-  const previewTrips = todayTrips.slice(0, 4);
+  const previewTrips = todayTrips.filter((t) => !isTripStaleNonTerminal(t, nowMs)).slice(0, 4);
   const dateLabel = now.toLocaleDateString('en-US', {
     timeZone: 'Asia/Riyadh',
     weekday: 'long',
@@ -127,7 +145,7 @@ export default function DriverDashboardPage() {
       <div className="max-w-3xl mx-auto driver-portal pb-24 md:pb-6">
         <DriverCommandHeader
           title="Driver Dashboard"
-          subtitle="Your command center for today's route"
+          subtitle={headerSubtitle}
           dateLabel={dateLabel}
           driverStatus="On duty"
           gpsIndicator={activeTrip && isTrackableStatus(activeTrip.status) ? 'idle' : 'off'}
@@ -146,7 +164,7 @@ export default function DriverDashboardPage() {
                 dropoff={heroTrip.dropoffLocation}
                 time={fmtDriverDateTimeLabel(heroTrip, now)}
                 countdown={countdown}
-                statusLabel={activeTrip ? 'Active trip' : 'Next trip'}
+                statusLabel={heroStatusLabel}
                 primaryAction={primaryCta.label}
                 onPrimaryAction={() => { window.location.href = primaryCta.href; }}
                 gpsStatus={activeTrip && isTrackableStatus(activeTrip.status) ? 'idle' : 'unavailable'}
@@ -173,6 +191,36 @@ export default function DriverDashboardPage() {
               <DriverKpiCard icon={CheckCircle2} value={counts.completedToday} label="Completed" accent="#1D4ED8" />
               <DriverKpiCard icon={ClipboardList} value={counts.upcoming} label="Upcoming" accent="#7C3AED" />
             </div>
+
+            {stale.length > 0 && (
+              <div>
+                <DriverSectionTitle title="Needs review" />
+                <DriverNotice
+                  variant="soon"
+                  title={`${stale.length} trip${stale.length === 1 ? '' : 's'} need admin review`}
+                  message="These trips were not completed on their scheduled day. Dispatch will follow up — do not start GPS for them."
+                />
+                <div className="space-y-2 mt-2">
+                  {stale.map((trip) => (
+                    <DriverRouteCard
+                      key={trip.id}
+                      time={fmtDriverDateTimeLabel(trip, now)}
+                      riderName={trip.rider?.name ?? 'Rider'}
+                      riderMeta={explainStaleTripReason(trip)}
+                      pickup={trip.pickupLocation}
+                      dropoff={trip.dropoffLocation}
+                      legType={trip.legType ?? 'OUTBOUND'}
+                      status={trip.status}
+                      primaryDisabled
+                      primaryDisabledReason="Contact dispatch for this trip."
+                      secondaryActions={
+                        <Link href="/trips"><Button variant="outline" size="sm">View route sheet</Button></Link>
+                      }
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
 
             {!activeTrip && minsNext != null && minsNext <= 20 && minsNext > 0 && heroTrip && (
               <DriverNotice
