@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { useForm } from 'react-hook-form';
 import { AppShell } from '@/components/layout/AppShell';
 import {
@@ -13,12 +14,20 @@ import {
   LoadingState,
   ErrorState,
 } from '@/components/ui';
-import { CheckCircle, ClipboardList } from 'lucide-react';
+import { CheckCircle, ClipboardList, Car, Users, Wallet, Shield, MapPin } from 'lucide-react';
 import { profileService } from '@/services/profileService';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { FileUploadField } from '@/components/upload/FileUploadField';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
+
+type ProfileExtras = {
+  ridersCount?: number;
+  activeSubscriptions?: number;
+  walletBalanceSar?: number;
+  vehicleSummary?: string | null;
+  driverRating?: string | null;
+};
 
 type Profile = {
   id: string;
@@ -27,6 +36,7 @@ type Profile = {
   avatarUrl: string | null;
   role: string;
   user: { email: string; role: string };
+  extras?: ProfileExtras;
 };
 
 type FormValues = { fullName: string; phone: string; avatarUrl: string };
@@ -184,10 +194,62 @@ export default function ProfilePage() {
                 <div>
                   <h3 className="font-semibold text-emerald-900">Approved Driver</h3>
                   <p className="text-sm text-emerald-700">Your driver account is active.</p>
-                  <a href="/driver/dashboard" className="btn-secondary btn-sm mt-2 inline-flex">
-                    Driver Dashboard →
-                  </a>
+                  {profile.extras?.vehicleSummary && (
+                    <p className="text-xs text-emerald-800 mt-1 flex items-center gap-1">
+                      <Car className="h-3.5 w-3.5" aria-hidden />
+                      {profile.extras.vehicleSummary}
+                    </p>
+                  )}
+                  {profile.extras?.driverRating && (
+                    <p className="text-xs text-emerald-800">Rating: {Number(profile.extras.driverRating).toFixed(1)} / 5</p>
+                  )}
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    <Link href="/driver/dashboard" className="btn-secondary btn-sm inline-flex">Driver Dashboard →</Link>
+                    <Link href="/driver/earnings" className="btn-secondary btn-sm inline-flex">Earnings</Link>
+                    <Link href="/tracking" className="btn-secondary btn-sm inline-flex">Live GPS</Link>
+                    <Link href="/safety" className="btn-secondary btn-sm inline-flex">Safety</Link>
+                  </div>
                 </div>
+              </div>
+            </Card>
+          )}
+
+          {role === 'ADMIN' && (
+            <Card className="bg-purple-50 border-purple-200">
+              <div className="flex items-start gap-3">
+                <Shield className="h-8 w-8 text-purple-600 shrink-0" strokeWidth={1.75} aria-hidden />
+                <div>
+                  <h3 className="font-semibold text-purple-900">Administrator</h3>
+                  <p className="text-sm text-purple-700 mt-0.5">Manage platform operations and users.</p>
+                  <a href="/admin" className="btn-secondary btn-sm mt-2 inline-flex">Admin Panel →</a>
+                </div>
+              </div>
+            </Card>
+          )}
+
+          {(role === 'PARENT' && driverState === 'PARENT') && (
+            <Card>
+              <h3 className="font-semibold text-gray-900 mb-3">Family account</h3>
+              <div className="space-y-2 text-sm">
+                <p className="flex items-center gap-2 text-gray-600">
+                  <Users className="h-4 w-4 text-emerald-600" aria-hidden />
+                  {profile.extras?.ridersCount ?? 0} riders
+                </p>
+                <p className="flex items-center gap-2 text-gray-600">
+                  <MapPin className="h-4 w-4 text-blue-600" aria-hidden />
+                  {profile.extras?.activeSubscriptions ?? 0} active subscriptions
+                </p>
+                <p className="flex items-center gap-2 text-gray-600">
+                  <Wallet className="h-4 w-4 text-amber-600" aria-hidden />
+                  Wallet: SAR {Number(profile.extras?.walletBalanceSar ?? 0).toFixed(2)}
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2 mt-3">
+                <Link href="/riders" className="btn-secondary btn-sm">Manage riders</Link>
+                <Link href="/subscriptions" className="btn-secondary btn-sm">Subscriptions</Link>
+                <Link href="/trips" className="btn-secondary btn-sm">Trip history</Link>
+                <Link href="/wallet" className="btn-secondary btn-sm">Wallet</Link>
+                <Link href="/safety" className="btn-secondary btn-sm">Safety center</Link>
               </div>
             </Card>
           )}

@@ -30,7 +30,41 @@ export async function GET() {
       );
     }
 
-    return NextResponse.json({ data: { profile }, error: null });
+    let extras: Record<string, unknown> = {};
+
+    if (auth.role === 'PARENT') {
+      const [ridersCount, activeSubscriptions, wallet] = await Promise.all([
+        prisma.rider.count({ where: { parentId: auth.userId, isActive: true } }),
+        prisma.userSubscription.count({ where: { userId: auth.userId, status: 'ACTIVE' } }),
+        prisma.wallet.findUnique({ where: { userId: auth.userId }, select: { balanceSar: true } }),
+      ]);
+      extras = {
+        ridersCount,
+        activeSubscriptions,
+        walletBalanceSar: wallet?.balanceSar != null ? Number(wallet.balanceSar) : 0,
+      };
+    }
+
+    if (auth.role === 'DRIVER') {
+      const driver = await prisma.driver.findFirst({
+        where: { profileId: auth.userId },
+        select: {
+          rating: true,
+          vehicle: { select: { model: true, color: true, plateNumber: true, capacity: true } },
+        },
+      });
+      if (driver) {
+        const v = driver.vehicle;
+        extras = {
+          driverRating: driver.rating != null ? Number(driver.rating).toFixed(1) : null,
+          vehicleSummary: v
+            ? [v.color, v.model, v.plateNumber].filter(Boolean).join(' · ')
+            : null,
+        };
+      }
+    }
+
+    return NextResponse.json({ data: { profile: { ...profile, extras } }, error: null });
   } catch {
     return NextResponse.json(
       { data: null, error: { message: 'Internal Server Error' } },

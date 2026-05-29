@@ -33,6 +33,17 @@ export async function GET(req: Request) {
     }
     if (driverId) where.driverId = driverId;
     if (searchParams.get('needsDispatch') === 'true') where.needsDispatch = true;
+    const finReview = searchParams.get('financialReviewStatus');
+    if (finReview === 'PENDING') where.financialReviewStatus = 'PENDING';
+    else if (finReview && ['PAY_DRIVER', 'NO_PAY_DRIVER', 'REFUND_PARENT', 'CREDIT_PARENT', 'KEEP_REVENUE', 'INCIDENT'].includes(finReview)) {
+      where.financialReviewStatus = finReview;
+    }
+    if (searchParams.get('paymentActionRequired') === 'true') {
+      where.OR = [
+        { financialReviewStatus: 'REFUND_PARENT' },
+        { financialReviewStatus: 'CREDIT_PARENT', walletCreditTransactionId: null },
+      ];
+    }
     if (q) {
       where.OR = [
         { pickupLocation: { contains: q } },
@@ -58,6 +69,10 @@ export async function GET(req: Request) {
           actualDropoffTime: true,
           pickupLocation: true,
           dropoffLocation: true,
+          financialReviewStatus: true,
+          financialReviewReason: true,
+          walletCreditTransactionId: true,
+          billableKmOverride: true,
           pickupLat: true,
           pickupLng: true,
           dropoffLat: true,

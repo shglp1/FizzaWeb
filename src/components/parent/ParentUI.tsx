@@ -301,6 +301,7 @@ export function ParentTripCard({
   vehicle,
   trackingLabel,
   actions,
+  footer,
 }: {
   dateTime: string;
   riderName: string;
@@ -314,6 +315,7 @@ export function ParentTripCard({
   vehicle: string;
   trackingLabel: string;
   actions?: ReactNode;
+  footer?: ReactNode;
 }) {
   return (
     <div className="rounded-2xl border border-gray-100 bg-white shadow-card overflow-hidden">
@@ -343,6 +345,7 @@ export function ParentTripCard({
         </div>
       </div>
       {actions && <div className="px-4 sm:px-5 py-3 bg-gray-50/80 border-t border-gray-100 flex flex-wrap gap-2">{actions}</div>}
+      {footer && <div className="px-4 sm:px-5 py-3 border-t border-gray-100">{footer}</div>}
     </div>
   );
 }

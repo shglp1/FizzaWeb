@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 60" role="img" aria-label="SUV vehicle illustration">
+  <rect width="120" height="60" rx="8" fill="#f3f4f6"/>
+  <path d="M16 38h88l-6-18H22l-6 18z" fill="#9ca3af"/>
+  <path d="M28 20h64l8 12H20l8-12z" fill="#6b7280"/>
+  <circle cx="32" cy="38" r="7" fill="#374151"/>
+  <circle cx="88" cy="38" r="7" fill="#374151"/>
+</svg>

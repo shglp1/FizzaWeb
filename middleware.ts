@@ -7,6 +7,7 @@ import { verifyToken, SESSION_COOKIE } from '@/lib/auth';
 const PUBLIC_PREFIXES = [
   '/',
   '/login',
+  '/admin-port',
   '/register',
   '/reset-password',
   '/verify',
@@ -54,14 +55,16 @@ export async function middleware(req: NextRequest) {
   // ── Require valid session ──────────────────────────────────────────────────
   const token = req.cookies.get(SESSION_COOKIE)?.value;
   if (!token) {
-    const url = new URL('/login', req.url);
+    const loginPath = pathname.startsWith('/admin') ? '/admin-port' : '/login';
+    const url = new URL(loginPath, req.url);
     url.searchParams.set('from', pathname);
     return NextResponse.redirect(url);
   }
 
   const session = await verifyToken(token);
   if (!session) {
-    const url = new URL('/login', req.url);
+    const loginPath = pathname.startsWith('/admin') ? '/admin-port' : '/login';
+    const url = new URL(loginPath, req.url);
     url.searchParams.set('from', pathname);
     return NextResponse.redirect(url);
   }
@@ -103,6 +106,16 @@ export async function middleware(req: NextRequest) {
   // Non-admin visiting /admin → forbidden (no admin shell)
   if (role !== 'ADMIN' && (pathname === '/admin' || pathname.startsWith('/admin/'))) {
     return NextResponse.redirect(new URL('/forbidden', req.url));
+  }
+
+  // Non-admin visiting admin-port while authenticated → family dashboard
+  if (role !== 'ADMIN' && pathname === '/admin-port') {
+    return NextResponse.redirect(new URL('/dashboard', req.url));
+  }
+
+  // Admin visiting family login → admin portal
+  if (role === 'ADMIN' && pathname === '/login') {
+    return NextResponse.redirect(new URL('/admin', req.url));
   }
 
   // PARENT visiting driver dashboard → /dashboard

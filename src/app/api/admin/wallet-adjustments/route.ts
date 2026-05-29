@@ -2,11 +2,13 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { requireRole } from '@/lib/session';
+import { applyWalletAdjustment, WalletOperationError } from '@/lib/financials/walletOps';
 
 const adjustmentSchema = z.object({
   userId: z.string().uuid(),
   amountSar: z.number().refine((n) => n !== 0, { message: 'Amount cannot be zero' }),
   reason: z.string().min(10, 'Reason must be at least 10 characters').max(1000),
+  tripId: z.string().uuid().optional(),
 });
 
 export async function POST(req: Request) {
@@ -23,66 +25,62 @@ export async function POST(req: Request) {
       );
     }
 
-    const { userId, amountSar, reason } = parsed.data;
-
-    const profile = await prisma.profile.findUnique({ where: { id: userId }, select: { id: true } });
-    if (!profile) {
-      return NextResponse.json(
-        { data: null, error: { message: 'User not found' } },
-        { status: 404 },
-      );
-    }
+    const { userId, amountSar, reason, tripId } = parsed.data;
 
     const result = await prisma.$transaction(async (tx) => {
-      const wallet = await tx.wallet.upsert({
-        where: { userId },
-        create: { userId, balanceSar: 0 },
-        update: {},
-        select: { id: true, balanceSar: true },
+      const applied = await applyWalletAdjustment({
+        userId,
+        amountSar,
+        reason,
+        adminUserId: auth.userId,
+        source: 'MANUAL_ADJUSTMENT',
+        tripId: tripId ?? null,
+        tx,
       });
 
-      const newBalance = Number(wallet.balanceSar) + amountSar;
-      if (newBalance < 0) throw new Error('Balance cannot go negative');
+      if (!applied.duplicate) {
+        await tx.auditLog.create({
+          data: {
+            userId: auth.userId,
+            action: 'ADMIN_WALLET_ADJUSTED',
+            details: JSON.stringify({
+              targetUserId: userId,
+              amountSar,
+              reason,
+              tripId: tripId ?? null,
+              walletTransactionId: applied.transaction.id,
+              source: 'MANUAL_ADJUSTMENT',
+            }),
+          },
+        });
 
-      const updated = await tx.wallet.update({
-        where: { userId },
-        data: { balanceSar: newBalance },
-        select: { balanceSar: true },
-      });
+        await tx.notification.create({
+          data: {
+            userId,
+            title: amountSar > 0 ? 'Wallet credited' : 'Wallet debited',
+            message: `Your wallet has been ${amountSar > 0 ? 'credited' : 'debited'} SAR ${Math.abs(amountSar).toFixed(2)} by an administrator. Reason: ${reason}`,
+            type: 'WALLET_TOP_UP',
+          },
+        });
+      }
 
-      const txRow = await tx.walletTransaction.create({
-        data: {
-          walletId: wallet.id,
-          amountSar: Math.abs(amountSar),
-          txType: amountSar > 0 ? 'CREDIT' : 'DEBIT',
-          description: `Admin adjustment: ${reason}`,
-        },
-      });
-
-      await tx.auditLog.create({
-        data: {
-          userId: auth.userId,
-          action: 'ADMIN_WALLET_ADJUSTED',
-          details: JSON.stringify({ targetUserId: userId, amountSar, reason }),
-        },
-      });
-
-      await tx.notification.create({
-        data: {
-          userId,
-          title: amountSar > 0 ? 'Wallet Credited' : 'Wallet Debited',
-          message: `Your wallet has been ${amountSar > 0 ? 'credited' : 'debited'} SAR ${Math.abs(amountSar).toFixed(2)} by an administrator. Reason: ${reason}`,
-          type: 'WALLET_TOP_UP',
-        },
-      });
-
-      return { newBalanceSar: Number(updated.balanceSar), transaction: txRow };
+      return applied;
     });
 
-    return NextResponse.json({ data: result, error: null });
+    return NextResponse.json({
+      data: {
+        newBalanceSar: result.newBalanceSar,
+        transaction: result.transaction,
+        duplicate: result.duplicate,
+      },
+      error: null,
+    });
   } catch (err) {
+    if (err instanceof WalletOperationError) {
+      const status = err.code === 'USER_NOT_FOUND' ? 404 : 400;
+      return NextResponse.json({ data: null, error: { message: err.message } }, { status });
+    }
     const msg = err instanceof Error ? err.message : 'Internal Server Error';
-    const status = msg === 'Balance cannot go negative' ? 400 : 500;
-    return NextResponse.json({ data: null, error: { message: msg } }, { status });
+    return NextResponse.json({ data: null, error: { message: msg } }, { status: 500 });
   }
 }

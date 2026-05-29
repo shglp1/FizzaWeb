@@ -11,6 +11,11 @@ import {
   getTripBusinessDateKey,
   isTripStaleNonTerminal,
 } from '../time/businessTimezone.ts';
+import {
+  classifyTripForRole,
+  computeTripCountsForRole,
+  partitionTripsByReview,
+} from '../trips/tripClassification.ts';
 
 export const DRIVER_TIMEZONE = BUSINESS_TZ;
 
@@ -95,13 +100,7 @@ export function partitionStaleTrips<T extends DriverTripLike>(
   trips: T[],
   nowMs = Date.now(),
 ): { normal: T[]; stale: T[] } {
-  const normal: T[] = [];
-  const stale: T[] = [];
-  for (const trip of trips) {
-    if (isTripStaleNonTerminal(trip, nowMs)) stale.push(trip);
-    else normal.push(trip);
-  }
-  return { normal, stale };
+  return partitionTripsByReview(trips, { role: 'DRIVER', nowMs });
 }
 
 /** Future upcoming assigned trip candidate (excludes past pickup times unless active). */
@@ -199,34 +198,11 @@ export function computeDriverTripCounts<T extends DriverTripLike>(
   trips: T[],
   nowMs = Date.now(),
   now = new Date(nowMs),
-  timeZone = DRIVER_TIMEZONE,
+  _timeZone = DRIVER_TIMEZONE,
   currentDriverId?: string | null,
 ): DriverTripCounts {
   const assigned = filterDriverAssignedTrips(trips, currentDriverId);
-  const { normal, stale } = partitionStaleTrips(assigned, nowMs);
-  const todayKey = getTimezoneDateKey(now, timeZone);
-  const todayTrips = normal.filter((t) => getTripDateKey(t, timeZone) === todayKey);
-
-  const active = normal.filter((t) => isDriverActiveTrip(t)).length;
-  const completedToday = todayTrips.filter((t) => t.status === 'COMPLETED').length;
-
-  const remainingToday = todayTrips.filter((t) => {
-    if (isDriverTerminalTrip(t)) return false;
-    if (isDriverActiveTrip(t)) return true;
-    const startMs = resolveTripStartMs(t);
-    return startMs != null && startMs >= nowMs;
-  }).length;
-
-  const upcoming = normal.filter((t) => isDriverNextTripCandidate(t, nowMs, currentDriverId)).length;
-
-  return {
-    todayTotal: todayTrips.length,
-    active,
-    completedToday,
-    remainingToday,
-    upcoming,
-    stale: stale.length,
-  };
+  return computeTripCountsForRole(assigned, { role: 'DRIVER', nowMs });
 }
 
 export function filterTripsForLocalDate<T extends DriverTripLike>(

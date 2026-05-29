@@ -6,6 +6,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireRole } from '@/lib/session';
 import { buildPaginationMeta, parsePaginationParams } from '@/lib/pagination';
+import { getBusinessDateKey } from '@/lib/time/businessTimezone';
 
 export async function GET(req: NextRequest) {
   try {
@@ -16,16 +17,16 @@ export async function GET(req: NextRequest) {
     const { page, limit, skip } = parsePaginationParams(searchParams);
     const urgentOnly = searchParams.get('urgent') === 'true';
 
-    const now = new Date();
-    const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+    const todayKey = getBusinessDateKey(new Date());
+    const todayStart = new Date(`${todayKey}T00:00:00.000Z`);
 
     const where = {
       needsDispatch: true,
       status: 'SCHEDULED' as const,
+      scheduledDate: { gte: todayStart },
       ...(urgentOnly
         ? {
-            scheduledPickupTime: { lte: tomorrow },
-            scheduledDate: { gte: new Date(now.toISOString().slice(0, 10)) },
+            scheduledPickupTime: { lte: new Date(Date.now() + 24 * 60 * 60 * 1000) },
           }
         : {}),
     };

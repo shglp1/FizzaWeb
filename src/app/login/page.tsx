@@ -7,6 +7,8 @@ import { useForm } from 'react-hook-form';
 import { Logo } from '@/components/layout/Logo';
 import { Button, Input, Alert } from '@/components/ui';
 import { authService } from '@/services/authService';
+import { resolveFamilyLoginRedirect } from '@/lib/authRedirect';
+import type { DriverState } from '@/lib/roleRoutes';
 
 type FormValues = { email: string; password: string };
 
@@ -24,7 +26,29 @@ export default function LoginPage() {
     setServerError('');
     const res = await authService.login(values.email, values.password);
     if (res.data) {
-      router.push('/dashboard');
+      const from = typeof window !== 'undefined'
+        ? new URLSearchParams(window.location.search).get('from')
+        : null;
+
+      if (res.data.user.role === 'ADMIN') {
+        const dest = resolveFamilyLoginRedirect('ADMIN', undefined, from);
+        router.push(dest as '/admin');
+        return;
+      }
+
+      try {
+        const meRes = await fetch('/api/me').then(
+          (r) => r.json() as Promise<{ data?: { role?: string; driverState?: DriverState } }>,
+        );
+        const dest = resolveFamilyLoginRedirect(
+          res.data.user.role,
+          meRes.data?.driverState,
+          from,
+        );
+        router.push(dest as '/dashboard');
+      } catch {
+        router.push('/dashboard');
+      }
     } else {
       setServerError(res.error?.message ?? 'Login failed. Please try again.');
     }

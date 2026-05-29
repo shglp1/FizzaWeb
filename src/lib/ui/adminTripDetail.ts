@@ -17,6 +17,10 @@ export type AdminTripDetailApiData = {
     pickupLng?: number | null;
     dropoffLat?: number | null;
     dropoffLng?: number | null;
+    financialReviewStatus?: string | null;
+    financialReviewReason?: string | null;
+    financialReviewedAt?: string | null;
+    walletCreditTransactionId?: string | null;
     rider?: {
       name?: string;
       relationship?: string;
@@ -76,6 +80,10 @@ export type NormalizedAdminTripDetail = {
   chatFlaggedCount?: number;
   chatTotal?: number;
   gpsStale?: boolean;
+  financialReviewStatus?: string | null;
+  financialReviewReason?: string | null;
+  financialReviewedAt?: string | null;
+  walletCreditTransactionId?: string | null;
 };
 
 export function normalizeAdminTripDetail(data: AdminTripDetailApiData): NormalizedAdminTripDetail {
@@ -128,5 +136,9 @@ export function normalizeAdminTripDetail(data: AdminTripDetailApiData): Normaliz
     chatFlaggedCount: chatSummary?.flagged ?? 0,
     chatTotal: chatSummary?.total ?? 0,
     gpsStale: location?.stale ?? false,
+    financialReviewStatus: trip.financialReviewStatus ?? null,
+    financialReviewReason: trip.financialReviewReason ?? null,
+    financialReviewedAt: trip.financialReviewedAt ?? null,
+    walletCreditTransactionId: trip.walletCreditTransactionId ?? null,
   };
 }

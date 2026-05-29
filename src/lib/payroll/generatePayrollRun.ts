@@ -3,6 +3,8 @@ import { prisma } from '../prisma.ts';
 import { calculatePeriodNetPay, calculateTripEarning, roundKm } from './calculateTripEarning.ts';
 import { getBillableKmForTrip } from './getBillableKm.ts';
 import { loadGlobalPayRules, resolveDriverPayRules } from './payRules.ts';
+import { isTripPayrollEligible, getPayrollSkipReason } from '../trips/tripClassification.ts';
+import { toClassifiableTrip } from '../trips/tripApiFilters.ts';
 
 export class PayrollGenerationError extends Error {
   code: 'PERIOD_EXISTS' | 'HAS_PAID_LINES' | 'NO_TRIPS';
@@ -30,6 +32,10 @@ function periodBounds(year: number, month: number) {
 type TripRow = {
   id: string;
   driverId: string | null;
+  status: string;
+  scheduledDate: Date;
+  scheduledPickupTime: Date | null;
+  financialReviewStatus: string | null;
   pickupLat: number | null;
   pickupLng: number | null;
   dropoffLat: number | null;
@@ -37,7 +43,6 @@ type TripRow = {
   billableKmOverride: Prisma.Decimal | null;
   actualDropoffTime: Date | null;
   updatedAt: Date;
-  scheduledDate: Date;
 };
 
 export async function generatePayrollRun(input: {
@@ -86,6 +91,10 @@ export async function generatePayrollRun(input: {
     select: {
       id: true,
       driverId: true,
+      status: true,
+      scheduledDate: true,
+      scheduledPickupTime: true,
+      financialReviewStatus: true,
       pickupLat: true,
       pickupLng: true,
       dropoffLat: true,
@@ -93,15 +102,34 @@ export async function generatePayrollRun(input: {
       billableKmOverride: true,
       actualDropoffTime: true,
       updatedAt: true,
-      scheduledDate: true,
     },
     orderBy: { scheduledDate: 'asc' },
   }) as TripRow[];
 
-  const eligibleTrips = trips.filter((t) => t.driverId);
+  const skippedTrips: SkippedTrip[] = [];
+  for (const trip of trips) {
+    if (!trip.driverId) continue;
+    const classifiable = toClassifiableTrip(trip);
+    if (!isTripPayrollEligible(classifiable)) {
+      const reason = getPayrollSkipReason(classifiable);
+      if (reason) {
+        skippedTrips.push({
+          tripId: trip.id,
+          driverId: trip.driverId,
+          scheduledDate: trip.scheduledDate.toISOString(),
+          reason,
+        });
+      }
+    }
+  }
+
+  const eligibleTrips = trips.filter((t) => {
+    if (!t.driverId) return false;
+    return isTripPayrollEligible(toClassifiableTrip(t));
+  });
   if (eligibleTrips.length === 0) {
     throw new PayrollGenerationError(
-      'No completed trips found for this period.',
+      'No payroll-eligible completed trips found for this period.',
       'NO_TRIPS',
     );
   }
@@ -112,7 +140,6 @@ export async function generatePayrollRun(input: {
   });
   const profileByDriver = new Map(payProfiles.map((p) => [p.driverId, p]));
   const globalRules = await loadGlobalPayRules();
-  const skippedTrips: SkippedTrip[] = [];
 
   type LineAgg = {
     driverId: string;

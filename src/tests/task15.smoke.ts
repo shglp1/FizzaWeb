@@ -18,26 +18,27 @@ const ROOT = join(import.meta.dirname, '..', '..');
 // ─── pickNextTrip ─────────────────────────────────────────────────────────────
 
 describe('pickNextTrip', () => {
+  const nowMs = new Date('2026-05-24T08:00:00.000Z').getTime();
   const upcoming = [
-    { id: '1', status: 'SCHEDULED', scheduledPickupTime: '2026-06-01T07:00:00.000Z' },
-    { id: '2', status: 'SCHEDULED', scheduledPickupTime: '2026-05-20T07:00:00.000Z' },
+    { id: '1', status: 'SCHEDULED', scheduledDate: '2026-06-01', scheduledPickupTime: '2026-06-01T07:00:00.000Z' },
+    { id: '2', status: 'SCHEDULED', scheduledDate: '2026-05-25', scheduledPickupTime: '2026-05-25T07:00:00.000Z' },
   ];
   const active = [
-    { id: '3', status: 'ON_THE_WAY', scheduledPickupTime: '2026-05-24T07:00:00.000Z' },
+    { id: '3', status: 'ON_THE_WAY', scheduledDate: '2026-05-24', scheduledPickupTime: '2026-05-24T07:00:00.000Z' },
   ];
 
   it('prefers active trip over upcoming', () => {
-    const next = pickNextTrip([...upcoming, ...active]);
+    const next = pickNextTrip([...upcoming, ...active], nowMs);
     assert.equal(next?.id, '3');
   });
 
   it('returns nearest upcoming when no active trip', () => {
-    const next = pickNextTrip(upcoming);
+    const next = pickNextTrip(upcoming, nowMs);
     assert.equal(next?.id, '2');
   });
 
   it('returns null for empty list', () => {
-    assert.equal(pickNextTrip([]), null);
+    assert.equal(pickNextTrip([], nowMs), null);
   });
 });
 

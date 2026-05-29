@@ -109,7 +109,7 @@ describe('Task 13.2 — system config grouping', () => {
 
 describe('Task 13.2 — admin section labels', () => {
   it('required sections have labels', () => {
-    for (const section of ['users', 'riders', 'drivers', 'applications', 'packages', 'subscriptions', 'trips', 'financials', 'safety', 'sysconfig', 'audit']) {
+    for (const section of ['users', 'riders', 'drivers', 'applications', 'packages', 'subscriptions', 'trips', 'financial-review', 'financials', 'safety', 'sysconfig', 'audit']) {
       assert.ok(ADMIN_SECTION_LABELS[section as keyof typeof ADMIN_SECTION_LABELS]);
     }
   });

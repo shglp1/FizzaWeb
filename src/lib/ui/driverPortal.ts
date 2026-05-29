@@ -7,17 +7,17 @@ import type { TripLegType } from '../tracking/trackingTypes.ts';
 import { getDriverActionLabel } from './driverLifecycleConfirm.ts';
 import { isActiveStatus, isTrackableStatus, TRIP_STATUS_LABEL } from '../trips/tripLifecycle.ts';
 import {
-  BUSINESS_TZ,
-  formatTripDateTimeInBusinessTz,
-} from '../time/businessTimezone.ts';
+  classifyTripForRole,
+  groupTripsByTrackingGroup as groupByClassification,
+} from '../trips/tripClassification.ts';
 import {
   DRIVER_TIMEZONE as DRIVER_TZ,
   addDaysToDateKey as addDaysToDateKeyInTz,
   getTimezoneDateKey as getTzDateKey,
   getTripDateKey as getTripLocalDateKey,
   getWeekDateRangeInTimezone,
-  isTripStaleNonTerminal,
 } from './driverTripSelection.ts';
+import { formatTripDateTimeInBusinessTz } from '../time/businessTimezone.ts';
 
 export {
   DRIVER_ACTIVE_STATUSES,
@@ -54,6 +54,15 @@ export {
   isSameBusinessDay,
   parseBusinessLocalTime,
 } from '../time/businessTimezone.ts';
+
+export {
+  classifyTripForRole,
+  computeTripCountsForRole,
+  groupTripsByTrackingGroup,
+  isNeedsDispatchOperational,
+  isTripPayrollEligible,
+  partitionTripsByReview,
+} from '../trips/tripClassification.ts';
 
 export type DriverTripTab =
   | 'today'
@@ -216,8 +225,15 @@ export function getTrackingAvailability(input: {
   hasLiveLocation?: boolean;
   nowMs?: number;
 }): { availability: TrackingAvailability; label: string; group: TrackingGroupKey } {
-  const now = input.nowMs ?? Date.now();
+  const nowMs = input.nowMs ?? Date.now();
   const status = input.status as TripStatus;
+  const trip = {
+    status: input.status,
+    scheduledDate: input.scheduledDate
+      ?? (input.scheduledPickupTime ? input.scheduledPickupTime.slice(0, 10) : ''),
+    scheduledPickupTime: input.scheduledPickupTime,
+  };
+  const c = classifyTripForRole(trip, { role: 'DRIVER', nowMs });
 
   if (['COMPLETED', 'CANCELLED', 'NO_SHOW'].includes(status)) {
     return { availability: 'closed', label: 'Closed', group: 'upcoming' };
@@ -225,79 +241,30 @@ export function getTrackingAvailability(input: {
   if (status === 'SCHEDULED') {
     return { availability: 'not_assigned', label: 'Not yet active', group: 'upcoming' };
   }
-
-  const tripForStale = {
-    status: input.status,
-    scheduledDate: input.scheduledDate
-      ?? (input.scheduledPickupTime ? input.scheduledPickupTime.slice(0, 10) : ''),
-    scheduledPickupTime: input.scheduledPickupTime,
-  };
-  if (tripForStale.scheduledDate && isTripStaleNonTerminal(tripForStale, now)) {
-    return { availability: 'needs_review', label: 'Needs review', group: 'needs_review' };
+  if (c.isStale || c.trackingGroup === 'needs_review') {
+    return { availability: 'needs_review', label: c.staleReason ?? 'Needs review', group: 'needs_review' };
   }
-
   if (input.hasLiveLocation && isTrackableStatus(status)) {
     return { availability: 'active_sharing', label: 'Active sharing', group: 'available_now' };
   }
-
-  const mins = input.scheduledPickupTime
-    ? Math.round((new Date(input.scheduledPickupTime).getTime() - now) / 60_000)
-    : null;
-
-  if (isTrackableStatus(status) && !isTripStaleNonTerminal(tripForStale, now)) {
+  if (c.trackingGroup === 'available_now') {
     return { availability: 'available_now', label: 'Available now', group: 'available_now' };
   }
-
-  if (mins != null && mins > 10 && (status === 'DRIVER_ASSIGNED' || status === 'PRE_TRIP')) {
-    return { availability: 'opens_soon', label: `Opens in ~${mins} min`, group: 'opens_soon' };
+  if (c.trackingGroup === 'opens_soon') {
+    const mins = c.minutesUntilPickup;
+    return {
+      availability: 'opens_soon',
+      label: mins != null ? `Opens in ~${mins} min` : 'Opens soon',
+      group: 'opens_soon',
+    };
   }
-
-  if (mins != null && mins > 10 && isActiveStatus(status)) {
-    return { availability: 'opens_soon', label: `Opens in ~${mins} min`, group: 'opens_soon' };
-  }
-
-  if (mins != null && mins <= 10 && mins >= 0 && (status === 'DRIVER_ASSIGNED' || status === 'PRE_TRIP')) {
-    return { availability: 'available_now', label: 'Available now', group: 'available_now' };
-  }
-
-  if (mins != null && mins > 10) {
-    return { availability: 'opens_soon', label: `Opens in ~${mins} min`, group: 'upcoming' };
-  }
-
-  if (mins != null && mins < 0 && (status === 'DRIVER_ASSIGNED' || status === 'PRE_TRIP')) {
-    return { availability: 'needs_review', label: 'Missed pickup window', group: 'needs_review' };
-  }
-
-  if (isTrackableStatus(status)) {
-    return { availability: 'available_now', label: 'Available now', group: 'available_now' };
-  }
-
-  if (mins != null && mins < 0) {
-    return { availability: 'needs_review', label: 'Needs review', group: 'needs_review' };
-  }
-
-  return { availability: 'upcoming' as TrackingAvailability, label: 'Upcoming', group: 'upcoming' };
+  return { availability: 'upcoming' as TrackingAvailability, label: 'Upcoming', group: c.trackingGroup };
 }
 
 export function groupTripsByTrackingAvailability<
-  T extends { status: string; scheduledDate?: string; scheduledPickupTime: string | null },
+  T extends { status: string; scheduledDate: string; scheduledPickupTime: string | null },
 >(trips: T[], nowMs = Date.now()): Record<TrackingGroupKey, T[]> {
-  const groups: Record<TrackingGroupKey, T[]> = {
-    available_now: [],
-    opens_soon: [],
-    upcoming: [],
-    needs_review: [],
-  };
-  for (const trip of trips) {
-    const { group } = getTrackingAvailability({
-      status: trip.status,
-      scheduledDate: trip.scheduledDate,
-      scheduledPickupTime: trip.scheduledPickupTime,
-      nowMs,
-    });
-    groups[group].push(trip);
-  }
-  return groups;
+  return groupByClassification(trips, { role: 'DRIVER', nowMs }) as Record<TrackingGroupKey, T[]>;
 }
 
 export type SafetyStatusKey = 'PENDING' | 'APPROVED' | 'REJECTED' | 'RESOLVED';

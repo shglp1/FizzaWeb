@@ -3,6 +3,13 @@ import { isTrackableStatus } from '../trips/tripLifecycle.ts';
 import type { TripLegType } from '../tracking/trackingTypes.ts';
 import { headlineForState, getParentTrackingCopy } from './parentTrackingCopy.ts';
 import { resolveParentTrackingState } from './parentTrackingState.ts';
+import {
+  classifyTripForRole,
+  computeTripCountsForRole,
+  groupTripsByTrackingGroup,
+  resolveTripStartMs,
+} from '../trips/tripClassification.ts';
+import { explainStaleTripReason } from '../time/businessTimezone.ts';
 
 export function formatSarParent(amount: number | string | null | undefined): string {
   const n = Number(amount ?? 0);
@@ -23,29 +30,72 @@ export function formatTripDateTime(iso: string | null | undefined): string {
   });
 }
 
-const ACTIVE_TRIP_STATUSES = new Set([
-  'PRE_TRIP', 'ON_THE_WAY', 'ARRIVED_PICKUP', 'PICKED_UP', 'EN_ROUTE_DROPOFF', 'ARRIVED_DROPOFF',
-]);
-
-function tripSortTime(trip: { scheduledPickupTime?: string | null; scheduledDate?: string | null }): number {
-  if (trip.scheduledPickupTime) return new Date(trip.scheduledPickupTime).getTime();
-  if (trip.scheduledDate) return new Date(`${trip.scheduledDate}T00:00:00`).getTime();
-  return Number.MAX_SAFE_INTEGER;
+function resolveScheduledDate(trip: { scheduledDate?: string | null; scheduledPickupTime?: string | null }): string | null {
+  if (trip.scheduledDate) return trip.scheduledDate.split('T')[0]!;
+  if (trip.scheduledPickupTime) return trip.scheduledPickupTime.slice(0, 10);
+  return null;
 }
 
-/** Pick the trip parents care about most: in-progress first, then nearest upcoming. */
+/** Pick the trip parents care about most: non-stale active first, then today, then upcoming. */
 export function pickNextTrip<T extends { status: string; scheduledPickupTime?: string | null; scheduledDate?: string | null }>(
   trips: T[],
+  nowMs = Date.now(),
 ): T | null {
-  if (!trips.length) return null;
-  const active = trips.filter((t) => ACTIVE_TRIP_STATUSES.has(t.status));
+  const eligible = trips.flatMap((t) => {
+    const scheduledDate = resolveScheduledDate(t);
+    if (!scheduledDate) return [];
+    const c = classifyTripForRole(
+      { status: t.status, scheduledDate, scheduledPickupTime: t.scheduledPickupTime },
+      { role: 'PARENT', nowMs },
+    );
+    if (c.isStale || c.category === 'stale' || c.category === 'missed_pickup') return [];
+    return [{ trip: t, scheduledDate }];
+  });
+  if (!eligible.length) return null;
+
+  const active = eligible.filter(({ trip, scheduledDate }) => classifyTripForRole(
+    { status: trip.status, scheduledDate, scheduledPickupTime: trip.scheduledPickupTime },
+    { role: 'PARENT', nowMs },
+  ).isActive);
   if (active.length) {
-    return [...active].sort((a, b) => tripSortTime(a) - tripSortTime(b))[0] ?? null;
+    return [...active].sort((a, b) => (resolveTripStartMs({ ...a.trip, scheduledDate: a.scheduledDate }) ?? 0) - (resolveTripStartMs({ ...b.trip, scheduledDate: b.scheduledDate }) ?? 0))[0]!.trip;
   }
-  const upcoming = trips.filter((t) => ['SCHEDULED', 'DRIVER_ASSIGNED'].includes(t.status));
-  if (!upcoming.length) return null;
-  return [...upcoming].sort((a, b) => tripSortTime(a) - tripSortTime(b))[0] ?? null;
+
+  const todayOrUpcoming = eligible.filter(({ trip, scheduledDate }) => {
+    const c = classifyTripForRole(
+      { status: trip.status, scheduledDate, scheduledPickupTime: trip.scheduledPickupTime },
+      { role: 'PARENT', nowMs },
+    );
+    return c.category === 'today' || c.category === 'upcoming' || c.category === 'scheduled';
+  });
+  if (!todayOrUpcoming.length) return null;
+  return [...todayOrUpcoming].sort((a, b) => (resolveTripStartMs({ ...a.trip, scheduledDate: a.scheduledDate }) ?? 0) - (resolveTripStartMs({ ...b.trip, scheduledDate: b.scheduledDate }) ?? 0))[0]!.trip;
 }
+
+export function computeParentTripCounts<T extends { status: string; scheduledDate: string; scheduledPickupTime?: string | null }>(
+  trips: T[],
+  nowMs = Date.now(),
+) {
+  return computeTripCountsForRole(trips, { role: 'PARENT', nowMs });
+}
+
+export function explainParentStaleTrip(trip: { status: string; scheduledDate: string; scheduledPickupTime?: string | null }): string {
+  return explainStaleTripReason(trip);
+}
+
+export function groupParentTripsByTracking<T extends { status: string; scheduledDate: string; scheduledPickupTime?: string | null }>(
+  trips: T[],
+  nowMs = Date.now(),
+) {
+  return groupTripsByTrackingGroup(trips, { role: 'PARENT', nowMs });
+}
+
+export const PARENT_TRACKING_GROUP_LABELS: Record<string, string> = {
+  available_now: 'Live now',
+  opens_soon: 'Opens soon',
+  upcoming: 'Upcoming',
+  needs_review: 'Needs review',
+};
 
 export function formatDriverSummary(driver: {
   profile?: { fullName?: string | null; avatarUrl?: string | null } | null;
@@ -61,9 +111,14 @@ export function formatVehicleSummary(vehicle: {
   color?: string | null;
   plateNumber?: string | null;
   capacity?: number | null;
+  make?: string | null;
+  year?: number | null;
 } | null | undefined): string {
   if (!vehicle) return 'Vehicle details pending';
-  const parts = [vehicle.color, vehicle.model].filter(Boolean);
+  const label = vehicle.make && vehicle.model
+    ? [vehicle.make, vehicle.model, vehicle.year].filter(Boolean).join(' ')
+    : vehicle.model;
+  const parts = [vehicle.color, label].filter(Boolean);
   if (vehicle.plateNumber) parts.push(vehicle.plateNumber);
   if (vehicle.capacity) parts.push(`${vehicle.capacity} seats`);
   return parts.join(' · ') || 'Vehicle assigned';
@@ -76,9 +131,19 @@ export function getTrackingAvailability(
   scheduledPickupTime: string | null,
   hasDriver: boolean,
   chatOpenMinutes = 20,
+  scheduledDate?: string,
 ): TrackingAvailability {
   if (!hasDriver) return 'unassigned';
   if (['COMPLETED', 'CANCELLED', 'NO_SHOW'].includes(status)) return 'closed';
+
+  const trip = {
+    status,
+    scheduledDate: scheduledDate ?? (scheduledPickupTime ? scheduledPickupTime.slice(0, 10) : ''),
+    scheduledPickupTime,
+  };
+  const c = classifyTripForRole(trip, { role: 'PARENT' });
+  if (c.isStale) return 'not_yet';
+
   if (isTrackableStatus(status as TripStatus)) return 'available';
   if (scheduledPickupTime) {
     const mins = (new Date(scheduledPickupTime).getTime() - Date.now()) / 60000;

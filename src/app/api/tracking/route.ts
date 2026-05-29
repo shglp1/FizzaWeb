@@ -6,6 +6,8 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireAuth } from '@/lib/session';
+import { riyadhTodayDateFloor } from '@/lib/trips/tripApiFilters';
+import { filterTripsForRoleApi } from '@/lib/trips/tripApiFilters';
 
 const TRACKABLE_STATUSES = [
   'DRIVER_ASSIGNED', 'PRE_TRIP', 'ON_THE_WAY',
@@ -45,6 +47,8 @@ export async function GET(_req: Request) {
     const subscriptionIds = subscriptions.map((s) => s.id);
     const riderIds = riders.map((r) => r.id);
 
+    const todayFloor = riyadhTodayDateFloor();
+
     const trips = await prisma.trip.findMany({
       where: {
         OR: [
@@ -52,7 +56,7 @@ export async function GET(_req: Request) {
           { riderId: { in: riderIds } },
         ],
         status: { in: [...TRACKABLE_STATUSES] },
-        scheduledDate: { gte: new Date(new Date().toISOString().slice(0, 10)) },
+        scheduledDate: { gte: todayFloor },
       },
       select: {
         id: true, status: true, scheduledDate: true,
@@ -63,7 +67,13 @@ export async function GET(_req: Request) {
       orderBy: [{ scheduledDate: 'asc' }, { scheduledPickupTime: 'asc' }],
     });
 
-    return NextResponse.json({ data: { trips, total: trips.length }, error: null });
+    const filtered = filterTripsForRoleApi(trips, {
+      role: 'PARENT',
+      statusFilter: null,
+      excludeStale: true,
+    });
+
+    return NextResponse.json({ data: { trips: filtered, total: filtered.length }, error: null });
   } catch {
     return NextResponse.json({ data: null, error: { message: 'Internal Server Error' } }, { status: 500 });
   }

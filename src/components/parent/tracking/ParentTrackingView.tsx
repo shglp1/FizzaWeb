@@ -13,6 +13,7 @@ import { ParentTripStatusCard } from './ParentTripStatusCard';
 import { ParentDriverCard } from './ParentDriverCard';
 import { ParentSafetyTimeline } from './ParentSafetyTimeline';
 import { ParentMapLegend } from './ParentMapLegend';
+import { TripRatingPrompt } from '@/components/parent/TripRatingPrompt';
 import { headlineForState, getParentTrackingCopy } from '@/lib/parent/parentTrackingCopy';
 import { resolveParentTrackingState } from '@/lib/parent/parentTrackingState';
 import { formatLastUpdated, legLocationLabels, toCoord } from '@/lib/parent/parentTrackingFormatters';
@@ -193,6 +194,15 @@ export function ParentTrackingView({
         actualPickupTime={trip.actualPickupTime}
         actualDropoffTime={trip.actualDropoffTime}
       />
+
+      {trip.status === 'COMPLETED' && trip.driver && (
+        <div className="mt-4">
+          <TripRatingPrompt
+            tripId={trip.id}
+            driverName={trip.driver.profile?.fullName}
+          />
+        </div>
+      )}
 
       <div className="fixed bottom-0 left-0 right-0 z-30 border-t border-gray-200 bg-white/95 backdrop-blur px-4 py-3 md:hidden">
         <div className="max-w-3xl mx-auto flex gap-2">

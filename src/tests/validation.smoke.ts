@@ -110,7 +110,7 @@ const validApp = {
   vehicleBrand: 'Toyota',
   vehicleModel: 'Camry',
   vehicleYear: 2022,
-  plateNumber: 'ABC-1234',
+  plateNumber: '1234 ABC 12',
   vehicleColor: 'White',
   vehicleCapacity: 4,
   licenseNumber: 'DL-999888',
@@ -130,8 +130,8 @@ describe('driverApplicationSchema', () => {
     assert.ok(!r.success);
   });
 
-  it('rejects vehicleYear before 2000', () => {
-    const r = driverApplicationSchema.safeParse({ ...validApp, vehicleYear: 1999 });
+  it('rejects vehicleYear before 2020', () => {
+    const r = driverApplicationSchema.safeParse({ ...validApp, vehicleYear: 2019 });
     assert.ok(!r.success);
   });
 

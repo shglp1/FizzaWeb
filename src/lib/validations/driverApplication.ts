@@ -1,19 +1,24 @@
 import { z } from 'zod';
 import { uploadedOrHttpUrl } from './upload.ts';
+import { isValidSaudiPlate, normalizeSaudiPlate } from './saudiPlate.ts';
+import { MIN_VEHICLE_YEAR, SAUDI_VEHICLE_CATALOG, isValidCatalogMakeModel } from '../vehicles/vehicleCatalog.ts';
 
 const VEHICLE_TYPES = ['ECONOMY', 'COMFORT', 'FAMILY', 'VAN', 'BUS', 'PREMIUM'] as const;
+const CATALOG_MAKES = SAUDI_VEHICLE_CATALOG.map((e) => e.make) as [string, ...string[]];
 
 export const driverApplicationSchema = z.object({
   vehicleType: z.enum(VEHICLE_TYPES, { required_error: 'Vehicle type is required' }),
   vehicleCategory: z.string().min(1, 'Vehicle category is required'),
-  vehicleBrand: z.string().min(1, 'Vehicle brand is required'),
+  vehicleBrand: z.enum(CATALOG_MAKES, { required_error: 'Select a vehicle make from the catalog' }),
   vehicleModel: z.string().min(1, 'Vehicle model is required'),
   vehicleYear: z
     .number()
     .int()
-    .min(2000, 'Vehicle year must be 2000 or later')
+    .min(MIN_VEHICLE_YEAR, `Vehicle must be ${MIN_VEHICLE_YEAR} or newer`)
     .max(new Date().getFullYear() + 1, 'Vehicle year is too far in the future'),
-  plateNumber: z.string().min(2, 'Plate number is required'),
+  plateNumber: z.string().min(3, 'Plate number is required').refine(isValidSaudiPlate, {
+    message: 'Enter a valid Saudi plate (e.g. 1234 ABC 12)',
+  }),
   vehicleColor: z.string().min(1, 'Vehicle color is required'),
   vehicleCapacity: z.number().int().min(1).max(60),
   licenseNumber: z.string().min(3, 'License number is required'),
@@ -26,7 +31,22 @@ export const driverApplicationSchema = z.object({
   city: z.string().min(1, 'City is required'),
   serviceArea: z.string().min(1, 'Service area is required'),
   femaleDriver: z.boolean().optional().default(false),
+}).superRefine((data, ctx) => {
+  if (!isValidCatalogMakeModel(data.vehicleBrand, data.vehicleModel)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Select a valid model for the chosen make',
+      path: ['vehicleModel'],
+    });
+  }
 });
+
+export function normalizeDriverApplicationInput(input: z.infer<typeof driverApplicationSchema>) {
+  return {
+    ...input,
+    plateNumber: normalizeSaudiPlate(input.plateNumber),
+  };
+}
 
 export const adminReviewSchema = z.object({
   action: z.enum(['APPROVE', 'REJECT', 'NEEDS_CHANGES']),

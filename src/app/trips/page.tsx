@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { CalendarDays } from 'lucide-react';
 import { AppShell } from '@/components/layout/AppShell';
 import { DriverRouteSheet } from '@/components/driver/DriverRouteSheet';
@@ -16,6 +17,7 @@ import {
   ParentErrorState,
 } from '@/components/parent/ParentUI';
 import { Alert, Button, StatusBadge, Badge, ConfirmDialog } from '@/components/ui';
+import { TripRatingPrompt } from '@/components/parent/TripRatingPrompt';
 import { tripService } from '@/services/tripService';
 import { TRIP_STATUS_LABEL, type TripStatus } from '@/lib/trips/tripLifecycle';
 import {
@@ -62,6 +64,7 @@ type Trip = {
 const TABS = [
   { id: 'upcoming', label: 'Upcoming' },
   { id: 'active', label: 'Active' },
+  { id: 'review', label: 'Under review' },
   { id: 'completed', label: 'Completed' },
   { id: 'cancelled', label: 'Cancelled' },
 ];
@@ -107,8 +110,10 @@ function riderMeta(trip: Trip): string | undefined {
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-export default function TripsPage() {
-  const [activeTab, setActiveTab] = useState('upcoming');
+function TripsPageContent() {
+  const searchParams = useSearchParams();
+  const initialTab = searchParams.get('tab') ?? 'upcoming';
+  const [activeTab, setActiveTab] = useState(initialTab);
   const [trips, setTrips] = useState<Trip[]>([]);
   const [loading, setLoading] = useState(true);
   const [pageError, setPageError] = useState('');
@@ -117,6 +122,8 @@ export default function TripsPage() {
   const [actionMsg, setActionMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
   const [userRole, setUserRole] = useState<string | null>(null);
   const [chatTrip, setChatTrip] = useState<Trip | null>(null);
+  const [tabCounts, setTabCounts] = useState<Record<string, number>>({});
+  const [truncated, setTruncated] = useState(false);
 
   useEffect(() => {
     fetch('/api/me')
@@ -125,12 +132,31 @@ export default function TripsPage() {
       .catch(() => {/* role stays null */});
   }, []);
 
+  useEffect(() => {
+    Promise.all(
+      TABS.map((t) => tripService.list(t.id).then((res) => ({
+        id: t.id,
+        count: res.meta?.total ?? (Array.isArray(res.data) ? res.data.length : 0),
+      }))),
+    ).then((results) => {
+      const counts: Record<string, number> = {};
+      for (const r of results) counts[r.id] = r.count;
+      setTabCounts(counts);
+    }).catch(() => {/* counts optional */});
+  }, [activeTab]);
+
   const loadTrips = (filter: string) => {
     setLoading(true);
     setPageError('');
+    setTruncated(false);
     tripService.list(filter).then((res) => {
-      if (res.data) setTrips(res.data);
-      else setPageError(res.error?.message ?? 'Failed to load trips.');
+      if (res.data) {
+        setTrips(res.data);
+        if (res.meta?.classificationTruncated) setTruncated(true);
+        if (res.meta?.total != null) {
+          setTabCounts((prev) => ({ ...prev, [filter]: res.meta.total }));
+        }
+      } else setPageError(res.error?.message ?? 'Failed to load trips.');
       setLoading(false);
     });
   };
@@ -155,8 +181,8 @@ export default function TripsPage() {
   };
 
   const tabsWithCounts = useMemo(
-    () => TABS.map((t) => ({ ...t, count: t.id === activeTab ? trips.length : undefined })),
-    [activeTab, trips.length],
+    () => TABS.map((t) => ({ ...t, count: tabCounts[t.id] })),
+    [tabCounts],
   );
 
   const isDriver = userRole === 'DRIVER';
@@ -190,6 +216,12 @@ export default function TripsPage() {
         />
       </div>
 
+      {truncated && (
+        <Alert variant="warning" className="mb-4">
+          Showing the first 500 matching trips. If you expect more, contact support — our team can help review your account.
+        </Alert>
+      )}
+
       {loading ? (
         <ParentLoadingState message={`Loading ${activeTab} trips…`} />
       ) : pageError ? (
@@ -197,10 +229,12 @@ export default function TripsPage() {
       ) : trips.length === 0 ? (
         <ParentEmptyState
           icon={CalendarDays}
-          title={`No ${activeTab} trips`}
+          title={activeTab === 'review' ? 'No trips under review' : `No ${activeTab} trips`}
           description={
             activeTab === 'upcoming'
               ? 'Trips are generated from your active subscriptions by the admin team.'
+              : activeTab === 'review'
+              ? 'Trips needing admin review will appear here. They are not active transport.'
               : `No ${activeTab} trips found.`
           }
         />
@@ -215,6 +249,8 @@ export default function TripsPage() {
               trip.status,
               trip.scheduledPickupTime,
               Boolean(trip.driver),
+              20,
+              trip.scheduledDate,
             );
 
             return (
@@ -229,9 +265,13 @@ export default function TripsPage() {
                 legType={trip.legType}
                 statusBadge={
                   <div className="flex flex-col items-end gap-1.5 shrink-0">
-                    <StatusBadge variant={STATUS_BADGE_VARIANT[trip.status]}>
-                      {TRIP_STATUS_LABEL[trip.status]}
-                    </StatusBadge>
+                    {activeTab === 'review' ? (
+                      <StatusBadge variant="orange">Under review</StatusBadge>
+                    ) : (
+                      <StatusBadge variant={STATUS_BADGE_VARIANT[trip.status]}>
+                        {TRIP_STATUS_LABEL[trip.status]}
+                      </StatusBadge>
+                    )}
                     <Badge variant={trip.legType === 'RETURN' ? 'purple' : 'info'} className="text-[10px]">
                       {trip.legType === 'RETURN' ? 'Return' : 'Outbound'}
                     </Badge>
@@ -251,7 +291,7 @@ export default function TripsPage() {
                 vehicle={formatVehicleSummary(trip.vehicle)}
                 trackingLabel={trackingAvailabilityLabel(tracking)}
                 actions={
-                  (showTracking || showCancel || showChat) ? (
+                  (showTracking || showCancel || showChat || trip.status === 'COMPLETED') ? (
                     <>
                       {showChat && (
                         <Button variant="outline" size="sm" onClick={() => setChatTrip(trip)}>
@@ -275,6 +315,18 @@ export default function TripsPage() {
                         </Button>
                       )}
                     </>
+                  ) : undefined
+                }
+                footer={
+                  activeTab === 'review' ? (
+                    <p className="text-sm text-amber-800 bg-amber-50 rounded-lg px-3 py-2">
+                      This trip is not active. Our team is reviewing the schedule — no action needed from you right now.
+                    </p>
+                  ) : activeTab === 'completed' && trip.status === 'COMPLETED' && trip.driver ? (
+                    <TripRatingPrompt
+                      tripId={trip.id}
+                      driverName={trip.driver.profile?.fullName}
+                    />
                   ) : undefined
                 }
               />
@@ -308,5 +360,17 @@ export default function TripsPage() {
         />
       )}
     </AppShell>
+  );
+}
+
+export default function TripsPage() {
+  return (
+    <Suspense fallback={(
+      <AppShell>
+        <ParentLoadingState message="Loading trips…" />
+      </AppShell>
+    )}>
+      <TripsPageContent />
+    </Suspense>
   );
 }

@@ -22,6 +22,7 @@ import {
   shouldShowTechnicalJsonPrimary,
 } from '@/lib/ui/adminTrips';
 import type { NormalizedAdminTripDetail } from '@/lib/ui/adminTripDetail';
+import { TripFinancialReviewPanel } from '@/components/admin/TripFinancialReviewPanel';
 
 function fmtEventTime(iso: string) {
   return new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
@@ -34,6 +35,7 @@ export function TripDetailDrawer({
   onClose,
   onAssign,
   onReassign,
+  onReviewResolved,
 }: {
   open: boolean;
   tripId: string;
@@ -41,6 +43,7 @@ export function TripDetailDrawer({
   onClose: () => void;
   onAssign?: () => void;
   onReassign?: () => void;
+  onReviewResolved?: () => void;
 }) {
   const status = detail.status ?? 'SCHEDULED';
   const events = detail.events ?? [];
@@ -97,6 +100,18 @@ export function TripDetailDrawer({
         {detail.subscription?.defaultDriverName && (
           <AdminDrawerRow label="Default driver" value={detail.subscription.defaultDriverName} />
         )}
+      </AdminDrawerSection>
+
+      <AdminDrawerSection title="Financial review">
+        <TripFinancialReviewPanel
+          tripId={tripId}
+          status={status}
+          financialReviewStatus={detail.financialReviewStatus}
+          financialReviewReason={detail.financialReviewReason}
+          financialReviewedAt={detail.financialReviewedAt ?? undefined}
+          walletCreditTransactionId={detail.walletCreditTransactionId}
+          onResolved={onReviewResolved}
+        />
       </AdminDrawerSection>
 
       <AdminDrawerSection title="Location">
