@@ -1,8 +1,14 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { requireAuth } from '@/lib/session';
+import { requireFamilyParent } from '@/lib/session';
 import type { TripStatus } from '@prisma/client';
 import { getDisplayLabel } from '@/lib/trips/statusCatalog';
+import { filterTripsForRoleApi, riyadhTodayDateFloor, needsClassificationFilter, CLASSIFICATION_FETCH_CAP } from '@/lib/trips/tripApiFilters';
+import {
+  buildParentTripScope,
+  isHistoricalTripListFilter,
+  operationalSubscriptionTripFilter,
+} from '@/lib/subscriptions/subscriptionTripLifecycle';
 
 const TRIP_SELECT = {
   id: true,
@@ -52,6 +58,12 @@ function buildStatusWhere(filter: string | null) {
           in: ['PRE_TRIP', 'ON_THE_WAY', 'ARRIVED_PICKUP', 'PICKED_UP', 'EN_ROUTE_DROPOFF', 'ARRIVED_DROPOFF'] as TripStatus[],
         },
       };
+    case 'review':
+      return {
+        status: {
+          in: ['SCHEDULED', 'DRIVER_ASSIGNED', 'PRE_TRIP', 'ON_THE_WAY', 'ARRIVED_PICKUP', 'PICKED_UP', 'EN_ROUTE_DROPOFF', 'ARRIVED_DROPOFF'] as TripStatus[],
+        },
+      };
     case 'completed':
       return { status: 'COMPLETED' as const };
     case 'cancelled':
@@ -73,7 +85,7 @@ function parseDateRange(from: string | null, to: string | null) {
 
 export async function GET(req: Request) {
   try {
-    const auth = await requireAuth();
+    const auth = await requireFamilyParent();
     if (auth instanceof NextResponse) return auth;
 
     const { searchParams } = new URL(req.url);
@@ -102,30 +114,73 @@ export async function GET(req: Request) {
         ? { status: { in: ['DRIVER_ASSIGNED', 'PRE_TRIP'] as TripStatus[] } }
         : statusWhere;
       where = { driverId: driver.id, ...baseWhere, ...driverStatusWhere };
+      if (!isHistoricalTripListFilter(statusFilter)) {
+        where = { AND: [where, operationalSubscriptionTripFilter()] };
+      }
+      if (['upcoming', 'active', 'review'].includes(statusFilter ?? '') && !dateRange) {
+        where = { ...where, ...(statusFilter === 'review' ? {} : { scheduledDate: { gte: riyadhTodayDateFloor() } }) };
+      }
     } else {
-      const [subscriptions, riders] = await Promise.all([
-        prisma.userSubscription.findMany({ where: { userId: auth.userId }, select: { id: true } }),
+      const [activeSubscriptions, allSubscriptions, riders] = await Promise.all([
+        prisma.userSubscription.findMany({
+          where: { userId: auth.userId, status: 'ACTIVE' },
+          select: { id: true },
+        }),
+        prisma.userSubscription.findMany({
+          where: { userId: auth.userId },
+          select: { id: true },
+        }),
         prisma.rider.findMany({ where: { parentId: auth.userId }, select: { id: true } }),
       ]);
-      where = {
-        OR: [
-          { subscriptionId: { in: subscriptions.map((s) => s.id) } },
-          { riderId: { in: riders.map((r) => r.id) } },
-        ],
-        ...baseWhere,
-      };
+      const parentScope = buildParentTripScope({
+        activeSubscriptionIds: activeSubscriptions.map((s) => s.id),
+        allSubscriptionIds: allSubscriptions.map((s) => s.id),
+        riderIds: riders.map((r) => r.id),
+        statusFilter,
+      });
+      where = { AND: [parentScope, baseWhere] };
+      if (['upcoming', 'active'].includes(statusFilter ?? '') && !dateRange) {
+        where = { AND: [where, { scheduledDate: { gte: riyadhTodayDateFloor() } }] };
+      }
     }
 
-    const [total, trips] = await Promise.all([
-      prisma.trip.count({ where }),
-      prisma.trip.findMany({
+    const useClassification = needsClassificationFilter(auth.role, statusFilter);
+
+    let total: number;
+    let trips: Awaited<ReturnType<typeof prisma.trip.findMany<{ select: typeof TRIP_SELECT }>>>;
+    let classificationTruncated = false;
+
+    if (useClassification) {
+      const allTrips = await prisma.trip.findMany({
         where,
         select: TRIP_SELECT,
         orderBy: [{ scheduledDate: 'asc' }, { scheduledPickupTime: 'asc' }],
-        skip: (page - 1) * limit,
-        take: limit,
-      }),
-    ]);
+        take: CLASSIFICATION_FETCH_CAP + 1,
+      });
+      classificationTruncated = allTrips.length > CLASSIFICATION_FETCH_CAP;
+      const capped = classificationTruncated ? allTrips.slice(0, CLASSIFICATION_FETCH_CAP) : allTrips;
+      const enrichedAll = capped.map((t) => ({
+        ...t,
+        displayLabel: getDisplayLabel(t.status as TripStatus),
+      }));
+      const filteredAll = filterTripsForRoleApi(enrichedAll, {
+        role: auth.role === 'DRIVER' ? 'DRIVER' : 'PARENT',
+        statusFilter,
+      });
+      total = filteredAll.length;
+      trips = filteredAll.slice((page - 1) * limit, page * limit);
+    } else {
+      [total, trips] = await Promise.all([
+        prisma.trip.count({ where }),
+        prisma.trip.findMany({
+          where,
+          select: TRIP_SELECT,
+          orderBy: [{ scheduledDate: 'asc' }, { scheduledPickupTime: 'asc' }],
+          skip: (page - 1) * limit,
+          take: limit,
+        }),
+      ]);
+    }
 
     const enriched = trips.map((t) => ({
       ...t,
@@ -134,7 +189,13 @@ export async function GET(req: Request) {
 
     return NextResponse.json({
       data: enriched,
-      meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
+      meta: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+        ...(classificationTruncated ? { classificationTruncated: true, classificationCap: CLASSIFICATION_FETCH_CAP } : {}),
+      },
       error: null,
     });
   } catch {

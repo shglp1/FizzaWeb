@@ -18,6 +18,7 @@ import {
   recordStatusChange,
   recordContinuedWithoutGps,
 } from '@/lib/trips/tripNotifications';
+import { shouldFlagFinancialReviewOnComplete } from '@/lib/trips/financialReview';
 import type { TripStatus } from '@/lib/trips/tripLifecycle';
 
 const statusUpdateSchema = z.object({
@@ -29,8 +30,8 @@ const statusUpdateSchema = z.object({
   statusReason: z.string().max(500).optional(),
   continuedWithoutGps: z.boolean().optional(),
   /** Current driver lat (for geofence-based notifications). */
-  lat: z.number().optional(),
-  lng: z.number().optional(),
+  lat: z.number().min(-90).max(90).optional(),
+  lng: z.number().min(-180).max(180).optional(),
 });
 
 export async function PATCH(
@@ -63,6 +64,7 @@ export async function PATCH(
       select: {
         id: true,
         status: true,
+        scheduledDate: true,
         driverId: true,
         scheduledPickupTime: true,
         scheduledDropoffTime: true,
@@ -130,7 +132,12 @@ export async function PATCH(
     };
     if (shouldOpenChat) updateData.chatOpenedAt = now;
     if (newStatus === 'PICKED_UP') updateData.actualPickupTime = now;
-    if (newStatus === 'COMPLETED') updateData.actualDropoffTime = now;
+    if (newStatus === 'COMPLETED') {
+      updateData.actualDropoffTime = now;
+      if (shouldFlagFinancialReviewOnComplete(trip)) {
+        updateData.financialReviewStatus = 'PENDING';
+      }
+    }
 
     await prisma.trip.update({ where: { id }, data: updateData });
 

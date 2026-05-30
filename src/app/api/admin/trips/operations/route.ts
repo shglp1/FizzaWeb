@@ -24,7 +24,7 @@ export async function GET(_req: Request) {
 
     const [
       totalToday, activeTrips, unassignedTrips, needsDispatchTrips, completedToday,
-      cancelledToday, flaggedMessages, driverCount, staleNonTerminal,
+      cancelledToday, flaggedMessages, driverCount, staleNonTerminal, financialReviewPending,
     ] = await Promise.all([
       prisma.trip.count({ where: { scheduledDate: { gte: todayStart, lt: todayEnd } } }),
       prisma.trip.count({
@@ -57,6 +57,7 @@ export async function GET(_req: Request) {
           status: { in: [...STALE_STATUSES] },
         },
       }),
+      prisma.trip.count({ where: { financialReviewStatus: 'PENDING' } }),
     ]);
 
     // Detect GPS stale: active trips where latest location is > 60s old or missing
@@ -125,6 +126,7 @@ export async function GET(_req: Request) {
           gpsStale: gpsStaleCount,
           chatFlagged: flaggedMessages,
           staleNonTerminal,
+          financialReviewPending,
         },
         driverCount,
         driverWorkload,

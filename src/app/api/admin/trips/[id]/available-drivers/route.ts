@@ -1,6 +1,8 @@
 /**
  * GET /api/admin/trips/[id]/available-drivers
  * Drivers with feasibility preview for manual assignment (uses existing dispatch logic).
+ * Response includes city, serviceArea, availability, lastGpsAt, and a cityMatch hint
+ * so admin can make informed geographic assignment decisions.
  */
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
@@ -10,7 +12,7 @@ import { decideTripDispatch } from '@/lib/dispatch/generateTrips';
 import type { TimelineTrip } from '@/lib/dispatch/types';
 
 export async function GET(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
@@ -18,6 +20,10 @@ export async function GET(
     if (auth instanceof NextResponse) return auth;
 
     const { id } = await params;
+    const { searchParams } = new URL(req.url);
+    // Default 50 assignable candidates; admin can request more (hard cap 200)
+    // to keep the per-driver dispatch feasibility checks bounded.
+    const limit = Math.min(200, Math.max(1, parseInt(searchParams.get('limit') ?? '50', 10)));
     const trip = await prisma.trip.findUnique({
       where: { id },
       select: {
@@ -53,20 +59,32 @@ export async function GET(
       dropoffLng: trip.dropoffLng,
     };
 
+    // Narrow the candidate pool at the database level to genuinely assignable
+    // drivers: not suspended, available, and with a vehicle. This avoids running
+    // per-driver dispatch feasibility checks over drivers that assign-driver would
+    // reject anyway, and keeps the endpoint scalable as the driver roster grows.
     const drivers = await prisma.driver.findMany({
-      where: { isSuspended: false },
+      where: { isSuspended: false, availability: true, vehicleId: { not: null } },
       select: {
         id: true,
         availability: true,
         rating: true,
+        city: true,
+        serviceArea: true,
         profile: { select: { fullName: true, phone: true } },
         vehicle: { select: { model: true, plateNumber: true, color: true, capacity: true } },
         trips: {
           where: { scheduledDate: { gte: dayStart, lt: dayEnd }, status: { notIn: ['CANCELLED'] } },
           select: { id: true },
         },
+        locations: {
+          orderBy: { recordedAt: 'desc' },
+          take: 1,
+          select: { recordedAt: true },
+        },
       },
-      orderBy: [{ availability: 'desc' }, { rating: 'desc' }],
+      orderBy: [{ rating: 'desc' }],
+      take: limit,
     });
 
     const driverDayCache = new Map<string, TimelineTrip[]>();
@@ -79,16 +97,33 @@ export async function GET(
           driverDayCache,
           config,
         });
+
+        const lastGpsAt = d.locations[0]?.recordedAt ?? null;
+        const lastGpsAgeSeconds = lastGpsAt
+          ? Math.round((Date.now() - new Date(lastGpsAt).getTime()) / 1000)
+          : null;
+
+        // cityMatch is null until subscription city can be derived (future: reverse-geocode pickup coords).
+        // Admin can compare driver.city visually against the subscription pickup area.
+        const cityMatch: boolean | null = null;
+
         return {
           id: d.id,
           fullName: d.profile?.fullName ?? 'Driver',
           phone: d.profile?.phone ?? null,
           availability: d.availability,
           rating: d.rating ? Number(d.rating) : null,
+          city: d.city ?? null,
+          serviceArea: d.serviceArea ?? null,
+          cityMatch,
           vehicle: d.vehicle,
           tripsToday: d.trips.length,
+          lastGpsAt,
+          lastGpsAgeSeconds,
           feasible: decision.assignDriver,
-          conflictReason: decision.dispatchNote,
+          conflictReason: d.availability === false
+            ? 'Driver is marked unavailable'
+            : (decision.dispatchNote ?? null),
         };
       }),
     );

@@ -32,7 +32,7 @@ type OpsData = {
   today: {
     total: number; active: number; unassigned: number; needsDispatch: number;
     completed: number; cancelled: number; noShow: number; gpsStale: number; chatFlagged: number;
-    staleNonTerminal: number;
+    staleNonTerminal: number; financialReviewPending: number;
   };
   driverWorkload: {
     driverId: string; fullName: string; tripsToday: number;
@@ -69,16 +69,18 @@ export function TripOperationsBoard({
   onDateChange,
   onRefresh,
   refreshToken = 0,
+  initialTripId = null,
 }: {
   date?: string;
   onDateChange?: (d: string) => void;
   onRefresh?: () => void;
   refreshToken?: number;
+  initialTripId?: string | null;
 }) {
   const [ops, setOps] = useState<OpsData | null>(null);
   const [trips, setTrips] = useState<BoardTrip[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(initialTripId);
   const [detail, setDetail] = useState<NormalizedAdminTripDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState('');
@@ -87,8 +89,15 @@ export function TripOperationsBoard({
   const [assignTrip, setAssignTrip] = useState<BoardTrip | null>(null);
   const [assignMode, setAssignMode] = useState<'assign' | 'reassign'>('assign');
   const [toast, setToast] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+  const [pendingFinancial, setPendingFinancial] = useState<BoardTrip[]>([]);
 
   const today = date ?? new Date().toISOString().slice(0, 10);
+
+  const loadPendingFinancial = useCallback(async () => {
+    const res = await tripService.adminList({ page: 1, limit: 20, financialReviewStatus: 'PENDING' });
+    const data = res.data as { trips?: BoardTrip[] } | undefined;
+    if (data?.trips) setPendingFinancial(data.trips);
+  }, []);
 
   const load = useCallback(async () => {
     setError('');
@@ -96,11 +105,16 @@ export function TripOperationsBoard({
       tripService.adminOperations(),
       tripService.adminList({ date: today, page: 1, limit: 100 }),
     ]);
+    await loadPendingFinancial();
     if (opsRes.data) setOps(opsRes.data as OpsData);
     else setError(opsRes.error?.message ?? 'Failed to load operations');
     if (tripsRes.data?.trips) setTrips(tripsRes.data.trips as BoardTrip[]);
     setLoading(false);
-  }, [today]);
+  }, [today, loadPendingFinancial]);
+
+  useEffect(() => {
+    if (initialTripId) setSelectedId(initialTripId);
+  }, [initialTripId]);
 
   useEffect(() => {
     setLoading(true);
@@ -182,6 +196,7 @@ export function TripOperationsBoard({
             { label: 'Unassigned', value: ops.today.unassigned, color: '#D97706', icon: UserX, helper: 'No driver yet' },
             { label: 'Needs Dispatch', value: ops.today.needsDispatch, color: '#DC2626', icon: AlertTriangle, helper: 'Timeline conflict' },
             { label: 'Stale trips', value: ops.today.staleNonTerminal, color: '#B45309', icon: AlertTriangle, helper: 'Need admin review' },
+            { label: 'Financial review', value: ops.today.financialReviewPending ?? 0, color: '#C026D3', icon: AlertTriangle, helper: 'Payroll held — resolve in drawer' },
             { label: 'Scheduled', value: trips.filter((t) => classifyTripForBoard(t) === 'scheduled').length, helper: 'Upcoming today' },
             { label: 'GPS Stale', value: ops.today.gpsStale, color: '#9333EA', icon: Navigation, helper: 'Active trips' },
             { label: 'Chat Flags', value: ops.today.chatFlagged, color: '#EA580C', icon: MessageSquare, helper: 'Moderation queue' },
@@ -189,6 +204,33 @@ export function TripOperationsBoard({
             { label: 'Completed', value: ops.today.completed, color: '#15803D', helper: 'Finished today' },
           ]}
         />
+      )}
+
+      {pendingFinancial.length > 0 && (
+        <Alert variant="warning">
+          <p className="font-semibold text-sm">
+            {pendingFinancial.length} trip{pendingFinancial.length === 1 ? '' : 's'} awaiting financial review (payroll held)
+          </p>
+          <ul className="mt-2 space-y-1 text-sm">
+            {pendingFinancial.slice(0, 5).map((t) => (
+              <li key={t.id}>
+                <button
+                  type="button"
+                  className="text-fizza-primary underline font-medium"
+                  onClick={() => setSelectedId(t.id)}
+                >
+                  {t.rider?.name ?? 'Trip'} — {formatTripDateTime(t.scheduledDate, t.scheduledPickupTime)}
+                </button>
+              </li>
+            ))}
+          </ul>
+          {(ops?.today.financialReviewPending ?? 0) > 5 && (
+            <p className="text-xs mt-2 text-gray-600">
+              <Link href="/admin?section=financial-review" className="text-fizza-primary underline">Open financial review queue</Link>
+              {' '}or resolve from any completed trip drawer.
+            </p>
+          )}
+        </Alert>
       )}
 
       {ops && ops.driverWorkload.length > 0 ? (
@@ -264,6 +306,13 @@ export function TripOperationsBoard({
           onReassign={() => {
             const t = trips.find((x) => x.id === selectedId);
             if (t) openAssign(t, 'reassign');
+          }}
+          onReviewResolved={() => {
+            if (selectedId) {
+              tripService.adminGetTrip(selectedId).then((res) => {
+                if (res.data?.trip) setDetail(normalizeAdminTripDetail(res.data));
+              });
+            }
           }}
         />
       )}

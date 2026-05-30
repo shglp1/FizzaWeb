@@ -83,6 +83,8 @@ export const tripService = {
     needsDispatch?: boolean;
     unassigned?: boolean;
     active?: boolean;
+    financialReviewStatus?: string;
+    paymentActionRequired?: boolean;
     q?: string;
   }) => {
     const params = new URLSearchParams();
@@ -94,6 +96,8 @@ export const tripService = {
     if (filters?.needsDispatch) params.set('needsDispatch', 'true');
     if (filters?.unassigned) params.set('unassigned', 'true');
     if (filters?.active) params.set('active', 'true');
+    if (filters?.financialReviewStatus) params.set('financialReviewStatus', filters.financialReviewStatus);
+    if (filters?.paymentActionRequired) params.set('paymentActionRequired', 'true');
     if (filters?.q) params.set('q', filters.q);
     const res = await fetch(`/api/admin/trips?${params}`);
     return res.json();

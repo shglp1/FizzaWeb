@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireAuth } from '@/lib/session';
-import { driverApplicationSchema } from '@/lib/validations/driverApplication';
+import { driverApplicationSchema, normalizeDriverApplicationInput } from '@/lib/validations/driverApplication';
 
 function getIp(req: Request): string | null {
   return (
@@ -86,7 +86,7 @@ export async function POST(req: Request) {
     const application = await prisma.driverApplication.create({
       data: {
         userId: auth.userId,
-        ...parsed.data,
+        ...normalizeDriverApplicationInput(parsed.data),
         status: 'PENDING',
         submittedAt: new Date(),
       },
@@ -153,7 +153,7 @@ export async function PATCH(req: Request) {
     const application = await prisma.driverApplication.update({
       where: { id: existing.id },
       data: {
-        ...parsed.data,
+        ...normalizeDriverApplicationInput(parsed.data),
         status: 'PENDING',
         resubmittedAt: new Date(),
         adminResponse: null,

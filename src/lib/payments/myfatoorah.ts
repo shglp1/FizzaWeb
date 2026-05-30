@@ -212,6 +212,8 @@ export type PaymentStatusResult = {
   status: 'PAID' | 'FAILED' | 'PENDING';
   invoiceId: string;
   customerReference: string | null;
+  /** Settlement amount reported by the gateway, used to cross-check our stored amount before crediting. */
+  invoiceValue: number | null;
 };
 
 export async function getPaymentStatus(
@@ -254,10 +256,21 @@ export async function getPaymentStatus(
     status = 'PENDING';
   }
 
+  const rawInvoiceValue = data.Data.InvoiceValue;
+  const parsedInvoiceValue =
+    rawInvoiceValue === null || rawInvoiceValue === undefined
+      ? null
+      : Number(rawInvoiceValue);
+  const invoiceValue =
+    parsedInvoiceValue !== null && Number.isFinite(parsedInvoiceValue)
+      ? parsedInvoiceValue
+      : null;
+
   return {
     status,
     invoiceId: String(data.Data.InvoiceId),
     customerReference: data.Data.CustomerReference ?? null,
+    invoiceValue,
   };
 }
 

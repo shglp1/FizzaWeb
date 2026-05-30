@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import { Settings, MapPin } from 'lucide-react';
+import { Settings, MapPin, TriangleAlert } from 'lucide-react';
 import { systemConfigService, adminMapDiagnosticsService } from '@/services/adminService';
 import { Alert, ErrorState } from '@/components/ui';
 import {
@@ -48,6 +48,7 @@ export function SystemConfigSection() {
   const [distanceStatus, setDistanceStatus] = useState<DistanceStatus | null>(null);
   const [mapDiagnostics, setMapDiagnostics] = useState<MapDiagnostics | null>(null);
   const [activeGroup, setActiveGroup] = useState<ConfigGroupId>('pricing');
+  const [showFinancialWarning, setShowFinancialWarning] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -89,9 +90,18 @@ export function SystemConfigSection() {
     return latest;
   }, null);
 
-  const handleSave = async () => {
+  const FINANCIAL_SENSITIVE_KEYS = ['pricePerKmSar', 'driverPayRatePerKmSar', 'driverPlatformFeePercent', 'extraRiderSameDropoffMultiplier'];
+
+  const financialKeysChanged = useMemo(
+    () => FINANCIAL_SENSITIVE_KEYS.some((k) => form[k] !== undefined && form[k] !== savedForm[k]),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [form, savedForm],
+  );
+
+  const doSave = async () => {
     setSaving(true);
     setSaveMsg(null);
+    setShowFinancialWarning(false);
     const updates: Record<string, string | number> = {};
     Object.entries(form).forEach(([k, v]) => {
       if (!v.trim()) return;
@@ -113,7 +123,18 @@ export function SystemConfigSection() {
     }
   };
 
-  const handleDiscard = () => setForm(savedForm);
+  const handleSave = () => {
+    if (financialKeysChanged) {
+      setShowFinancialWarning(true);
+    } else {
+      void doSave();
+    }
+  };
+
+  const handleDiscard = () => {
+    setForm(savedForm);
+    setShowFinancialWarning(false);
+  };
 
   if (loading) return <AdminSectionLoading message="Loading configuration…" />;
   if (error) return <ErrorState message={error} onRetry={load} />;
@@ -271,6 +292,44 @@ export function SystemConfigSection() {
           })}
         </div>
       </div>
+
+      {showFinancialWarning && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" role="dialog" aria-modal="true" aria-label="Financial settings warning">
+          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6">
+            <div className="flex items-start gap-3 mb-4">
+              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-100 text-amber-600 shrink-0">
+                <TriangleAlert className="h-5 w-5" strokeWidth={2} aria-hidden />
+              </span>
+              <div>
+                <h3 className="text-base font-semibold text-gray-900 mb-1">Financial settings changed</h3>
+                <p className="text-sm text-gray-600">
+                  You have modified one or more pricing or payout keys ({FINANCIAL_SENSITIVE_KEYS.filter((k) => form[k] !== savedForm[k]).join(', ')}).
+                  These changes affect all future trip pricing and driver payouts immediately after saving.
+                </p>
+              </div>
+            </div>
+            <p className="text-sm text-gray-500 mb-5">
+              Please confirm you have reviewed the new values carefully. This action cannot be automatically reverted.
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button
+                type="button"
+                className="btn btn-ghost text-sm min-h-[40px] px-4"
+                onClick={() => setShowFinancialWarning(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn bg-amber-500 hover:bg-amber-600 text-white text-sm min-h-[40px] px-4 font-semibold"
+                onClick={() => void doSave()}
+              >
+                Save anyway
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <AdminStickySaveBar
         dirty={dirty}

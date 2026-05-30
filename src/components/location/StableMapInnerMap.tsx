@@ -1,6 +1,7 @@
 'use client';
 
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { MapPin } from 'lucide-react';
 import {
   buildDivIconHtml,
   buildOverlayLabelIconHtml,
@@ -41,6 +42,7 @@ export default function StableMapInnerMap({
   onMove,
   onSelectOverlayPlace,
 }: StableMapInnerMapProps) {
+  const [tileError, setTileError] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<import('leaflet').Map | null>(null);
   const markerRef = useRef<import('leaflet').Marker | null>(null);
@@ -151,11 +153,26 @@ export default function StableMapInnerMap({
         attributionControl: true,
       });
 
-      tileLayerRef.current = L.tileLayer(tileConfig.url, {
+      const tileLayer = L.tileLayer(tileConfig.url, {
         attribution: tileConfig.attribution,
         maxZoom: tileConfig.maxZoom,
         minZoom: tileConfig.minZoom,
       }).addTo(map);
+
+      // Track consecutive tile errors to surface a user-visible fallback banner.
+      let errorCount = 0;
+      tileLayer.on('tileerror', () => {
+        errorCount += 1;
+        if (errorCount >= 3) {
+          setTileError(true);
+        }
+      });
+      tileLayer.on('tileload', () => {
+        errorCount = 0;
+        setTileError(false);
+      });
+
+      tileLayerRef.current = tileLayer;
 
       overlayLayerRef.current = L.layerGroup().addTo(map);
 
@@ -221,17 +238,30 @@ export default function StableMapInnerMap({
   useEffect(() => {
     if (!mapRef.current) return;
 
+    setTileError(false);
     void import('leaflet').then((L) => {
       if (!mapRef.current) return;
       const tileConfig = getMapTileLayer(tileLayerId);
       if (tileLayerRef.current) {
         mapRef.current.removeLayer(tileLayerRef.current);
       }
-      tileLayerRef.current = L.tileLayer(tileConfig.url, {
+      const newTileLayer = L.tileLayer(tileConfig.url, {
         attribution: tileConfig.attribution,
         maxZoom: tileConfig.maxZoom,
         minZoom: tileConfig.minZoom,
       }).addTo(mapRef.current);
+
+      let errorCount = 0;
+      newTileLayer.on('tileerror', () => {
+        errorCount += 1;
+        if (errorCount >= 3) setTileError(true);
+      });
+      newTileLayer.on('tileload', () => {
+        errorCount = 0;
+        setTileError(false);
+      });
+
+      tileLayerRef.current = newTileLayer;
     });
   }, [tileLayerId]);
 
@@ -248,10 +278,22 @@ export default function StableMapInnerMap({
   }, [active]);
 
   return (
-    <div
-      ref={containerRef}
-      className="stable-map-canvas w-full rounded-xl overflow-hidden bg-gray-100"
-      aria-hidden={!active}
-    />
+    <div className="relative w-full">
+      <div
+        ref={containerRef}
+        className="stable-map-canvas w-full rounded-xl overflow-hidden bg-gray-100"
+        aria-hidden={!active}
+      />
+      {tileError && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 rounded-xl bg-gray-100/90 backdrop-blur-sm pointer-events-none z-[1000]">
+          <MapPin className="w-8 h-8 text-gray-400" />
+          <p className="text-sm font-medium text-gray-600 text-center px-4">
+            Map tiles could not load.
+            <br />
+            Check your internet connection.
+          </p>
+        </div>
+      )}
+    </div>
   );
 }

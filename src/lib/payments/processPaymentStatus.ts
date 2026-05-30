@@ -11,7 +11,8 @@ export type ProcessOutcome =
   | 'PAID'
   | 'FAILED'
   | 'PENDING'
-  | 'ALREADY_PROCESSED';
+  | 'ALREADY_PROCESSED'
+  | 'AMOUNT_MISMATCH';
 
 export type ProcessResult = {
   /** What happened as a result of processing. */
@@ -51,11 +52,15 @@ type PaymentRow = {
  * @param payment         - Payment row fetched from DB before calling.
  * @param myfatoorahStatus - Status returned by MyFatoorah GetPaymentStatus.
  * @param myfatoorahPaymentId - Optional PaymentId from MyFatoorah (stored for traceability).
+ * @param gatewayInvoiceValue - Optional settlement amount from the gateway. When
+ *   provided for a PAID outcome it is cross-checked against the stored
+ *   payment.amountSar; a mismatch aborts crediting (returns AMOUNT_MISMATCH).
  */
 export async function applyPaymentOutcome(
   payment: PaymentRow,
   myfatoorahStatus: 'PAID' | 'FAILED' | 'PENDING',
   myfatoorahPaymentId?: string,
+  gatewayInvoiceValue?: number | null,
 ): Promise<ProcessResult> {
   // ── Idempotency guard ─────────────────────────────────────────────────────
   if (payment.status === 'PAID') {
@@ -70,18 +75,57 @@ export async function applyPaymentOutcome(
 
   // ── Handle PAID ───────────────────────────────────────────────────────────
   if (myfatoorahStatus === 'PAID') {
+    // Cross-check the gateway settlement amount against our stored amount before
+    // crediting. Guards against tampered/mismatched invoices driving a credit
+    // that differs from what the user actually paid.
+    if (gatewayInvoiceValue !== undefined && gatewayInvoiceValue !== null) {
+      const expected = Number(payment.amountSar);
+      const tolerance = 0.01; // allow sub-cent rounding differences
+      if (!Number.isFinite(expected) || Math.abs(gatewayInvoiceValue - expected) > tolerance) {
+        await prisma.auditLog.create({
+          data: {
+            id: randomUUID(),
+            userId: payment.userId,
+            action: 'PAYMENT_AMOUNT_MISMATCH',
+            details: JSON.stringify({
+              paymentDbId: payment.id,
+              expectedAmountSar: expected,
+              gatewayInvoiceValue,
+              myfatoorahPaymentId,
+            }),
+          },
+        });
+        return {
+          outcome: 'AMOUNT_MISMATCH',
+          walletUpdated: false,
+          subscriptionActivated: false,
+          subscriptionId: payment.subscriptionId,
+          paymentDbId: payment.id,
+        };
+      }
+    }
+
     let walletUpdated = false;
     let subscriptionActivated = false;
+    let alreadyClaimed = false;
 
     await prisma.$transaction(async (tx) => {
-      // Mark payment PAID and optionally store the MyFatoorah PaymentId
-      await tx.payment.update({
-        where: { id: payment.id },
+      // Atomic idempotency claim: flip PENDING -> PAID as the FIRST write so
+      // concurrent webhook + callback deliveries serialize on this row. Only the
+      // processor whose update affects a row proceeds to credit the wallet /
+      // activate the subscription; the loser exits without side effects. This
+      // prevents double-credit without requiring a schema migration.
+      const claim = await tx.payment.updateMany({
+        where: { id: payment.id, status: 'PENDING' },
         data: {
           status: 'PAID',
           ...(myfatoorahPaymentId ? { paymentId: myfatoorahPaymentId } : {}),
         },
       });
+      if (claim.count === 0) {
+        alreadyClaimed = true;
+        return;
+      }
 
       // ── Wallet top-up ───────────────────────────────────────────────────
       if (payment.purpose === 'WALLET_TOP_UP') {
@@ -106,6 +150,7 @@ export async function applyPaymentOutcome(
             paymentId: payment.id,
             amountSar: payment.amountSar as never, // Prisma Decimal
             txType: 'TOP_UP',
+            source: 'TOP_UP',
             description: 'Online top-up via MyFatoorah',
           },
         });
@@ -216,6 +261,17 @@ export async function applyPaymentOutcome(
         subscriptionActivated = true;
       }
     });
+
+    // Lost the concurrent claim — another processor already finalized this payment.
+    if (alreadyClaimed) {
+      return {
+        outcome: 'ALREADY_PROCESSED',
+        walletUpdated: false,
+        subscriptionActivated: false,
+        subscriptionId: payment.subscriptionId,
+        paymentDbId: payment.id,
+      };
+    }
 
     return {
       outcome: 'PAID',

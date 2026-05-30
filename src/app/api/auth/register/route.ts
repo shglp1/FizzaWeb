@@ -43,8 +43,8 @@ export async function POST(req: Request) {
       return user;
     });
 
-    // Authenticate immediately — same session cookie as login
-    await setSessionCookie(result.id, result.role);
+    // Authenticate immediately — include registrationSource so middleware can enforce applicant route restrictions
+    await setSessionCookie(result.id, result.role, registrationSource);
 
     return NextResponse.json({
       data: { user: { id: result.id, email: result.email, role: result.role } },

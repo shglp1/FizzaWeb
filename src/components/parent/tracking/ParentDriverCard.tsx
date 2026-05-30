@@ -1,7 +1,25 @@
 'use client';
 
+import { Star } from 'lucide-react';
 import { Card } from '@/components/ui';
+import { VehicleDisplay } from '@/components/parent/VehicleDisplay';
 import { getParentTrackingCopy } from '@/lib/parent/parentTrackingCopy';
+
+function StarRating({ rating }: { rating: number }) {
+  const rounded = Math.round(rating);
+  return (
+    <span className="inline-flex items-center gap-0.5" aria-label={`${rating.toFixed(1)} stars`}>
+      {[1, 2, 3, 4, 5].map((n) => (
+        <Star
+          key={n}
+          className={`h-3.5 w-3.5 ${n <= rounded ? 'fill-amber-400 text-amber-400' : 'text-gray-300'}`}
+          aria-hidden
+        />
+      ))}
+      <span className="text-xs text-gray-500 ml-1">{rating.toFixed(1)}</span>
+    </span>
+  );
+}
 
 export function ParentDriverCard({
   fullName,
@@ -26,15 +44,14 @@ export function ParentDriverCard({
         <div>
           <p className="font-semibold text-gray-900">{fullName}</p>
           {rating != null && !Number.isNaN(Number(rating)) && (
-            <p className="text-xs text-amber-500">Rating {Number(rating).toFixed(1)}</p>
+            <StarRating rating={Number(rating)} />
           )}
         </div>
       </div>
       {vehicle && (
-        <div className="text-xs text-gray-500 space-y-0.5 mb-3">
-          <p className="font-medium text-gray-600">{copy.vehicle}</p>
-          <p>{vehicle.color} {vehicle.model}</p>
-          <p className="font-mono tracking-wider">{vehicle.plateNumber}</p>
+        <div className="mb-3">
+          <p className="text-xs font-medium text-gray-600 mb-1">{copy.vehicle}</p>
+          <VehicleDisplay vehicle={vehicle} compact showLegacyBadge />
         </div>
       )}
       {phone && (

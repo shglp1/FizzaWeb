@@ -85,7 +85,12 @@ export async function PATCH(
         if (existingDriver) {
           await tx.driver.update({
             where: { id: existingDriver.id },
-            data: { vehicleId: vehicle.id, isSuspended: false },
+            data: {
+              vehicleId: vehicle.id,
+              isSuspended: false,
+              city: application.city,
+              serviceArea: application.serviceArea,
+            },
           });
         } else {
           await tx.driver.create({
@@ -93,6 +98,8 @@ export async function PATCH(
               profileId: application.userId,
               vehicleId: vehicle.id,
               availability: true,
+              city: application.city,
+              serviceArea: application.serviceArea,
             },
           });
         }

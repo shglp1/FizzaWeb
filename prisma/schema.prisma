@@ -83,6 +83,16 @@ enum TripLegType {
   RETURN
 }
 
+enum TripFinancialReviewStatus {
+  PENDING
+  PAY_DRIVER
+  NO_PAY_DRIVER
+  REFUND_PARENT
+  CREDIT_PARENT
+  KEEP_REVENUE
+  INCIDENT
+}
+
 enum PaymentPurpose {
   WALLET_TOP_UP
   SUBSCRIPTION_PAYMENT
@@ -94,6 +104,14 @@ enum WalletTransactionType {
   REFUND
   TOP_UP
   SUBSCRIPTION_PAYMENT
+}
+
+enum WalletTransactionSource {
+  MANUAL_ADJUSTMENT
+  TRIP_FINANCIAL_CREDIT
+  SUBSCRIPTION_PAYMENT
+  TOP_UP
+  REFUND_MANUAL_PENDING
 }
 
 model User {
@@ -143,7 +161,12 @@ model Profile {
   mapPlacesCreated      MapPlace[]                     @relation("MapPlaceCreatedBy")
   mapPlacesUpdated      MapPlace[]                     @relation("MapPlaceUpdatedBy")
   mapLocationReviews    MapLocationReview[]            @relation("MapLocationReviewedBy")
+  financialReviews      Trip[]                         @relation("TripFinancialReviewer")
+  tripRatingsGiven      TripRating[]                   @relation("RatingParent")
+  walletTransactionsAdmin WalletTransaction[]          @relation("WalletTransactionAdmin")
 
+  @@index([role])
+  @@index([registrationSource])
   @@map("profiles")
 }
 
@@ -176,6 +199,7 @@ model Rider {
   subscriptions      UserSubscription[]
   trips              Trip[]
   subscriptionRiders SubscriptionRider[]
+  tripRatings        TripRating[]
 
   @@index([parentId])
   @@index([isActive])
@@ -373,6 +397,10 @@ model Driver {
   rating           Decimal?         @default(5.0) @db.Decimal(2, 1)
   isSuspended      Boolean          @default(false) @map("is_suspended")
   suspensionReason String?          @map("suspension_reason") @db.Text
+  /// City the driver operates in — copied from approved DriverApplication on admin approval.
+  city             String?
+  /// Service area(s) — free-text copied from approved DriverApplication. Used by admin for geographic assignment guidance.
+  serviceArea      String?          @map("service_area")
   createdAt        DateTime         @default(now()) @map("created_at")
   updatedAt        DateTime         @updatedAt @map("updated_at")
   profile               Profile?                       @relation(fields: [profileId], references: [id], onDelete: Cascade)
@@ -385,9 +413,11 @@ model Driver {
   payProfile            DriverPayProfile?
   tripEarnings          DriverTripEarning[]
   payrollLines          DriverPayrollLine[]
+  tripRatings           TripRating[]
 
   @@index([profileId])
   @@index([isSuspended])
+  @@index([city])
   @@map("drivers")
 }
 
@@ -425,6 +455,13 @@ model Trip {
   chatOpenedAt         DateTime?           @map("chat_opened_at")
   /// UTC timestamp when the chat window was closed for this trip.
   chatClosedAt         DateTime?           @map("chat_closed_at")
+  /// Admin financial review gate for stale/disputed completions (Enterprise PR 4).
+  financialReviewStatus TripFinancialReviewStatus? @map("financial_review_status")
+  financialReviewReason String?             @map("financial_review_reason") @db.Text
+  financialReviewedAt  DateTime?           @map("financial_reviewed_at")
+  financialReviewedBy  String?             @map("financial_reviewed_by")
+  /// Wallet credit issued for CREDIT_PARENT financial review (idempotent link).
+  walletCreditTransactionId String?            @unique @map("wallet_credit_transaction_id")
   createdAt            DateTime            @default(now()) @map("created_at")
   updatedAt            DateTime            @updatedAt @map("updated_at")
   subscription         UserSubscription?   @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
@@ -432,6 +469,8 @@ model Trip {
   driver               Driver?             @relation(fields: [driverId], references: [id], onDelete: SetNull)
   vehicle              Vehicle?            @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
   canceller            Profile?            @relation("CancelledBy", fields: [cancelledBy], references: [id], onDelete: SetNull)
+  financialReviewer    Profile?            @relation("TripFinancialReviewer", fields: [financialReviewedBy], references: [id], onDelete: SetNull)
+  walletCreditTransaction WalletTransaction? @relation("TripWalletCredit", fields: [walletCreditTransactionId], references: [id], onDelete: SetNull)
   locations            DriverLocation[]
   walletTransactions   WalletTransaction[]
   safetyReports        SafetyReport[]
@@ -448,6 +487,13 @@ model Trip {
   @@index([needsDispatch])
   @@unique([subscriptionId, riderId, scheduledDate, legType], map: "trips_sub_rider_date_leg_unique")
   @@index([createdAt])
+  // Composite indexes for hot-path queries (perf audit):
+  // - dispatch feasibility timeline: where driverId AND scheduledDate range
+  @@index([driverId, scheduledDate])
+  // - live ops / trip lists: where status IN (...) AND scheduledDate range
+  @@index([status, scheduledDate])
+  // - live ops financial review badge: count where financialReviewStatus = PENDING
+  @@index([financialReviewStatus])
   @@map("trips")
 }
 
@@ -464,6 +510,9 @@ model DriverLocation {
   @@index([driverId])
   @@index([tripId])
   @@index([recordedAt])
+  // Composite for "latest location for a trip" (findFirst orderBy recordedAt desc)
+  // and live-ops batch GPS fetch. Avoids scanning all rows for a trip.
+  @@index([tripId, recordedAt])
   @@map("driver_locations")
 }
 
@@ -486,14 +535,25 @@ model WalletTransaction {
   paymentId   String?               @map("payment_id")
   amountSar   Decimal               @map("amount_sar") @db.Decimal(10, 2)
   txType      WalletTransactionType @map("tx_type")
+  source      WalletTransactionSource @default(MANUAL_ADJUSTMENT) @map("source")
+  idempotencyKey String?            @unique @map("idempotency_key") @db.VarChar(191)
+  adminUserId String?               @map("admin_user_id")
+  reason      String?               @db.Text
   description String?               @db.Text
   createdAt   DateTime              @default(now()) @map("created_at")
   wallet      Wallet                @relation(fields: [walletId], references: [id], onDelete: Cascade)
   trip        Trip?                 @relation(fields: [tripId], references: [id], onDelete: SetNull)
   payment     Payment?              @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+  adminUser   Profile?              @relation("WalletTransactionAdmin", fields: [adminUserId], references: [id], onDelete: SetNull)
+  tripWalletCredit Trip?            @relation("TripWalletCredit")
 
   @@index([walletId])
   @@index([createdAt])
+  @@index([tripId])
+  @@index([source])
+  @@index([adminUserId])
+  // Composite for wallet history: where walletId ORDER BY createdAt desc
+  @@index([walletId, createdAt])
   @@map("wallet_transactions")
 }
 
@@ -651,6 +711,8 @@ model SystemConfiguration {
   key       String   @id
   value     Json
   updatedAt DateTime @updatedAt @map("updated_at")
+  /// Profile ID of the admin who last changed this setting — for audit purposes.
+  updatedBy String?  @map("updated_by")
 
   @@map("system_configurations")
 }
@@ -758,6 +820,27 @@ model TripChatMessage {
   @@index([moderationStatus])
   @@index([createdAt])
   @@map("trip_chat_messages")
+}
+
+/// Parent rating after service-day completion (one rating per rider + business date + driver).
+model TripRating {
+  id             String    @id @default(uuid())
+  riderId        String    @map("rider_id")
+  driverId       String    @map("driver_id")
+  parentId       String    @map("parent_id")
+  subscriptionId String?   @map("subscription_id")
+  serviceDate    DateTime  @map("service_date") @db.Date
+  rating         Int
+  comment        String?   @db.Text
+  createdAt      DateTime  @default(now()) @map("created_at")
+  rider          Rider     @relation(fields: [riderId], references: [id], onDelete: Cascade)
+  driver         Driver    @relation(fields: [driverId], references: [id], onDelete: Cascade)
+  parent         Profile   @relation("RatingParent", fields: [parentId], references: [id], onDelete: Cascade)
+
+  @@unique([riderId, serviceDate, driverId], map: "trip_ratings_rider_date_driver_unique")
+  @@index([parentId])
+  @@index([driverId])
+  @@map("trip_ratings")
 }
 
 /// Admin-imposed chat restriction for safety/moderation.

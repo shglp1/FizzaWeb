@@ -2,6 +2,10 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireRole } from '@/lib/session';
 import { adminSubscriptionCancelSchema } from '@/lib/validations/subscription';
+import {
+  cancelNonTerminalTripsForSubscription,
+  notifySubscriptionTripsCancelled,
+} from '@/lib/subscriptions/subscriptionTripLifecycle';
 
 type RouteParams = {
   params: Promise<{ id: string }>;
@@ -42,7 +46,9 @@ export async function PATCH(
       );
     }
 
-    const updated = await prisma.$transaction(async (tx) => {
+    const tripReason = `Subscription cancelled by admin: ${parsed.data.reason.trim()}`;
+
+    const { updated, tripsCancelled, driverProfileIds } = await prisma.$transaction(async (tx) => {
       const s = await tx.userSubscription.update({
         where: { id },
         data: { status: 'CANCELLED', cancellationReason: parsed.data.reason },
@@ -57,6 +63,14 @@ export async function PATCH(
         },
       });
 
+      const cancelResult = await cancelNonTerminalTripsForSubscription(tx, {
+        subscriptionId: id,
+        reason: tripReason,
+        cancelledByUserId: auth.userId,
+        auditAction: 'SUBSCRIPTION_CANCEL_TRIPS_VOIDED',
+        subscriptionStatus: 'CANCELLED',
+      });
+
       await tx.notification.create({
         data: {
           userId: sub.userId,
@@ -66,10 +80,29 @@ export async function PATCH(
         },
       });
 
-      return s;
+      return {
+        updated: s,
+        tripsCancelled: cancelResult.cancelledCount,
+        driverProfileIds: cancelResult.notifiedDriverProfileIds,
+      };
     });
 
-    return NextResponse.json({ data: updated, error: null });
+    if (tripsCancelled > 0) {
+      await notifySubscriptionTripsCancelled({
+        parentUserId: sub.userId,
+        driverProfileIds,
+        cancelledCount: tripsCancelled,
+        reason: tripReason,
+      });
+    }
+
+    return NextResponse.json({
+      data: {
+        ...updated,
+        tripsCancelled,
+      },
+      error: null,
+    });
   } catch {
     return NextResponse.json(
       { data: null, error: { message: 'Internal Server Error' } },

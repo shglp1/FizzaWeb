@@ -26,6 +26,7 @@ import {
   useDebouncedValue,
 } from '@/components/admin/AdminUI';
 import { formatWallet } from '@/lib/ui/adminCurrency';
+import { WalletAdminPanel } from '@/components/admin/WalletAdminPanel';
 import type { AccountType } from '@/lib/adminUserTypes';
 
 export { formatWallet };
@@ -411,6 +412,14 @@ export function UsersSection() {
               <AdminDrawerRow label="Wallet" value={formatWallet(detail.wallet?.balanceSar)} />
               <AdminDrawerRow label="Joined" value={new Date(detail.user.createdAt).toLocaleDateString()} />
             </AdminDrawerSection>
+
+            {(selected.accountType === 'FAMILY_PARENT' || detail.role === 'PARENT') && selected && (
+              <WalletAdminPanel
+                userId={selected.id}
+                userName={selected.fullName}
+                initialBalance={detail.wallet?.balanceSar}
+              />
+            )}
 
             <AdminDrawerSection title="Subscriptions summary">
               {detail.userSubscriptions.length === 0 ? (

@@ -91,4 +91,96 @@ export function validateR2Config(): { ok: true } | { ok: false; message: string 
   return { ok: true };
 }
 
+/**
+ * Detects a file's true type from its leading bytes (magic numbers), independent
+ * of the client-supplied MIME type. Returns the canonical MIME string, or null
+ * if the signature is not one of our supported types.
+ */
+export function detectFileSignature(buffer: Buffer): string | null {
+  if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
+    return 'image/jpeg';
+  }
+  if (
+    buffer.length >= 8 &&
+    buffer[0] === 0x89 &&
+    buffer[1] === 0x50 &&
+    buffer[2] === 0x4e &&
+    buffer[3] === 0x47 &&
+    buffer[4] === 0x0d &&
+    buffer[5] === 0x0a &&
+    buffer[6] === 0x1a &&
+    buffer[7] === 0x0a
+  ) {
+    return 'image/png';
+  }
+  // WebP: "RIFF" .... "WEBP"
+  if (
+    buffer.length >= 12 &&
+    buffer.toString('ascii', 0, 4) === 'RIFF' &&
+    buffer.toString('ascii', 8, 12) === 'WEBP'
+  ) {
+    return 'image/webp';
+  }
+  // PDF: "%PDF-"
+  if (buffer.length >= 5 && buffer.toString('ascii', 0, 5) === '%PDF-') {
+    return 'application/pdf';
+  }
+  return null;
+}
+
+/**
+ * Verifies the file's real signature matches the declared MIME type. Prevents
+ * disguised content (e.g. an executable/HTML uploaded as `image/png`) from being
+ * stored and later served. Only enforces for types we can fingerprint.
+ */
+export function verifyFileSignature(
+  declaredMime: string,
+  buffer: Buffer,
+): { ok: true } | { ok: false; error: string } {
+  const detected = detectFileSignature(buffer);
+  if (detected === null) {
+    return { ok: false, error: 'File content does not match an allowed file type' };
+  }
+  if (detected !== declaredMime) {
+    return { ok: false, error: 'File content does not match its declared type' };
+  }
+  return { ok: true };
+}
+
+/**
+ * Validates that an attachment URL points only to our own storage:
+ *  - a same-origin local upload path (`/uploads/...`), or
+ *  - the configured R2 public base URL.
+ *
+ * Prevents users from injecting arbitrary external URLs (tracking pixels,
+ * malicious content, SSRF-adjacent references) into chat/report attachments.
+ */
+export function isAllowedAttachmentUrl(url: string): boolean {
+  if (typeof url !== 'string' || url.length === 0) return false;
+
+  // Same-origin local upload path. Reject protocol-relative (`//host`) and traversal.
+  if (url.startsWith('/uploads/') && !url.startsWith('//') && !url.includes('..')) {
+    return true;
+  }
+
+  const base = process.env.R2_PUBLIC_BASE_URL?.trim().replace(/\/$/, '');
+  if (base) {
+    try {
+      const baseUrl = new URL(base);
+      const target = new URL(url);
+      if (
+        target.protocol === baseUrl.protocol &&
+        target.host === baseUrl.host &&
+        target.pathname.startsWith(baseUrl.pathname === '/' ? '/' : `${baseUrl.pathname}/`)
+      ) {
+        return true;
+      }
+    } catch {
+      return false;
+    }
+  }
+
+  return false;
+}
+
 export { IMAGE_MIME, ALLOWED_MIME };

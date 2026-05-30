@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 60" role="img" aria-label="Van vehicle illustration">
+  <rect width="120" height="60" rx="8" fill="#f3f4f6"/>
+  <rect x="18" y="18" width="84" height="20" rx="4" fill="#6b7280"/>
+  <rect x="18" y="18" width="84" height="20" rx="4" fill="#9ca3af" opacity="0.5"/>
+  <circle cx="34" cy="38" r="7" fill="#374151"/>
+  <circle cx="86" cy="38" r="7" fill="#374151"/>
+</svg>

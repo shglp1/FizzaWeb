@@ -71,6 +71,13 @@ export async function PATCH(
       );
     }
 
+    if (!driver.availability) {
+      return NextResponse.json(
+        { data: null, error: { message: 'Driver is marked unavailable' } },
+        { status: 400 },
+      );
+    }
+
     if (!driver.vehicleId || !driver.vehicle) {
       return NextResponse.json(
         { data: null, error: { message: 'Driver does not have an assigned vehicle' } },

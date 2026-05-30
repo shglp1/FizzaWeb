@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireRole } from '@/lib/session';
 import { loadGlobalPayRules } from '@/lib/payroll/payRules';
+import { isTripPayrollEligible } from '@/lib/trips/tripClassification';
+import { toClassifiableTrip } from '@/lib/trips/tripApiFilters';
 
 export async function GET(req: Request) {
   try {
@@ -80,6 +82,39 @@ export async function GET(req: Request) {
     const ytdNetPaySar = ytdLines.reduce((s, l) => s + Number(l.netPaySar), 0);
     const ytdTrips = ytdLines.reduce((s, l) => s + l.tripCount, 0);
 
+    const periodStart = new Date(Date.UTC(year, month - 1, 1));
+    const periodEnd = new Date(Date.UTC(year, month, 0, 23, 59, 59, 999));
+    const completedInPeriod = await prisma.trip.findMany({
+      where: {
+        driverId: driverId!,
+        status: 'COMPLETED',
+        scheduledDate: { gte: periodStart, lte: periodEnd },
+      },
+      select: {
+        id: true,
+        status: true,
+        scheduledDate: true,
+        scheduledPickupTime: true,
+        financialReviewStatus: true,
+        pickupLocation: true,
+        dropoffLocation: true,
+        legType: true,
+      },
+    });
+    const heldTrips = completedInPeriod
+      .filter((t) => !isTripPayrollEligible(toClassifiableTrip(t)))
+      .map((t) => ({
+        tripId: t.id,
+        scheduledDate: t.scheduledDate,
+        pickupLocation: t.pickupLocation,
+        dropoffLocation: t.dropoffLocation,
+        legType: t.legType,
+        financialReviewStatus: t.financialReviewStatus,
+        reason: t.financialReviewStatus === 'PENDING'
+          ? 'Under financial review'
+          : 'Held from payroll — see admin resolution',
+      }));
+
     return NextResponse.json({
       data: {
         rules: {
@@ -124,6 +159,7 @@ export async function GET(req: Request) {
           paidAt: l.paidAt,
         })),
         ytd: { netPaySar: ytdNetPaySar, tripCount: ytdTrips },
+        heldTrips,
       },
       error: null,
     });

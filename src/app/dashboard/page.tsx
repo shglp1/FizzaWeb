@@ -22,7 +22,7 @@ import { tripService } from '@/services/tripService';
 import { walletService } from '@/services/walletService';
 import { subscriptionService } from '@/services/subscriptionService';
 import { riderService } from '@/services/riderService';
-import { formatSarParent, formatTripDateTime, formatDriverSummary, formatVehicleSummary, getTrackingAvailability, trackingAvailabilityLabel, pickNextTrip, parentTrackingHeadline } from '@/lib/parent/parentFormatters';
+import { formatSarParent, formatTripDateTime, formatDriverSummary, formatVehicleSummary, getTrackingAvailability, trackingAvailabilityLabel, pickNextTrip, parentTrackingHeadline, computeParentTripCounts } from '@/lib/parent/parentFormatters';
 import { type TripStatus, isTrackableStatus } from '@/lib/trips/tripLifecycle';
 import { emergencyContactComplete, hasSpecialNeedsIndicator, riderProfileComplete } from '@/lib/riders/riderExposure';
 import {
@@ -66,6 +66,7 @@ export default function DashboardPage() {
   const [loyaltyPoints, setLoyaltyPoints] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [reviewCount, setReviewCount] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -81,16 +82,21 @@ export default function DashboardPage() {
       const results = await Promise.allSettled([
         tripService.list('upcoming'),
         tripService.list('active'),
+        tripService.list('review'),
         walletService.getWallet(),
         subscriptionService.list(),
         riderService.list(),
       ]);
       if (cancelled) return;
-      const [upcomingRes, activeRes, w, s, r] = results.map((x) => (x.status === 'fulfilled' ? x.value : null));
+      const [upcomingRes, activeRes, reviewRes, w, s, r] = results.map((x) => (x.status === 'fulfilled' ? x.value : null));
       const upcoming = Array.isArray(upcomingRes?.data) ? upcomingRes.data as Trip[] : [];
       const active = Array.isArray(activeRes?.data) ? activeRes.data as Trip[] : [];
+      const reviewTrips = Array.isArray(reviewRes?.data) ? reviewRes.data as Trip[] : [];
       const merged = [...active, ...upcoming.filter((t) => !active.some((a) => a.id === t.id))];
       if (merged.length) setTrips(merged.slice(0, 12));
+      if (reviewTrips.length) {
+        setReviewCount(reviewTrips.length);
+      }
       if (w?.data?.wallet) setWallet(w.data.wallet);
       if (typeof w?.data?.loyaltyPoints === 'number') setLoyaltyPoints(w.data.loyaltyPoints);
       if (s?.data) setSubs(Array.isArray(s.data) ? s.data : []);
@@ -106,16 +112,28 @@ export default function DashboardPage() {
   const pendingSub = subs.find((s) => s.paymentStatus === 'PENDING' || s.status === 'PENDING');
   const activeRiders = riders.filter((r) => r.isActive);
   const nextTrip = pickNextTrip(trips);
+  const tripCounts = computeParentTripCounts(
+    trips.filter((t): t is Trip & { scheduledDate: string } => Boolean(t.scheduledDate)),
+  );
   const trackable = nextTrip && isTrackableStatus(nextTrip.status as TripStatus);
   const nextDriver = formatDriverSummary(nextTrip?.driver);
   const tracking = nextTrip
-    ? getTrackingAvailability(nextTrip.status, nextTrip.scheduledPickupTime ?? null, Boolean(nextTrip.driver), 20)
+    ? getTrackingAvailability(nextTrip.status, nextTrip.scheduledPickupTime ?? null, Boolean(nextTrip.driver), 20, nextTrip.scheduledDate)
     : null;
 
   const attentionItems = useMemo((): ParentAttentionItem[] => {
     const items: ParentAttentionItem[] = [];
     if (pendingSub) {
       items.push({ id: 'pay', title: 'Subscription payment pending', description: 'Complete payment to activate your transport plan.', href: '/subscriptions', tone: 'warning' });
+    }
+    if (reviewCount > 0) {
+      items.push({
+        id: 'trips-review',
+        title: `${reviewCount} trip${reviewCount === 1 ? '' : 's'} under review`,
+        description: 'These trips are not active. Our team is resolving the schedule.',
+        href: '/trips?tab=review',
+        tone: 'warning',
+      });
     }
     if (activeRiders.length === 0) {
       items.push({ id: 'riders', title: 'Add a family member', description: 'Riders are required before you can create a subscription.', href: '/riders', tone: 'info' });
@@ -136,7 +154,7 @@ export default function DashboardPage() {
       }
     }
     return items;
-  }, [pendingSub, activeRiders, nextTrip]);
+  }, [pendingSub, activeRiders, nextTrip, reviewCount]);
 
   const quickActions = [
     { href: '/riders', icon: UserPlus, title: 'Add rider', sub: 'Family members', bg: 'bg-emerald-50 text-fizza-secondary' },
@@ -205,7 +223,7 @@ export default function DashboardPage() {
             <ParentKpiCard label="Wallet balance" value={formatSarParent(wallet?.balanceSar)} icon={Wallet} />
             <ParentKpiCard label="Active riders" value={activeRiders.length} helper="Family members" icon={Users} color="#14A34A" />
             <ParentKpiCard label="Loyalty points" value={loyaltyPoints} helper="Earn on subscriptions · redeem at checkout" icon={Gift} color="#7C3AED" />
-            <ParentKpiCard label="Upcoming trips" value={trips.filter((t) => ['SCHEDULED', 'DRIVER_ASSIGNED'].includes(t.status)).length} helper="Scheduled" icon={CalendarDays} color="#1D4ED8" />
+            <ParentKpiCard label="Upcoming trips" value={tripCounts.upcoming + tripCounts.remainingToday} helper={`${tripCounts.active} active now`} icon={CalendarDays} color="#1D4ED8" />
             <ParentKpiCard label="Active plan" value={activeSub?.package?.name ?? 'None'} helper={activeSub ? 'Subscribed' : 'No active plan'} icon={ClipboardList} />
           </ParentKpiGrid>
 

@@ -11,6 +11,8 @@ export type AdminSection =
   | 'map-places'
   | 'subscriptions'
   | 'trips'
+  | 'live-ops'
+  | 'financial-review'
   | 'financials'
   | 'payroll'
   | 'safety'
@@ -34,11 +36,13 @@ export const ADMIN_SECTIONS: AdminNavItem[] = [
   { label: 'Map Places',          section: 'map-places',    icon: 'mapPin' },
   { label: 'Subscriptions',       section: 'subscriptions', icon: 'subscriptions' },
   { label: 'Trips',               section: 'trips',         icon: 'trips' },
+  { label: 'Live Operations',     section: 'live-ops',      icon: 'tracking' },
+  { label: 'Financial Review',    section: 'financial-review', icon: 'financialReview' },
   { label: 'Financials',          section: 'financials',    icon: 'wallet' },
-  { label: 'Driver Payroll',      section: 'payroll',       icon: 'wallet' },
+  { label: 'Driver Payroll',      section: 'payroll',       icon: 'payroll' },
   { label: 'Safety Reports',      section: 'safety',        icon: 'safety' },
   { label: 'System Config',       section: 'sysconfig',     icon: 'admin' },
-  { label: 'Audit Logs',          section: 'audit',         icon: 'subscriptions' },
+  { label: 'Audit Logs',          section: 'audit',         icon: 'auditLog' },
 ];
 
 export const ADMIN_SECTION_LABELS: Record<AdminSection, string> = {
@@ -52,6 +56,8 @@ export const ADMIN_SECTION_LABELS: Record<AdminSection, string> = {
   'map-places': 'Map Places',
   subscriptions: 'Subscriptions',
   trips: 'Trips',
+  'live-ops': 'Live Operations',
+  'financial-review': 'Financial Review',
   financials: 'Financials',
   payroll: 'Driver Payroll',
   safety: 'Safety Reports',

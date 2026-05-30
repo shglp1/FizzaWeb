@@ -21,6 +21,8 @@ import { PackagesSection } from './sections/PackagesSection';
 import { PromoCodesSection } from './sections/PromoCodesSection';
 import { MapPlacesSection } from './sections/MapPlacesSection';
 import { TripsSection } from './sections/TripsSection';
+import { LiveOperationsSection } from './sections/LiveOperationsSection';
+import { FinancialReviewSection } from './sections/FinancialReviewSection';
 import { SafetySection } from './sections/SafetySection';
 import { AuditLogsSection } from './sections/AuditLogsSection';
 
@@ -44,7 +46,7 @@ function AdminForbidden() {
             className="btn-secondary btn-md"
             onClick={async () => {
               await fetch('/api/auth/logout', { method: 'POST' });
-              window.location.href = '/login?from=/admin';
+              window.location.href = '/admin-port?from=/admin';
             }}
           >
             Sign out
@@ -103,6 +105,8 @@ function AdminContent() {
         {activeSection === 'applications' && <ApplicationsSection />}
         {activeSection === 'subscriptions' && <SubscriptionsSection />}
         {activeSection === 'trips' && <TripsSection />}
+        {activeSection === 'live-ops' && <LiveOperationsSection />}
+        {activeSection === 'financial-review' && <FinancialReviewSection />}
         {activeSection === 'financials' && <FinancialsSection />}
         {activeSection === 'payroll' && <PayrollSection />}
         {activeSection === 'safety' && <SafetySection />}

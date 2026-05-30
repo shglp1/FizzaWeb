@@ -2,6 +2,7 @@
 
 import { RefreshCw, Calendar, MapPin, CheckCircle2, AlertTriangle, Sparkles } from 'lucide-react';
 import { useEffect, useState, useCallback } from 'react';
+import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { tripService } from '@/services/tripService';
 import { tripToGoogleMapsUrl } from '@/lib/maps/googleMapsLink';
@@ -56,6 +57,7 @@ type AdminTrip = {
   subscription: {
     id: string;
     subscriptionType: string;
+    status?: string;
     user?: { fullName: string } | null;
   } | null;
 };
@@ -99,6 +101,8 @@ const PRESET_FILTERS: { value: TripFilterPreset; label: string }[] = [
 ];
 
 export function TripsSection() {
+  const searchParams = useSearchParams();
+  const deepLinkTripId = searchParams.get('tripId');
   const [trips, setTrips] = useState<AdminTrip[]>([]);
   const [meta, setMeta] = useState<PaginationMeta | null>(null);
   const [loading, setLoading] = useState(true);
@@ -431,6 +435,7 @@ export function TripsSection() {
           onDateChange={(d) => { setDateFilter(d); setPage(1); }}
           onRefresh={bumpRefresh}
           refreshToken={refreshToken}
+          initialTripId={deepLinkTripId}
         />
       )}
 

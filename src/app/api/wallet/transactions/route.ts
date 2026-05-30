@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { requireAuth } from '@/lib/session';
+import { requireFamilyParent } from '@/lib/session';
 
 export async function GET(request: NextRequest) {
   try {
-    const auth = await requireAuth();
+    const auth = await requireFamilyParent();
     if (auth instanceof NextResponse) return auth;
 
     const userId = auth.userId;

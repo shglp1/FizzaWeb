@@ -6,6 +6,6 @@ export function formatSar(amount: number | string | null | undefined): string {
   return `SAR ${n.toFixed(2)}`;
 }
 
-export function formatWallet(balance: string | null | undefined): string {
+export function formatWallet(balance: string | number | null | undefined): string {
   return formatSar(balance);
 }

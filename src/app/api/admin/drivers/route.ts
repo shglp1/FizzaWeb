@@ -19,13 +19,25 @@ export async function GET(req: Request) {
     const { page, limit, skip } = parsePaginationParams(searchParams, { maxLimit: 100 });
 
     if (assignable === 'true') {
+      // select only the fields callers need (was `include`, which pulled every
+      // Driver scalar incl. TEXT columns) and bound the result set.
       const drivers = await prisma.driver.findMany({
         where: { isSuspended: false, vehicleId: { not: null } },
-        include: {
+        select: {
+          id: true,
+          profileId: true,
+          vehicleId: true,
+          availability: true,
+          isSuspended: true,
+          rating: true,
+          city: true,
+          serviceArea: true,
+          createdAt: true,
           profile: { select: { id: true, fullName: true, phone: true } },
           vehicle: { select: { model: true, plateNumber: true, color: true, capacity: true } },
         },
         orderBy: { createdAt: 'asc' },
+        take: 200,
       });
       return NextResponse.json({ data: drivers, error: null });
     }

@@ -50,11 +50,7 @@ The `/api/auth/login` endpoint has no brute-force protection. An attacker can at
 
 ### 5. HTTP security headers
 
-No `Content-Security-Policy`, `X-Frame-Options`, or `X-Content-Type-Options` headers are set. Required for passing standard security audits.
-
-**What to do**: Add a `headers()` function to `next.config.ts`. See `docs/security-review.md` for the recommended configuration.
-
-**Status**: ⚠️ Not implemented — estimated 30 minutes.
+**Status**: ✅ RESOLVED — `Content-Security-Policy`, `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, `Strict-Transport-Security`, and `Permissions-Policy` are all configured in the `headers()` function in `next.config.ts`.
 
 ---
 
@@ -62,11 +58,13 @@ No `Content-Security-Policy`, `X-Frame-Options`, or `X-Content-Type-Options` hea
 
 ### 6. GPS throttle: Redis replacement for multi-replica
 
-The current in-process `Map<driverId, timestamp>` throttle only works on a single Vercel function instance. Under auto-scaling, drivers can bypass the throttle by hitting different replicas.
+A server-side GPS write throttle is implemented in `src/lib/tracking/gpsThrottle.ts` (in-process `Map<tripId, timestamp>`, default 4s cooldown via `GPS_THROTTLE_MS`). It runs in the tracking POST route **after** all auth/ownership/sharing checks, so it never weakens security, and it returns `{ ok: true, throttled: true }` without persisting when within the cooldown window.
 
-**What to do**: Replace with `SET driverId NX PX 5000` in Upstash Redis.
+**Limitation**: This is per-instance. On a multi-instance / serverless deployment (e.g. Vercel auto-scaling), each instance keeps its own map, so the effective window is per-instance, not global. It is still a strict improvement everywhere and is fully correct for single-instance deployments.
 
-**Status**: ⚠️ Not implemented — estimated 1–2 hours.
+**What to do for multi-instance**: Replace with `SET tripId NX PX 4000` in Upstash Redis. The same applies to the in-memory live-ETA cache (`src/lib/tracking/liveEtaCache.ts`).
+
+**Status**: ✅ In-memory throttle implemented (perf audit). ⚠️ Redis upgrade still required before multi-instance deployment — estimated 1–2 hours.
 
 ---
 
@@ -132,11 +130,83 @@ No mobile push notification system. Would require a mobile app or PWA with a pus
 
 ---
 
+## Implemented Enterprise Audit Fixes (May 2026)
+
+The following gaps were identified in the Enterprise Audit (Phases 1–17) and resolved in the Phase 18 implementation pass:
+
+### GPS Sharing: Manual vs Auto-Start
+
+`DriverGpsPanel` now supports two modes:
+
+| Mode | Behaviour |
+|---|---|
+| **Manual** (default) | Driver taps "Enable GPS sharing". Used when `autoStart={false}`. |
+| **Auto-start** | GPS sharing starts automatically when `autoStart={true}`, `permissionState === 'granted'`, `withinWindow`, and trip status is an active status (`isActiveStatus()`). The driver does not need to tap anything. |
+| **Auto-stop** | When `isTerminal={true}` (trip COMPLETED, CANCELLED, NO_SHOW), sharing stops automatically. |
+
+`DriverTrackingView` wires `autoStart={isActiveStatus(trip.status)}` and `isTerminal` automatically. Drivers on active trips will have GPS start automatically once the browser has previously granted geolocation permission.
+
+**Note**: GPS is stopped when the driver navigates away from the page (watchPosition cleanup on unmount). Persistent background GPS requires a Progressive Web App with a service worker — a future enhancement.
+
+---
+
+### Driver City and Service Area Matching
+
+The `Driver` model now has `city` and `serviceArea` fields (nullable). These are populated automatically when an admin approves a `DriverApplication`: the values are copied from the application.
+
+**Admin available-drivers endpoint** (`GET /api/admin/trips/[id]/available-drivers`) now returns:
+
+| Field | Description |
+|---|---|
+| `city` | Driver's declared operating city |
+| `serviceArea` | Driver's declared service area text |
+| `availability` | Whether the driver is marked available |
+| `lastGpsAt` | Timestamp of driver's last GPS update |
+| `lastGpsAgeSeconds` | Age of last GPS update in seconds |
+| `cityMatch` | `true`/`false`/`null` — whether driver city matches trip city (null if either is unknown) |
+
+Drivers are now blocked from assignment if `availability === false` (on both the single-trip assign and subscription assign-driver endpoints, and the reassign endpoint).
+
+---
+
+## Security Operations: GPS Retention & Key Rotation
+
+### GPS / Location Data Retention
+
+Driver GPS pings are stored in `driver_locations`. There is currently **no
+automated purge** of historical location rows. To limit privacy exposure and
+table growth:
+
+- **Recommended policy**: retain raw `driver_locations` for **30 days**, then
+  hard-delete. Trip-level summaries (start/end, distance) are retained on the
+  `Trip` record and are sufficient for billing/audit beyond that window.
+- **Implementation (future)**: a scheduled cron (e.g. `GET /api/cron/gps/purge`,
+  gated by `CRON_SECRET`) running `DELETE FROM driver_locations WHERE created_at < now() - interval '30 days'`.
+- Until the purge job exists, document the retention gap for the privacy review
+  and avoid logging full coordinates anywhere (already enforced — only ages and
+  staleness flags are logged).
+
+### Secret / Key Rotation
+
+Rotate the following before production and on a regular cadence (or immediately
+on suspected compromise):
+
+- `SESSION_SECRET` — JWT signing key (now enforced to be ≥ 32 chars at boot).
+  Rotating invalidates all active sessions (users must re-login); acceptable
+  given the 30-day stateless tokens.
+- `MYFATOORAH_API_KEY` and `MYFATOORAH_WEBHOOK_SECRET` — the webhook secret is
+  now **fail-closed in production** (missing secret rejects all webhooks).
+- `ORS_API_KEY` (OpenRouteService) and any `R2_*` storage credentials.
+- The real keys currently present in the local `.env` (gitignored, not
+  committed) must be rotated before go-live.
+
+---
+
 ## Summary
 
 | Severity | Count | All resolved? |
 |---|---|---|
-| 🔴 Critical blockers | 5 | ❌ No |
+| 🔴 Critical blockers | 4 | ❌ No (security headers resolved; 4 remain) |
 | 🟡 Important pre-launch | 6 | ❌ No |
 | 🟢 Nice to have | 5 | — |
 

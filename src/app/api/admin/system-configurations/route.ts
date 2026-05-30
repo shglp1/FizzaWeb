@@ -76,8 +76,8 @@ export async function PATCH(req: Request) {
     const ops = Object.entries(updates).map(([key, value]) =>
       prisma.systemConfiguration.upsert({
         where: { key },
-        update: { value, updatedAt: now },
-        create: { key, value, updatedAt: now },
+        update: { value, updatedAt: now, updatedBy: auth.userId },
+        create: { key, value, updatedAt: now, updatedBy: auth.userId },
       }),
     );
 

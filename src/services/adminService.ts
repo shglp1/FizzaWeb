@@ -201,11 +201,11 @@ export const adminFinancialService = {
     appendListParams(q, params);
     return apiFetch<{ transactions: unknown[]; meta: unknown }>(`/api/admin/wallet-transactions?${q}`);
   },
-  adjustWallet: (userId: string, amountSar: number, reason: string) =>
-    apiFetch<unknown>('/api/admin/wallet-adjustments', {
+  adjustWallet: (userId: string, amountSar: number, reason: string, tripId?: string) =>
+    apiFetch<{ newBalanceSar: number; transaction: { id: string }; duplicate?: boolean }>('/api/admin/wallet-adjustments', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId, amountSar, reason }),
+      body: JSON.stringify({ userId, amountSar, reason, ...(tripId ? { tripId } : {}) }),
     }),
 };
 

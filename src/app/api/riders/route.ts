@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { requireAuth } from '@/lib/session';
+import { requireFamilyParent } from '@/lib/session';
 import { riderCreateSchema, riderUpdateSchema } from '@/lib/validations/rider';
 import type { z } from 'zod';
 
@@ -28,7 +28,7 @@ function normalizeRiderPayload(data: RiderCreateInput | RiderUpdateInput) {
 
 export async function GET() {
   try {
-    const auth = await requireAuth();
+    const auth = await requireFamilyParent();
     if (auth instanceof NextResponse) return auth;
 
     const riders = await prisma.rider.findMany({
@@ -47,7 +47,7 @@ export async function GET() {
 
 export async function POST(req: Request) {
   try {
-    const auth = await requireAuth();
+    const auth = await requireFamilyParent();
     if (auth instanceof NextResponse) return auth;
 
     const body = await req.json();
@@ -83,7 +83,7 @@ export async function POST(req: Request) {
 
 export async function PATCH(req: Request) {
   try {
-    const auth = await requireAuth();
+    const auth = await requireFamilyParent();
     if (auth instanceof NextResponse) return auth;
 
     const body = await req.json();
@@ -134,7 +134,7 @@ export async function PATCH(req: Request) {
 
 export async function DELETE(req: Request) {
   try {
-    const auth = await requireAuth();
+    const auth = await requireFamilyParent();
     if (auth instanceof NextResponse) return auth;
 
     const { searchParams } = new URL(req.url);

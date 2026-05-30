@@ -6,16 +6,28 @@ export const SESSION_MAX_AGE = 30 * 24 * 60 * 60; // 30 days in seconds
 export interface SessionPayload extends JWTPayload {
   userId: string;
   role: string;
+  /** 'FAMILY' for parent accounts; 'DRIVER_PORTAL' for driver applicant/approved accounts. */
+  registrationSource?: string;
 }
 
 function getSecret(): Uint8Array {
   const s = process.env.SESSION_SECRET ?? process.env.NEXTAUTH_SECRET;
   if (!s) throw new Error('SESSION_SECRET environment variable is not set');
+  // Reject weak secrets: HS256 requires sufficient entropy to resist brute force.
+  if (s.length < 32) {
+    throw new Error('SESSION_SECRET must be at least 32 characters long');
+  }
   return new TextEncoder().encode(s);
 }
 
-export async function signToken(userId: string, role: string): Promise<string> {
-  return new SignJWT({ userId, role })
+export async function signToken(
+  userId: string,
+  role: string,
+  registrationSource?: string,
+): Promise<string> {
+  const payload: { userId: string; role: string; registrationSource?: string } = { userId, role };
+  if (registrationSource) payload.registrationSource = registrationSource;
+  return new SignJWT(payload)
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
     .setExpirationTime('30d')

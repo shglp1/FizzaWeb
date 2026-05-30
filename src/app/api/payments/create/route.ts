@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { randomUUID } from 'crypto';
 import { prisma } from '@/lib/prisma';
-import { requireAuth } from '@/lib/session';
+import { requireFamilyParent } from '@/lib/session';
 import { createPaymentSchema } from '@/lib/validations/payment';
 import { isConfigured, createInvoice } from '@/lib/payments/myfatoorah';
 import { PaymentGatewayError, mapGatewayErrorToResponse, buildSafeLogPayload } from '@/lib/payments/types';
@@ -12,7 +12,7 @@ export async function POST(request: NextRequest) {
   if (!rl.allowed) return rateLimitResponse(rl);
 
   try {
-    const auth = await requireAuth();
+    const auth = await requireFamilyParent();
     if (auth instanceof NextResponse) return auth;
 
     const userId = auth.userId;

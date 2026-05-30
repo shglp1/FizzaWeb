@@ -35,8 +35,19 @@ export async function GET(req: Request) {
           id: true,
           amountSar: true,
           txType: true,
+          source: true,
+          reason: true,
+          tripId: true,
           description: true,
           createdAt: true,
+          adminUserId: true,
+          adminUser: {
+            select: {
+              id: true,
+              fullName: true,
+              user: { select: { email: true } },
+            },
+          },
           wallet: {
             select: {
               id: true,

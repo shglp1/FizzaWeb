@@ -248,15 +248,65 @@ export function FinancialsSection() {
           <AdminMetricGrid
             columns={4}
             items={[
-              { label: 'Parent paid transactions', value: formatSar(overview.paidParentRevenueSar), icon: DollarSign, color: '#059669' },
-              { label: 'Paid transactions', value: overview.paidPaymentsCount, icon: TrendingUp, color: '#059669' },
-              { label: 'Pending revenue', value: formatSar(overview.pendingRevenueSar), color: '#D97706' },
-              { label: 'Pending payments', value: overview.pendingPaymentsCount, color: '#D97706' },
-              { label: 'Failed payments', value: formatSar(overview.failedPaymentsSar), color: '#DC2626' },
-              { label: 'Failed payment count', value: overview.failedPaymentsCount, color: '#DC2626' },
-              { label: 'Subscription revenue (paid)', value: formatSar(overview.subscriptionRevenueSar), icon: CreditCard, color: '#6366F1' },
-              { label: 'Wallet top-ups (paid)', value: formatSar(overview.walletTopUpRevenueSar), icon: Wallet, color: '#2563EB' },
-              { label: 'Wallet balance liability', value: formatSar(overview.totalWalletBalanceSar), icon: Wallet, color: '#7C3AED' },
+              {
+                label: 'Parent paid transactions',
+                value: formatSar(overview.paidParentRevenueSar),
+                icon: DollarSign,
+                color: '#059669',
+                helper: 'Sum of all PAID parent transactions: subscriptions, wallet top-ups, and wallet-funded payments. Excludes pending and failed.',
+              },
+              {
+                label: 'Paid transactions',
+                value: overview.paidPaymentsCount,
+                icon: TrendingUp,
+                color: '#059669',
+                helper: 'Total count of transactions with status = PAID in the selected period.',
+              },
+              {
+                label: 'Pending revenue',
+                value: formatSar(overview.pendingRevenueSar),
+                color: '#D97706',
+                helper: 'Revenue awaiting payment confirmation. Not counted as collected until status changes to PAID.',
+              },
+              {
+                label: 'Pending payments',
+                value: overview.pendingPaymentsCount,
+                color: '#D97706',
+                helper: 'Count of transactions currently in PENDING status.',
+              },
+              {
+                label: 'Failed payments',
+                value: formatSar(overview.failedPaymentsSar),
+                color: '#DC2626',
+                helper: 'Total SAR of transactions that ended in FAILED status. These are not collected.',
+              },
+              {
+                label: 'Failed payment count',
+                value: overview.failedPaymentsCount,
+                color: '#DC2626',
+                helper: 'Count of FAILED payment attempts in the selected period.',
+              },
+              {
+                label: 'Subscription revenue (paid)',
+                value: formatSar(overview.subscriptionRevenueSar),
+                icon: CreditCard,
+                color: '#6366F1',
+                helper: 'Subset of paid transactions with purpose = SUBSCRIPTION or SUBSCRIPTION_PAYMENT.',
+              },
+              {
+                label: 'Wallet top-ups (paid)',
+                value: formatSar(overview.walletTopUpRevenueSar),
+                icon: Wallet,
+                color: '#2563EB',
+                helper: 'Paid wallet top-up transactions. These funds are held in parent wallets (a liability) until spent.',
+              },
+              {
+                label: 'Wallet balance liability',
+                value: formatSar(overview.totalWalletBalanceSar),
+                icon: Wallet,
+                color: '#7C3AED',
+                helper: 'Total SAR sitting in all parent wallets right now. This is a platform liability — not recognized revenue until spent.',
+              },
             ]}
           />
           <p className="text-xs text-gray-500 -mt-4 mb-6">
@@ -271,12 +321,43 @@ export function FinancialsSection() {
           <AdminMetricGrid
             columns={4}
             items={[
-              { label: 'Platform fees (paid)', value: formatSar(overview.driverPlatformFeePaidSar), icon: Banknote, color: '#059669' },
-              { label: 'Deductions withheld (paid)', value: formatSar(overview.driverDeductionsPaidSar), color: '#059669' },
-              { label: 'Bonuses paid (paid)', value: formatSar(overview.driverBonusesPaidSar), color: '#D97706' },
-              { label: 'Driver-side retention (paid)', value: formatSar(overview.driverRetentionPaidSar), color: '#047857' },
-              { label: 'Platform fees (approved)', value: formatSar(overview.driverPlatformFeeApprovedSar), color: '#2563EB' },
-              { label: 'Platform fees (draft)', value: formatSar(overview.driverPlatformFeeDraftSar), color: '#D97706' },
+              {
+                label: 'Platform fees (paid)',
+                value: formatSar(overview.driverPlatformFeePaidSar),
+                icon: Banknote,
+                color: '#059669',
+                helper: `Platform fee % withheld from driver trip gross on PAID payroll lines. Formula: trip gross × driverPlatformFeePercent / 100.`,
+              },
+              {
+                label: 'Deductions withheld (paid)',
+                value: formatSar(overview.driverDeductionsPaidSar),
+                color: '#059669',
+                helper: 'Admin-defined deductions retained by Fizza from PAID payroll lines. Reduces driver net pay.',
+              },
+              {
+                label: 'Bonuses paid (paid)',
+                value: formatSar(overview.driverBonusesPaidSar),
+                color: '#D97706',
+                helper: 'Bonuses funded by Fizza and added to driver pay on PAID payroll lines. This is a cost to Fizza.',
+              },
+              {
+                label: 'Driver-side retention (paid)',
+                value: formatSar(overview.driverRetentionPaidSar),
+                color: '#047857',
+                helper: 'Net retained from drivers on paid lines = platform fees + deductions − bonuses. Contributes to platform gross margin.',
+              },
+              {
+                label: 'Platform fees (approved)',
+                value: formatSar(overview.driverPlatformFeeApprovedSar),
+                color: '#2563EB',
+                helper: 'Platform fees on APPROVED payroll lines — committed but not yet paid out.',
+              },
+              {
+                label: 'Platform fees (draft)',
+                value: formatSar(overview.driverPlatformFeeDraftSar),
+                color: '#D97706',
+                helper: 'Platform fees on DRAFT payroll lines — preliminary, not yet approved or paid.',
+              },
             ]}
           />
           <p className="text-xs text-gray-500 -mt-4 mb-4">
@@ -288,9 +369,25 @@ export function FinancialsSection() {
           <AdminMetricGrid
             columns={3}
             items={[
-              { label: 'Driver payouts completed', value: formatSar(overview.driverPayoutsCompletedSar), icon: Banknote, color: '#047857' },
-              { label: 'Approved (awaiting payout)', value: formatSar(overview.driverPayrollApprovedSar), color: '#2563EB' },
-              { label: 'Draft payroll', value: formatSar(overview.driverPayrollDraftSar), color: '#D97706' },
+              {
+                label: 'Driver payouts completed',
+                value: formatSar(overview.driverPayoutsCompletedSar),
+                icon: Banknote,
+                color: '#047857',
+                helper: 'Total net driver pay from PAID payroll lines = trip gross − platform fees − deductions + bonuses. This is cash out to drivers.',
+              },
+              {
+                label: 'Approved (awaiting payout)',
+                value: formatSar(overview.driverPayrollApprovedSar),
+                color: '#2563EB',
+                helper: 'Driver pay approved by admin but not yet marked as PAID. Cash commitment pending disbursement.',
+              },
+              {
+                label: 'Draft payroll',
+                value: formatSar(overview.driverPayrollDraftSar),
+                color: '#D97706',
+                helper: 'Payroll in DRAFT state — calculated but not yet reviewed or approved. Informational only.',
+              },
             ]}
           />
           <p className="text-xs text-gray-500 -mt-4 mb-6">

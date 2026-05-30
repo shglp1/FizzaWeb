@@ -15,10 +15,10 @@ const querySchema = z
   .min(2, 'Query must be at least 2 characters')
   .max(200, 'Query is too long');
 
-function parseCoord(value: string | null): number | undefined {
+function parseCoord(value: string | null, min: number, max: number): number | undefined {
   if (!value) return undefined;
   const n = Number(value);
-  return Number.isFinite(n) ? n : undefined;
+  return Number.isFinite(n) && n >= min && n <= max ? n : undefined;
 }
 
 export async function GET(req: Request) {
@@ -32,8 +32,8 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const q = searchParams.get('q') ?? '';
     const lang = searchParams.get('lang') === 'ar' ? 'ar' : 'en';
-    const focusLat = parseCoord(searchParams.get('lat'));
-    const focusLng = parseCoord(searchParams.get('lng'));
+    const focusLat = parseCoord(searchParams.get('lat'), -90, 90);
+    const focusLng = parseCoord(searchParams.get('lng'), -180, 180);
 
     const parsed = querySchema.safeParse(q);
     if (!parsed.success) {

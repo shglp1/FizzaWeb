@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { requireAuth } from '@/lib/session';
+import { requireFamilyParent } from '@/lib/session';
 import { subscriptionCreateSchema } from '@/lib/validations/subscription';
 import { getPricingConfig, calculateSubscriptionQuote } from '@/lib/pricing/subscriptionPricing';
 import { computeServiceDayBreakdown } from '@/lib/pricing/serviceDays';
@@ -107,7 +107,7 @@ const SUBSCRIPTION_SELECT = {
 
 export async function GET() {
   try {
-    const auth = await requireAuth();
+    const auth = await requireFamilyParent();
     if (auth instanceof NextResponse) return auth;
 
     const subscriptions = await prisma.userSubscription.findMany({
@@ -129,7 +129,7 @@ export async function GET() {
 
 export async function POST(req: Request) {
   try {
-    const auth = await requireAuth();
+    const auth = await requireFamilyParent();
     if (auth instanceof NextResponse) return auth;
 
     const body = await req.json();
@@ -266,7 +266,7 @@ export async function POST(req: Request) {
             ? 'Location pricing is currently unavailable because distance calculation is not configured. Please contact support.'
             : err.code === 'ROUTE_FAILED'
             ? 'We could not calculate a route between these two locations. Try selecting more specific addresses.'
-            : err.message;
+            : 'We could not calculate pricing for these locations. Please try again.';
         return NextResponse.json(
           { data: null, error: { message } },
           { status },

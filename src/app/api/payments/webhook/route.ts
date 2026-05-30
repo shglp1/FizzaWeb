@@ -1,11 +1,47 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { createHmac, timingSafeEqual } from 'crypto';
 import { randomUUID } from 'crypto';
 import { prisma } from '@/lib/prisma';
-import { getPaymentStatus } from '@/lib/payments/myfatoorah';
+import { getPaymentStatus, getWebhookSecret } from '@/lib/payments/myfatoorah';
 import { applyPaymentOutcome } from '@/lib/payments/processPaymentStatus';
 import { triggerTripGenerationAfterPayment } from '@/lib/dispatch/triggerAfterPayment';
 import { webhookPayloadSchema } from '@/lib/validations/payment';
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rateLimit';
+
+// ─── HMAC signature verification ──────────────────────────────────────────────
+//
+// MyFatoorah sends a `Signature` header containing HMAC-SHA256 of the raw
+// request body, keyed with MYFATOORAH_WEBHOOK_SECRET.
+// If the secret is set in env, we reject any request whose signature does not
+// match. If the secret is not configured (development / local testing without
+// a real MyFatoorah account) we skip verification and log a warning.
+
+function verifyWebhookSignature(rawBody: string, signatureHeader: string | null): boolean {
+  const secret = getWebhookSecret();
+  if (!secret) {
+    // Fail CLOSED in production: a missing webhook secret must never allow
+    // unauthenticated payloads to drive payment processing. Only skip
+    // verification in non-production (dev/staging without portal access).
+    if (process.env.NODE_ENV === 'production') {
+      console.error('[webhook] MYFATOORAH_WEBHOOK_SECRET is not set in production — rejecting webhook');
+      return false;
+    }
+    console.warn('[webhook] MYFATOORAH_WEBHOOK_SECRET is not set — skipping signature verification (non-production only)');
+    return true;
+  }
+
+  if (!signatureHeader) {
+    return false;
+  }
+
+  const expected = createHmac('sha256', secret).update(rawBody).digest('hex');
+  try {
+    return timingSafeEqual(Buffer.from(expected, 'hex'), Buffer.from(signatureHeader, 'hex'));
+  } catch {
+    // Buffer lengths differ — invalid signature format
+    return false;
+  }
+}
 
 // ─── GET — helpful 405 for browser misdirects ─────────────────────────────────
 //
@@ -29,15 +65,35 @@ export function GET() {
 // ─── POST — server-to-server MyFatoorah webhook ───────────────────────────────
 
 export async function POST(request: NextRequest) {
-  // Coarse guard against trivial DoS on the webhook endpoint.
-  // The primary protection is HMAC signature verification below.
+  // Coarse rate-limit guard against trivial DoS. The primary protection is
+  // HMAC-SHA256 signature verification using MYFATOORAH_WEBHOOK_SECRET below.
   const rl = checkRateLimit(request, 'payments:webhook', RATE_LIMITS.webhookPayment);
   if (!rl.allowed) return rateLimitResponse(rl);
+
+  // Read raw body text for HMAC verification before JSON parsing
+  let rawBody: string;
+  try {
+    rawBody = await request.text();
+  } catch {
+    return NextResponse.json(
+      { data: null, error: { message: 'Could not read request body' } },
+      { status: 400 },
+    );
+  }
+
+  // Verify HMAC signature
+  const signatureHeader = request.headers.get('Signature');
+  if (!verifyWebhookSignature(rawBody, signatureHeader)) {
+    console.warn('[webhook] Invalid or missing Signature header — rejecting request');
+    // Return 200 to prevent MyFatoorah from knowing the exact rejection reason,
+    // but do not process the payload.
+    return NextResponse.json({ received: false, reason: 'signature_invalid' }, { status: 200 });
+  }
 
   try {
     let body: unknown;
     try {
-      body = await request.json();
+      body = JSON.parse(rawBody);
     } catch {
       return NextResponse.json(
         { data: null, error: { message: 'Invalid JSON body' } },
@@ -114,7 +170,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Delegate to shared processing helper
-    const processResult = await applyPaymentOutcome(payment, result.status, PaymentId);
+    const processResult = await applyPaymentOutcome(payment, result.status, PaymentId, result.invoiceValue);
 
     if (processResult.subscriptionActivated && processResult.subscriptionId) {
       await triggerTripGenerationAfterPayment(processResult.subscriptionId);

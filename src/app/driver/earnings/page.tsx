@@ -16,7 +16,7 @@ import {
 } from '@/components/driver/DriverUI';
 import { driverEarningsService, driverPayoutService } from '@/services/payrollService';
 import { formatSar } from '@/lib/ui/adminCurrency';
-import { Button, Input } from '@/components/ui';
+import { Button, Input, Alert } from '@/components/ui';
 import { Banknote, ChevronLeft, ChevronRight, MapPin, Route, Landmark } from 'lucide-react';
 
 type EarningsData = {
@@ -59,6 +59,15 @@ type EarningsData = {
     paidAt: string | null;
   }[];
   ytd: { netPaySar: number; tripCount: number };
+  heldTrips?: {
+    tripId: string;
+    scheduledDate: string;
+    pickupLocation: string;
+    dropoffLocation: string;
+    legType: string;
+    financialReviewStatus: string | null;
+    reason: string;
+  }[];
 };
 
 const MONTHS = [
@@ -192,6 +201,24 @@ export default function DriverEarningsPage() {
           Save bank details
         </Button>
       </div>
+
+      {data?.heldTrips && data.heldTrips.length > 0 && (
+        <Alert variant="warning" className="mb-4">
+          <p className="font-semibold text-sm">
+            {data.heldTrips.length} completed trip{data.heldTrips.length === 1 ? '' : 's'} held for review
+          </p>
+          <p className="text-xs mt-1">
+            These trips are not included in payable earnings until admin completes financial review.
+          </p>
+          <ul className="mt-2 text-xs space-y-1">
+            {data.heldTrips.slice(0, 3).map((t) => (
+              <li key={t.tripId}>
+                {new Date(t.scheduledDate).toLocaleDateString()} — {t.reason}
+              </li>
+            ))}
+          </ul>
+        </Alert>
+      )}
 
       {loading ? (
         <DriverLoadingState message="Loading earnings…" />

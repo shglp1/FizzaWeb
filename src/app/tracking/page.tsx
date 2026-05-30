@@ -25,6 +25,10 @@ import {
   getTrackingAvailability,
   groupTripsByTrackingAvailability,
 } from '@/lib/ui/driverPortal';
+import {
+  groupParentTripsByTracking,
+  PARENT_TRACKING_GROUP_LABELS,
+} from '@/lib/parent/parentFormatters';
 import { ExternalLink, MapPin, Radio } from 'lucide-react';
 
 type TrackableTrip = {
@@ -134,10 +138,9 @@ export default function TrackingIndexPage() {
     );
   }
 
-  const grouped = isDriver ? groupTripsByTrackingAvailability(trips) : null;
-  const hasTrackableTrips = grouped
-    ? DRIVER_GROUP_ORDER.some((key) => grouped[key].length > 0)
-    : trips.length > 0;
+  const grouped = isDriver ? groupTripsByTrackingAvailability(trips) : groupParentTripsByTracking(trips);
+  const groupLabels = isDriver ? TRACKING_GROUP_LABELS : PARENT_TRACKING_GROUP_LABELS;
+  const hasTrackableTrips = DRIVER_GROUP_ORDER.some((key) => grouped[key].length > 0);
 
   return (
     <AppShell>
@@ -167,17 +170,17 @@ export default function TrackingIndexPage() {
             title={isDriver ? 'No active tracking trips' : 'No active trips to track'}
             description={isDriver ? 'GPS sharing opens when you have an assigned trip in an active status.' : 'Tracking opens when a driver is assigned and heading to pickup.'}
           />
-        ) : isDriver && grouped ? (
+        ) : grouped ? (
           <div className="space-y-5">
             {DRIVER_GROUP_ORDER.map((key) =>
               grouped[key].length > 0 ? (
                 <DriverTrackingGroup
                   key={key}
-                  title={TRACKING_GROUP_LABELS[key]}
-                  description={key === 'needs_review' ? 'Contact dispatch — these trips require admin review before GPS sharing.' : undefined}
+                  title={groupLabels[key]}
+                  description={key === 'needs_review' ? 'Contact support — these trips require admin review.' : undefined}
                 >
                   {grouped[key].map((trip) => (
-                    <TrackingTripCard key={trip.id} trip={trip as TrackableTrip} isDriver />
+                    <TrackingTripCard key={trip.id} trip={trip as TrackableTrip} isDriver={isDriver} />
                   ))}
                 </DriverTrackingGroup>
               ) : null,

@@ -10,6 +10,7 @@ import { isLocationSharingAllowed } from '@/lib/trips/tripLifecycle';
 import type { TripStatus } from '@/lib/trips/tripLifecycle';
 import { processLocationProximityUpdate } from '@/lib/trips/tripProximity';
 import { getCachedLiveEta } from '@/lib/tracking/liveEtaCache';
+import { shouldThrottleGps, recordGpsWrite } from '@/lib/tracking/gpsThrottle';
 import {
   isTerminalTripStatus,
   parentCanSeeLiveLocation,
@@ -79,9 +80,16 @@ export async function POST(
       }, { status: 422 });
     }
 
+    // Throttle persistence per trip to avoid GPS write spam. Runs only after all
+    // auth/ownership/sharing checks above, so security is never bypassed.
+    if (shouldThrottleGps(tripId)) {
+      return NextResponse.json({ data: { ok: true, throttled: true }, error: null });
+    }
+
     await prisma.driverLocation.create({
       data: { driverId: driver.id, tripId, lat, lng },
     });
+    recordGpsWrite(tripId);
 
     await processLocationProximityUpdate(
       { ...trip, status: trip.status as TripStatus },

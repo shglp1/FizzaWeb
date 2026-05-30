@@ -5,12 +5,20 @@ import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { AppShell } from '@/components/layout/AppShell';
 import {
-  PageHeader, Card, Input, Textarea, Button, Alert, StatusBadge, LoadingState,
+  PageHeader, Card, Input, Textarea, Button, Alert, StatusBadge, LoadingState, Select,
 } from '@/components/ui';
 import { driverApplicationService } from '@/services/driverApplicationService';
 import { FileUploadField } from '@/components/upload/FileUploadField';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { DRIVER_APPLICATION_LOGIN_PATH } from '@/lib/driverAuthFlow';
+import {
+  MIN_VEHICLE_YEAR,
+  SAUDI_VEHICLE_CATALOG,
+  VEHICLE_COLORS,
+  getModelsForMake,
+  resolveLegacyVehicleFields,
+} from '@/lib/vehicles/vehicleCatalog';
+import { saudiPlateError } from '@/lib/validations/saudiPlate';
 import type { LucideIcon } from 'lucide-react';
 import {
   Ban,
@@ -259,6 +267,13 @@ export default function DriverApplicationPage() {
 
   const { register, handleSubmit, reset, watch, setValue, formState: { errors } } = useForm<FormValues>();
 
+  const watchedBrand = watch('vehicleBrand');
+  const modelOptions = watchedBrand ? getModelsForMake(watchedBrand) : [];
+  const yearOptions = Array.from(
+    { length: new Date().getFullYear() + 2 - MIN_VEHICLE_YEAR },
+    (_, i) => MIN_VEHICLE_YEAR + i,
+  ).reverse();
+
   const loadApplication = () => {
     setLoading(true);
     driverApplicationService.get().then((res) => {
@@ -273,9 +288,10 @@ export default function DriverApplicationPage() {
       setApplication(app);
       if (app) {
         setSelectedType(app.vehicleType);
+        const legacy = resolveLegacyVehicleFields(app.vehicleBrand, app.vehicleModel);
         reset({
-          vehicleBrand:            app.vehicleBrand,
-          vehicleModel:            app.vehicleModel,
+          vehicleBrand:            legacy.vehicleBrand,
+          vehicleModel:            legacy.vehicleModel,
           vehicleYear:             String(app.vehicleYear),
           plateNumber:             app.plateNumber,
           vehicleColor:            app.vehicleColor,
@@ -552,19 +568,71 @@ export default function DriverApplicationPage() {
           <Card>
             <h2 className="text-base font-semibold text-gray-900 mb-4">Vehicle Details</h2>
             <div className="grid sm:grid-cols-2 gap-4">
-              <Input label="Brand" placeholder="e.g. Toyota" required error={errors.vehicleBrand?.message}
-                {...register('vehicleBrand', { required: 'Brand is required' })} />
-              <Input label="Model" placeholder="e.g. Camry" required error={errors.vehicleModel?.message}
-                {...register('vehicleModel', { required: 'Model is required' })} />
-              <Input label="Year" type="number" placeholder="2022" required error={errors.vehicleYear?.message}
+              <Select
+                label="Make"
+                required
+                error={errors.vehicleBrand?.message}
+                {...register('vehicleBrand', {
+                  required: 'Make is required',
+                  onChange: (e) => {
+                    setValue('vehicleBrand', e.target.value);
+                    setValue('vehicleModel', '');
+                  },
+                })}
+              >
+                <option value="">Select make…</option>
+                {SAUDI_VEHICLE_CATALOG.map(({ make }) => (
+                  <option key={make} value={make}>{make}</option>
+                ))}
+              </Select>
+              <Select
+                label="Model"
+                required
+                disabled={!watchedBrand}
+                error={errors.vehicleModel?.message}
+                {...register('vehicleModel', { required: 'Model is required' })}
+              >
+                <option value="">{watchedBrand ? 'Select model…' : 'Select make first'}</option>
+                {modelOptions.map((model) => (
+                  <option key={model} value={model}>{model}</option>
+                ))}
+              </Select>
+              <Select
+                label="Year"
+                required
+                error={errors.vehicleYear?.message}
                 {...register('vehicleYear', {
                   required: 'Year is required',
-                  min: { value: 2000, message: 'Must be 2000 or later' },
-                })} />
-              <Input label="Color" placeholder="e.g. White" required error={errors.vehicleColor?.message}
-                {...register('vehicleColor', { required: 'Color is required' })} />
-              <Input label="Plate Number" placeholder="ABC-1234" required error={errors.plateNumber?.message}
-                {...register('plateNumber', { required: 'Plate number is required' })} />
+                  validate: (v) => parseInt(v, 10) >= MIN_VEHICLE_YEAR || `Must be ${MIN_VEHICLE_YEAR} or newer`,
+                })}
+              >
+                <option value="">Select year…</option>
+                {yearOptions.map((y) => (
+                  <option key={y} value={String(y)}>{y}</option>
+                ))}
+              </Select>
+              <Select
+                label="Color"
+                required
+                error={errors.vehicleColor?.message}
+                {...register('vehicleColor', { required: 'Color is required' })}
+              >
+                <option value="">Select color…</option>
+                {VEHICLE_COLORS.map((color) => (
+                  <option key={color} value={color}>{color}</option>
+                ))}
+              </Select>
+              <Input
+                label="Plate Number"
+                placeholder="1234 ABC 12"
+                required
+                error={errors.plateNumber?.message}
+                helpText="Saudi format, e.g. 1234 ABC 12"
+                {...register('plateNumber', {
+                  required: 'Plate number is required',
+                  validate: (v) => saudiPlateError(v) ?? true,
+                })}
+              />
               <Input label="Passenger Capacity" type="number" placeholder="4" required error={errors.vehicleCapacity?.message}
                 {...register('vehicleCapacity', {
                   required: 'Capacity is required',

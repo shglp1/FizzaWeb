@@ -53,6 +53,14 @@ const locationField = z.union([
   locationInputSchema,
 ]);
 
+/** Local storage returns `/uploads/...`; R2 returns absolute https URLs. */
+const storedPhotoUrlSchema = z
+  .string()
+  .refine(
+    (v) => v.startsWith('/uploads/') || /^https?:\/\//i.test(v),
+    'Photo URL must be an absolute URL or an /uploads/ path',
+  );
+
 // ─── Subscription schemas ─────────────────────────────────────────────────────
 
 export const subscriptionCreateSchema = z.object({
@@ -78,8 +86,8 @@ export const subscriptionCreateSchema = z.object({
   femaleDriverPreference: z.boolean().optional().default(false),
   autoRenewal: z.boolean().optional().default(true),
   startsOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Start date must be YYYY-MM-DD').optional(),
-  pickupPhotoUrl: z.string().url().optional().nullable(),
-  dropoffPhotoUrl: z.string().url().optional().nullable(),
+  pickupPhotoUrl: storedPhotoUrlSchema.optional().nullable(),
+  dropoffPhotoUrl: storedPhotoUrlSchema.optional().nullable(),
   promoCode: z.string().trim().min(3).max(32).optional(),
   loyaltyPointsToRedeem: z.number().int().min(0).optional().default(0),
   pickupLocationMeta: locationMetaSchema,
