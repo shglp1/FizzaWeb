@@ -13,6 +13,10 @@ export interface SessionPayload extends JWTPayload {
 function getSecret(): Uint8Array {
   const s = process.env.SESSION_SECRET ?? process.env.NEXTAUTH_SECRET;
   if (!s) throw new Error('SESSION_SECRET environment variable is not set');
+  // Reject weak secrets: HS256 requires sufficient entropy to resist brute force.
+  if (s.length < 32) {
+    throw new Error('SESSION_SECRET must be at least 32 characters long');
+  }
   return new TextEncoder().encode(s);
 }
 

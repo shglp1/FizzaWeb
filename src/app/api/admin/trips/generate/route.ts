@@ -33,10 +33,11 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ data: result, error: null });
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Internal Server Error';
+    console.error('[POST /api/admin/trips/generate]', err);
+    const isDateRange = err instanceof Error && err.message.includes('Date range');
     return NextResponse.json(
-      { data: null, error: { message } },
-      { status: message.includes('Date range') ? 400 : 500 },
+      { data: null, error: { message: isDateRange ? 'Invalid date range' : 'Internal server error' } },
+      { status: isDateRange ? 400 : 500 },
     );
   }
 }

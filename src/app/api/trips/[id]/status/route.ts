@@ -30,8 +30,8 @@ const statusUpdateSchema = z.object({
   statusReason: z.string().max(500).optional(),
   continuedWithoutGps: z.boolean().optional(),
   /** Current driver lat (for geofence-based notifications). */
-  lat: z.number().optional(),
-  lng: z.number().optional(),
+  lat: z.number().min(-90).max(90).optional(),
+  lng: z.number().min(-180).max(180).optional(),
 });
 
 export async function PATCH(

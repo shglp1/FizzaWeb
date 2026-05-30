@@ -6,6 +6,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { requireAuth } from '@/lib/session';
 import { checkRatingEligibility, submitServiceDayRating } from '@/lib/ratings/ratingEligibility';
+import { BusinessError, clientErrorMessage } from '@/lib/errors';
 
 const ratingSchema = z.object({
   rating: z.number().int().min(1).max(5),
@@ -54,7 +55,9 @@ export async function POST(
 
     return NextResponse.json({ data: { rating: created }, error: null });
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Internal Server Error';
-    return NextResponse.json({ data: null, error: { message } }, { status: 400 });
+    console.error('[POST /api/trips/[id]/rating]', err);
+    const message = clientErrorMessage(err, 'Unable to submit rating');
+    const status = err instanceof BusinessError ? err.status : 500;
+    return NextResponse.json({ data: null, error: { message } }, { status });
   }
 }

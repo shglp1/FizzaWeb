@@ -7,6 +7,7 @@ import { loadChatConfig, chatUnavailableLabel } from '@/lib/chat/chatConfig';
 import { moderateMessage } from '@/lib/trips/chatModeration';
 import { isUserChatBlocked } from '@/lib/trips/tripProximity';
 import { notifyChatOpened, notifyMessageFlagged } from '@/lib/trips/tripNotifications';
+import { isAllowedAttachmentUrl } from '@/lib/storage/uploadValidation';
 import type { TripStatus } from '@/lib/trips/tripLifecycle';
 
 function tripEndedAt(trip: {
@@ -124,7 +125,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const chatMessageSchemaDynamic = z.object({
       body: z.string().min(1).max(maxLen),
       messageType: z.enum(['TEXT', 'QUICK_REPLY', 'IMAGE']).default('TEXT'),
-      attachmentUrl: z.string().url().optional(),
+      attachmentUrl: z
+        .string()
+        .refine(isAllowedAttachmentUrl, 'Attachment URL must reference an uploaded file')
+        .optional(),
     });
     const parsed = chatMessageSchemaDynamic.safeParse(body);
     if (!parsed.success) return NextResponse.json({ data: null, error: { message: parsed.error.issues[0]?.message ?? 'Invalid input' } }, { status: 400 });

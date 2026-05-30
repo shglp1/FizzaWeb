@@ -49,4 +49,26 @@ export async function requireRole(roles: string[]): Promise<SessionPayload | Nex
   return result;
 }
 
+/**
+ * Authenticated family-parent access.
+ *
+ * Driver-applicant accounts are stored as role PARENT with
+ * registrationSource = 'DRIVER_PORTAL' until an admin approves them. The page
+ * middleware confines them to an allow-list, but API routes bypass middleware,
+ * so parent-only APIs (wallet, subscriptions, riders, payments, parent trips)
+ * must enforce the same restriction server-side. This rejects driver-portal
+ * applicants while allowing genuine FAMILY parents.
+ */
+export async function requireFamilyParent(): Promise<SessionPayload | NextResponse> {
+  const result = await requireAuth();
+  if (result instanceof NextResponse) return result;
+  if (result.role === 'PARENT' && result.registrationSource === 'DRIVER_PORTAL') {
+    return NextResponse.json(
+      { data: null, error: { message: 'Forbidden' } },
+      { status: 403 },
+    );
+  }
+  return result;
+}
+
 export type { SessionPayload };

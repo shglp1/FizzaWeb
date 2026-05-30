@@ -6,6 +6,7 @@ import {
   StorageNotConfiguredError,
   type UploadCategory,
 } from '@/lib/storage/storageService';
+import { verifyFileSignature } from '@/lib/storage/uploadValidation';
 
 const ALLOWED: UploadCategory[] = [
   'profile-avatar',
@@ -39,13 +40,20 @@ export async function POST(req: Request) {
       return NextResponse.json({ data: null, error: { message: validation.error } }, { status: 400 });
     }
 
+    // Verify the real file signature matches the declared MIME — defends against
+    // disguised content (e.g. a script uploaded as image/png).
+    const signature = verifyFileSignature(mimeType, buffer);
+    if (!signature.ok) {
+      return NextResponse.json({ data: null, error: { message: signature.error } }, { status: 400 });
+    }
+
     const url = await saveUserUpload(auth.userId, category, buffer, validation.ext, mimeType);
     return NextResponse.json({ data: { url }, error: null }, { status: 201 });
   } catch (e) {
     if (e instanceof StorageNotConfiguredError) {
       return NextResponse.json({ data: null, error: { message: e.message } }, { status: 503 });
     }
-    const message = e instanceof Error ? e.message : 'Internal Server Error';
-    return NextResponse.json({ data: null, error: { message } }, { status: 500 });
+    console.error('[POST /api/uploads]', e);
+    return NextResponse.json({ data: null, error: { message: 'Internal server error' } }, { status: 500 });
   }
 }

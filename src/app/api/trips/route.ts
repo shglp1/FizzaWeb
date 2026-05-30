@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { requireAuth } from '@/lib/session';
+import { requireFamilyParent } from '@/lib/session';
 import type { TripStatus } from '@prisma/client';
 import { getDisplayLabel } from '@/lib/trips/statusCatalog';
 import { filterTripsForRoleApi, riyadhTodayDateFloor, needsClassificationFilter, CLASSIFICATION_FETCH_CAP } from '@/lib/trips/tripApiFilters';
@@ -85,7 +85,7 @@ function parseDateRange(from: string | null, to: string | null) {
 
 export async function GET(req: Request) {
   try {
-    const auth = await requireAuth();
+    const auth = await requireFamilyParent();
     if (auth instanceof NextResponse) return auth;
 
     const { searchParams } = new URL(req.url);

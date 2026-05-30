@@ -343,7 +343,11 @@ export async function POST(req: NextRequest) {
       if (err instanceof DistanceError) {
         const status =
           err.code === 'NOT_CONFIGURED' || err.code === 'PROVIDER_NOT_IMPLEMENTED' ? 503 : 400;
-        return NextResponse.json({ data: null, error: { message: err.message } }, { status });
+        const message =
+          err.code === 'NOT_CONFIGURED' || err.code === 'PROVIDER_NOT_IMPLEMENTED'
+            ? 'Distance calculation is not configured. Please contact support.'
+            : 'We could not calculate a route between these two locations. Try selecting more specific addresses.';
+        return NextResponse.json({ data: null, error: { message } }, { status });
       }
       return NextResponse.json(
         { data: null, error: { message: 'Could not calculate route distance. Please try again.' } },

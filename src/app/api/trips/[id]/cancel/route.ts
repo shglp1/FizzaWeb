@@ -1,9 +1,12 @@
 import { NextResponse } from 'next/server';
+import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { requireAuth } from '@/lib/session';
 import { isCancellable } from '@/lib/trips/tripLifecycle';
 import { notifyCancelled, recordStatusChange } from '@/lib/trips/tripNotifications';
 import type { TripStatus } from '@/lib/trips/tripLifecycle';
+
+const cancelReasonSchema = z.string().max(500).optional();
 
 export async function PATCH(
   req: Request,
@@ -17,7 +20,16 @@ export async function PATCH(
     let reason: string | undefined;
     try {
       const body = await req.json();
-      reason = typeof body?.reason === 'string' ? body.reason : undefined;
+      const parsedReason = cancelReasonSchema.safeParse(
+        typeof body?.reason === 'string' ? body.reason : undefined,
+      );
+      if (!parsedReason.success) {
+        return NextResponse.json(
+          { data: null, error: { message: 'Reason must be 500 characters or fewer' } },
+          { status: 400 },
+        );
+      }
+      reason = parsedReason.data;
     } catch { /* no body required */ }
 
     const trip = await prisma.trip.findUnique({

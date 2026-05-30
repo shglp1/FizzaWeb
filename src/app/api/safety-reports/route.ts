@@ -114,14 +114,19 @@ export async function POST(request: NextRequest) {
     if (tripId) {
       const trip = await prisma.trip.findUnique({
         where: { id: tripId },
-        include: { subscription: { select: { userId: true } }, driver: { select: { profileId: true } } },
+        include: {
+          subscription: { select: { userId: true } },
+          driver: { select: { profileId: true } },
+          rider: { select: { parentId: true } },
+        },
       });
       if (!trip) {
         return NextResponse.json({ data: null, error: { message: 'Trip not found' } }, { status: 404 });
       }
       const isOwner = trip.subscription?.userId === userId;
+      const isRiderParent = trip.rider?.parentId === userId;
       const isDriver = trip.driver?.profileId === userId;
-      if (!isOwner && !isDriver) {
+      if (!isOwner && !isRiderParent && !isDriver) {
         return NextResponse.json({ data: null, error: { message: 'Not authorised to report this trip' } }, { status: 403 });
       }
     }

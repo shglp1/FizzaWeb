@@ -135,6 +135,7 @@ export async function GET(request: NextRequest) {
       payment,
       result.status,
       myfatoorahKeyType === 'PaymentId' ? myfatoorahKey : undefined,
+      result.invoiceValue,
     );
 
     if (processResult.subscriptionActivated && processResult.subscriptionId) {

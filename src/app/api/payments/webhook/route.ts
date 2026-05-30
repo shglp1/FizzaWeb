@@ -19,9 +19,14 @@ import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rateLimit'
 function verifyWebhookSignature(rawBody: string, signatureHeader: string | null): boolean {
   const secret = getWebhookSecret();
   if (!secret) {
-    // Secret not configured — skip verification (dev/staging without portal access).
-    // In production, MYFATOORAH_WEBHOOK_SECRET must always be set.
-    console.warn('[webhook] MYFATOORAH_WEBHOOK_SECRET is not set — skipping signature verification');
+    // Fail CLOSED in production: a missing webhook secret must never allow
+    // unauthenticated payloads to drive payment processing. Only skip
+    // verification in non-production (dev/staging without portal access).
+    if (process.env.NODE_ENV === 'production') {
+      console.error('[webhook] MYFATOORAH_WEBHOOK_SECRET is not set in production — rejecting webhook');
+      return false;
+    }
+    console.warn('[webhook] MYFATOORAH_WEBHOOK_SECRET is not set — skipping signature verification (non-production only)');
     return true;
   }
 
@@ -165,7 +170,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Delegate to shared processing helper
-    const processResult = await applyPaymentOutcome(payment, result.status, PaymentId);
+    const processResult = await applyPaymentOutcome(payment, result.status, PaymentId, result.invoiceValue);
 
     if (processResult.subscriptionActivated && processResult.subscriptionId) {
       await triggerTripGenerationAfterPayment(processResult.subscriptionId);

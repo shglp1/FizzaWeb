@@ -169,6 +169,39 @@ Drivers are now blocked from assignment if `availability === false` (on both the
 
 ---
 
+## Security Operations: GPS Retention & Key Rotation
+
+### GPS / Location Data Retention
+
+Driver GPS pings are stored in `driver_locations`. There is currently **no
+automated purge** of historical location rows. To limit privacy exposure and
+table growth:
+
+- **Recommended policy**: retain raw `driver_locations` for **30 days**, then
+  hard-delete. Trip-level summaries (start/end, distance) are retained on the
+  `Trip` record and are sufficient for billing/audit beyond that window.
+- **Implementation (future)**: a scheduled cron (e.g. `GET /api/cron/gps/purge`,
+  gated by `CRON_SECRET`) running `DELETE FROM driver_locations WHERE created_at < now() - interval '30 days'`.
+- Until the purge job exists, document the retention gap for the privacy review
+  and avoid logging full coordinates anywhere (already enforced — only ages and
+  staleness flags are logged).
+
+### Secret / Key Rotation
+
+Rotate the following before production and on a regular cadence (or immediately
+on suspected compromise):
+
+- `SESSION_SECRET` — JWT signing key (now enforced to be ≥ 32 chars at boot).
+  Rotating invalidates all active sessions (users must re-login); acceptable
+  given the 30-day stateless tokens.
+- `MYFATOORAH_API_KEY` and `MYFATOORAH_WEBHOOK_SECRET` — the webhook secret is
+  now **fail-closed in production** (missing secret rejects all webhooks).
+- `ORS_API_KEY` (OpenRouteService) and any `R2_*` storage credentials.
+- The real keys currently present in the local `.env` (gitignored, not
+  committed) must be rotated before go-live.
+
+---
+
 ## Summary
 
 | Severity | Count | All resolved? |

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { randomUUID } from 'crypto';
 import { prisma } from '@/lib/prisma';
-import { requireAuth } from '@/lib/session';
+import { requireFamilyParent } from '@/lib/session';
 import { paySubscriptionSchema } from '@/lib/validations/wallet';
 import { awardLoyaltyPointsForPayment } from '@/lib/loyalty/awardLoyaltyPoints';
 import { redeemLoyaltyPointsOnPayment } from '@/lib/loyalty/redeemLoyaltyPoints';
@@ -9,7 +9,7 @@ import { recordPromoRedemption } from '@/lib/promo/promoCode';
 
 export async function POST(request: NextRequest) {
   try {
-    const auth = await requireAuth();
+    const auth = await requireFamilyParent();
     if (auth instanceof NextResponse) return auth;
 
     const userId = auth.userId;
@@ -103,6 +103,17 @@ export async function POST(request: NextRequest) {
     let paymentId = randomUUID();
 
     await prisma.$transaction(async (tx) => {
+      // Atomic claim: flip the subscription PENDING -> PAID as the FIRST write so
+      // two concurrent POSTs serialize on this row. Only the winner proceeds to
+      // debit the wallet; the loser aborts (mapped to 409) — prevents double-charge.
+      const claim = await tx.userSubscription.updateMany({
+        where: { id: subscriptionId, paymentStatus: 'PENDING' },
+        data: { paymentStatus: 'PAID', status: 'ACTIVE' },
+      });
+      if (claim.count === 0) {
+        throw new Error('Subscription already paid');
+      }
+
       // Re-read wallet inside tx for pessimistic check
       const walletInTx = await tx.wallet.findUnique({ where: { id: wallet.id } });
       if (!walletInTx) throw new Error('Wallet not found');
@@ -138,10 +149,7 @@ export async function POST(request: NextRequest) {
         },
       });
 
-      await tx.userSubscription.update({
-        where: { id: subscriptionId },
-        data: { paymentStatus: 'PAID', status: 'ACTIVE' },
-      });
+      // Subscription was already flipped to PAID/ACTIVE by the atomic claim above.
 
       if (subscription.promoCodeId) {
         const subtotal = Number(subscription.subtotalSar ?? subscription.finalPriceSar);

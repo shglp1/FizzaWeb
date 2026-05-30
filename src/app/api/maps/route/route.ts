@@ -25,6 +25,18 @@ export async function GET(req: Request) {
       );
     }
 
+    const latInRange = (v: number) => v >= -90 && v <= 90;
+    const lngInRange = (v: number) => v >= -180 && v <= 180;
+    if (
+      !latInRange(pickupLat) || !lngInRange(pickupLng) ||
+      !latInRange(dropoffLat) || !lngInRange(dropoffLng)
+    ) {
+      return NextResponse.json(
+        { data: null, error: { message: 'Coordinates are out of range.' } },
+        { status: 400 },
+      );
+    }
+
     const result = await getRouteGeometryFromCoords(
       { lat: pickupLat, lng: pickupLng },
       { lat: dropoffLat, lng: dropoffLng },

@@ -22,7 +22,7 @@ export async function GET(req: Request) {
       error: null,
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Internal Server Error';
-    return NextResponse.json({ data: null, error: { message } }, { status: 500 });
+    console.error('[GET /api/cron/trips/generate]', err);
+    return NextResponse.json({ data: null, error: { message: 'Internal server error' } }, { status: 500 });
   }
 }

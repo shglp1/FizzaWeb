@@ -4,9 +4,17 @@ import { prisma } from '@/lib/prisma';
 import { requireRole } from '@/lib/session';
 import { applyWalletAdjustment, WalletOperationError } from '@/lib/financials/walletOps';
 
+const MAX_ADJUSTMENT_SAR = 100000;
+
 const adjustmentSchema = z.object({
   userId: z.string().uuid(),
-  amountSar: z.number().refine((n) => n !== 0, { message: 'Amount cannot be zero' }),
+  amountSar: z
+    .number()
+    .finite()
+    .refine((n) => n !== 0, { message: 'Amount cannot be zero' })
+    .refine((n) => Math.abs(n) <= MAX_ADJUSTMENT_SAR, {
+      message: `Amount must not exceed SAR ${MAX_ADJUSTMENT_SAR}`,
+    }),
   reason: z.string().min(10, 'Reason must be at least 10 characters').max(1000),
   tripId: z.string().uuid().optional(),
 });

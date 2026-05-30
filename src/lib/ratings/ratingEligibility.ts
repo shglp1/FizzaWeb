@@ -4,6 +4,7 @@
 
 import { prisma } from '../prisma.ts';
 import { getTripBusinessDateKey } from '../time/businessTimezone.ts';
+import { BusinessError } from '../errors.ts';
 
 export type RatingEligibility = {
   eligible: boolean;
@@ -105,7 +106,7 @@ export async function submitServiceDayRating(input: {
 }) {
   const eligibility = await checkRatingEligibility(input.tripId, input.parentId);
   if (!eligibility.eligible || !eligibility.serviceDate) {
-    throw new Error(eligibility.reason ?? 'Not eligible to rate');
+    throw new BusinessError(eligibility.reason ?? 'Not eligible to rate');
   }
 
   const trip = await prisma.trip.findUniqueOrThrow({
