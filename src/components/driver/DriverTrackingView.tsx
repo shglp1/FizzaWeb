@@ -18,7 +18,7 @@ import {
 } from '@/components/driver/DriverUI';
 import { TripTrackingMap } from '@/components/tracking/TripTrackingMap';
 import { Card, StatusBadge, Button } from '@/components/ui';
-import { TRIP_STATUS_LABEL, isTrackableStatus } from '@/lib/trips/tripLifecycle';
+import { TRIP_STATUS_LABEL, isTrackableStatus, isActiveStatus } from '@/lib/trips/tripLifecycle';
 import type { TripStatus } from '@/lib/trips/tripLifecycle';
 import { MapPin, XCircle, Info, CheckCircle2, CircleOff, MessageSquare } from 'lucide-react';
 import { tripToGoogleMapsUrl } from '@/lib/maps/googleMapsLink';
@@ -339,6 +339,8 @@ export function DriverTrackingView({
           <DriverGpsPanel
             tripId={trip.id}
             withinWindow={isWithinTrackingWindow(trip.scheduledPickupTime)}
+            autoStart={isActiveStatus(trip.status as TripStatus)}
+            isTerminal={['COMPLETED', 'CANCELLED', 'NO_SHOW'].includes(trip.status)}
             onSharingChange={setGpsSharing}
           />
           {driverAction && driverAction.kind === 'status' && driverAction.nextStatus && (

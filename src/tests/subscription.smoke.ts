@@ -134,6 +134,23 @@ describe('subscriptionCreateSchema', () => {
     const r = subscriptionCreateSchema.safeParse({ ...validPayload, weekdays: [5, 6] });
     assert.ok(r.success);
   });
+
+  it('accepts local upload paths for location photos', () => {
+    const r = subscriptionCreateSchema.safeParse({
+      ...validPayload,
+      pickupPhotoUrl: '/uploads/subscription-locations/user/pickup/abc.jpg',
+      dropoffPhotoUrl: 'https://cdn.example.com/subscription-locations/user/dropoff/def.jpg',
+    });
+    assert.ok(r.success, JSON.stringify(r.error?.issues));
+  });
+
+  it('rejects invalid photo URL shapes', () => {
+    const r = subscriptionCreateSchema.safeParse({
+      ...validPayload,
+      pickupPhotoUrl: 'not-a-valid-url',
+    });
+    assert.ok(!r.success);
+  });
 });
 
 // ─── subscriptionUpdateSchema ─────────────────────────────────────────────────

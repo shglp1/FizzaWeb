@@ -75,10 +75,10 @@ export async function POST(
       );
     }
 
-    // Verify driver exists and is not suspended
+    // Verify driver exists, is not suspended, and is available
     const driver = await prisma.driver.findUnique({
       where: { id: driverId },
-      select: { id: true, isSuspended: true, profile: { select: { fullName: true } } },
+      select: { id: true, isSuspended: true, availability: true, profile: { select: { fullName: true } } },
     });
     if (!driver) {
       return NextResponse.json(
@@ -89,6 +89,12 @@ export async function POST(
     if (driver.isSuspended) {
       return NextResponse.json(
         { data: null, error: { message: 'Cannot assign a suspended driver' } },
+        { status: 422 },
+      );
+    }
+    if (!driver.availability) {
+      return NextResponse.json(
+        { data: null, error: { message: 'Driver is marked unavailable' } },
         { status: 422 },
       );
     }

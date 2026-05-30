@@ -408,13 +408,17 @@ export async function processTripWalletCredit(input: {
     });
   } catch (err) {
     if (isPrismaUniqueViolation(err)) {
-      return buildDuplicateCreditResult(prisma, {
-        tripId: input.tripId,
-        adminUserId: input.adminUserId,
-        reason: input.reason,
-        preview,
-        idempotencyKey,
-      });
+      // Run the duplicate-recovery path inside its own transaction so the
+      // trip.walletCreditTransactionId update is atomic with the lookups.
+      return prisma.$transaction(async (tx) =>
+        buildDuplicateCreditResult(tx, {
+          tripId: input.tripId,
+          adminUserId: input.adminUserId,
+          reason: input.reason,
+          preview,
+          idempotencyKey,
+        }),
+      );
     }
     throw err;
   }

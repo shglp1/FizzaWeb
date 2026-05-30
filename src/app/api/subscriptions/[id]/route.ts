@@ -2,6 +2,10 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireAuth } from '@/lib/session';
 import { subscriptionUpdateSchema } from '@/lib/validations/subscription';
+import {
+  cancelNonTerminalTripsForSubscription,
+  notifySubscriptionTripsCancelled,
+} from '@/lib/subscriptions/subscriptionTripLifecycle';
 
 function getIp(req: Request): string | null {
   return (
@@ -109,7 +113,9 @@ export async function DELETE(
       );
     }
 
-    const subscription = await prisma.$transaction(async (tx) => {
+    const tripReason = 'Subscription cancelled by parent — future trips voided';
+
+    const { subscription, tripsCancelled, driverProfileIds } = await prisma.$transaction(async (tx) => {
       const sub = await tx.userSubscription.update({
         where: { id },
         data: { status: 'CANCELLED' },
@@ -133,10 +139,31 @@ export async function DELETE(
         },
       });
 
-      return sub;
+      const cancelResult = await cancelNonTerminalTripsForSubscription(tx, {
+        subscriptionId: id,
+        reason: tripReason,
+        cancelledByUserId: auth.userId,
+        auditAction: 'SUBSCRIPTION_CANCEL_TRIPS_VOIDED',
+        subscriptionStatus: 'CANCELLED',
+      });
+
+      return {
+        subscription: sub,
+        tripsCancelled: cancelResult.cancelledCount,
+        driverProfileIds: cancelResult.notifiedDriverProfileIds,
+      };
     });
 
-    return NextResponse.json({ data: subscription, error: null });
+    if (tripsCancelled > 0) {
+      await notifySubscriptionTripsCancelled({
+        parentUserId: auth.userId,
+        driverProfileIds,
+        cancelledCount: tripsCancelled,
+        reason: tripReason,
+      });
+    }
+
+    return NextResponse.json({ data: { ...subscription, tripsCancelled }, error: null });
   } catch {
     return NextResponse.json(
       { data: null, error: { message: 'Internal Server Error' } },

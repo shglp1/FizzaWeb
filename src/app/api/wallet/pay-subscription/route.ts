@@ -121,6 +121,7 @@ export async function POST(request: NextRequest) {
           walletId: wallet.id,
           amountSar: total,
           txType: 'SUBSCRIPTION_PAYMENT',
+          source: 'SUBSCRIPTION_PAYMENT',
           description: 'Payment for subscription',
         },
       });

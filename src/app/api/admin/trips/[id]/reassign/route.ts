@@ -1,6 +1,7 @@
 /**
  * PATCH /api/admin/trips/[id]/reassign
- * Reassign driver for a single trip with reason and conflict check.
+ * Reassign driver for a single trip with reason and full timeline feasibility check.
+ * Uses the same decideTripDispatch logic as assign-driver to prevent timeline conflicts.
  */
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
@@ -8,6 +9,9 @@ import { requireRole } from '@/lib/session';
 import { z } from 'zod';
 import { notifyDriverAssigned } from '@/lib/trips/tripNotifications';
 import { recordTripEventOnce } from '@/lib/trips/tripEvents';
+import { getDispatchConfig } from '@/lib/dispatch/config';
+import { decideTripDispatch } from '@/lib/dispatch/generateTrips';
+import type { TimelineTrip } from '@/lib/dispatch/types';
 
 const reassignSchema = z.object({
   driverId: z.string().uuid(),
@@ -43,6 +47,7 @@ export async function PATCH(
     const trip = await prisma.trip.findUnique({
       where: { id },
       include: { driver: { include: { profile: true } } },
+      // select is not used here; include brings full trip for driver and scheduledDate etc.
     });
     if (!trip) {
       return NextResponse.json({ data: null, error: { message: 'Trip not found' } }, { status: 404 });
@@ -55,29 +60,42 @@ export async function PATCH(
       where: { id: driverId },
       include: { vehicle: true, profile: { select: { id: true, fullName: true } } },
     });
-    if (!newDriver || newDriver.isSuspended || !newDriver.vehicleId) {
-      return NextResponse.json({ data: null, error: { message: 'Driver unavailable or missing vehicle' } }, { status: 400 });
+    if (!newDriver) {
+      return NextResponse.json({ data: null, error: { message: 'Driver not found' } }, { status: 404 });
+    }
+    if (newDriver.isSuspended) {
+      return NextResponse.json({ data: null, error: { message: 'Cannot reassign to a suspended driver' } }, { status: 400 });
+    }
+    if (!newDriver.availability) {
+      return NextResponse.json({ data: null, error: { message: 'Driver is marked unavailable' } }, { status: 400 });
+    }
+    if (!newDriver.vehicleId || !newDriver.vehicle) {
+      return NextResponse.json({ data: null, error: { message: 'Driver does not have an assigned vehicle' } }, { status: 400 });
     }
 
-    if (trip.scheduledPickupTime) {
-      const conflict = await prisma.trip.findFirst({
-        where: {
-          id: { not: id },
-          driverId,
-          status: { notIn: ['COMPLETED', 'CANCELLED', 'NO_SHOW'] },
-          scheduledPickupTime: {
-            gte: new Date(trip.scheduledPickupTime.getTime() - 30 * 60 * 1000),
-            lte: new Date(trip.scheduledPickupTime.getTime() + 30 * 60 * 1000),
-          },
-        },
-        select: { id: true },
-      });
-      if (conflict) {
-        return NextResponse.json({
-          data: null,
-          error: { message: 'Driver has a conflicting trip within 30 minutes' },
-        }, { status: 409 });
-      }
+    // Full timeline feasibility check — same logic as assign-driver to prevent conflicts
+    const config = await getDispatchConfig();
+    const candidate: TimelineTrip = {
+      id: trip.id,
+      scheduledPickupTime: trip.scheduledPickupTime,
+      scheduledDropoffTime: trip.scheduledDropoffTime,
+      pickupLat: trip.pickupLat,
+      pickupLng: trip.pickupLng,
+      dropoffLat: trip.dropoffLat,
+      dropoffLng: trip.dropoffLng,
+    };
+    const decision = await decideTripDispatch({
+      candidate,
+      driverId,
+      scheduledDate: trip.scheduledDate,
+      driverDayCache: new Map(),
+      config,
+    });
+    if (!decision.assignDriver) {
+      return NextResponse.json({
+        data: null,
+        error: { message: decision.dispatchNote ?? 'Driver timeline conflict — choose another driver or adjust schedule' },
+      }, { status: 409 });
     }
 
     const oldDriverProfileId = trip.driver?.profile?.id ?? null;

@@ -80,7 +80,7 @@ export async function POST(req: Request) {
       const status = err.code === 'USER_NOT_FOUND' ? 404 : 400;
       return NextResponse.json({ data: null, error: { message: err.message } }, { status });
     }
-    const msg = err instanceof Error ? err.message : 'Internal Server Error';
-    return NextResponse.json({ data: null, error: { message: msg } }, { status: 500 });
+    console.error('[POST /api/admin/wallet-adjustments]', err);
+    return NextResponse.json({ data: null, error: { message: 'Internal Server Error' } }, { status: 500 });
   }
 }

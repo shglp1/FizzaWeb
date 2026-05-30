@@ -26,10 +26,16 @@ const STALE_MS = 60_000;
 export function DriverGpsPanel({
   tripId,
   withinWindow = true,
+  autoStart = false,
+  isTerminal = false,
   onSharingChange,
 }: {
   tripId: string;
   withinWindow?: boolean;
+  /** When true, automatically start GPS sharing once permission is known to be granted. */
+  autoStart?: boolean;
+  /** When true, stop GPS sharing immediately (trip completed or cancelled). */
+  isTerminal?: boolean;
   onSharingChange?: (active: boolean) => void;
 }) {
   const [permissionState, setPermissionState] = useState<GpsPermissionUiState>('unknown');
@@ -38,6 +44,7 @@ export function DriverGpsPanel({
   const watchIdRef = useRef<number | null>(null);
   const lastSentRef = useRef<{ time: number; lat: number; lng: number } | null>(null);
   const promptAttemptedRef = useRef(false);
+  const autoStartFiredRef = useRef(false);
 
   const probePermission = useCallback(async () => {
     if (!navigator.geolocation) {
@@ -77,6 +84,31 @@ export function DriverGpsPanel({
   useEffect(() => {
     onSharingChange?.(status.kind === 'sharing');
   }, [status, onSharingChange]);
+
+  // Auto-start: when autoStart is true and permission is granted and window is open,
+  // start GPS sharing automatically without requiring driver to tap a button.
+  useEffect(() => {
+    if (
+      autoStart &&
+      withinWindow &&
+      !isTerminal &&
+      !autoStartFiredRef.current &&
+      permissionState === 'granted' &&
+      status.kind === 'idle'
+    ) {
+      autoStartFiredRef.current = true;
+      startSharing();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoStart, withinWindow, isTerminal, permissionState]);
+
+  // Auto-stop: when the trip reaches a terminal state, stop GPS sharing.
+  useEffect(() => {
+    if (isTerminal && status.kind === 'sharing') {
+      stopSharing();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isTerminal]);
 
   function shouldSend(lat: number, lng: number): boolean {
     const prev = lastSentRef.current;

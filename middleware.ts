@@ -124,6 +124,27 @@ export async function middleware(req: NextRequest) {
     return NextResponse.redirect(new URL('/dashboard', req.url));
   }
 
+  // ── DRIVER_APPLICANT route restriction ────────────────────────────────────
+  // Users who registered via the driver portal (registrationSource = 'DRIVER_PORTAL')
+  // and have not yet been approved (role = 'PARENT') must be confined to a
+  // small allow-list. Block access to parent-only sections to prevent data leakage.
+  const DRIVER_APPLICANT_ALLOWED = [
+    '/dashboard',
+    '/driver-application',
+    '/notifications',
+    '/profile',
+    '/forbidden',
+  ];
+  if (
+    role === 'PARENT' &&
+    session.registrationSource === 'DRIVER_PORTAL' &&
+    !DRIVER_APPLICANT_ALLOWED.some(
+      (p) => pathname === p || pathname.startsWith(p + '/'),
+    )
+  ) {
+    return NextResponse.redirect(new URL('/driver-application', req.url));
+  }
+
   return NextResponse.next();
 }
 

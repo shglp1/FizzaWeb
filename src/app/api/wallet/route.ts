@@ -30,6 +30,8 @@ export async function GET(request: NextRequest) {
             id: true,
             amountSar: true,
             txType: true,
+            source: true,
+            reason: true,
             description: true,
             createdAt: true,
           },

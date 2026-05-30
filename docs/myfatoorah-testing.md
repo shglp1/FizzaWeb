@@ -219,4 +219,4 @@ If `MYFATOORAH_API_KEY` or `MYFATOORAH_BASE_URL` are not set:
 1. **Real MyFatoorah credentials not yet available** — demo account activation required.
 2. **Webhook endpoint requires public URL** — local development requires a tunnel (ngrok/Cloudflare Tunnel).
 3. **Real database end-to-end testing** — the smoke tests cover validation logic only. DB integration tests against a real MySQL instance are still required.
-4. **Webhook signature verification** — `MYFATOORAH_WEBHOOK_SECRET` is captured but signature verification against the `Signature` header is recommended before production launch. Refer to the MyFatoorah webhook docs for the exact HMAC format.
+4. **Webhook signature verification** — HMAC-SHA256 verification against the `Signature` header is implemented. Set `MYFATOORAH_WEBHOOK_SECRET` in `.env` to enable enforcement. Without it, signature verification is skipped with a server-side warning (acceptable for local dev without a real portal).

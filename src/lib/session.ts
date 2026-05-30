@@ -9,8 +9,12 @@ import {
 } from './auth';
 
 /** Issue JWT and set the httpOnly session cookie (same as login). */
-export async function setSessionCookie(userId: string, role: string): Promise<void> {
-  const token = await signToken(userId, role);
+export async function setSessionCookie(
+  userId: string,
+  role: string,
+  registrationSource?: string,
+): Promise<void> {
+  const token = await signToken(userId, role, registrationSource);
   const cookieStore = await cookies();
   cookieStore.set(SESSION_COOKIE, token, SESSION_COOKIE_OPTIONS);
 }

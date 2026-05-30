@@ -1,6 +1,8 @@
 /**
  * GET /api/admin/trips/[id]/available-drivers
  * Drivers with feasibility preview for manual assignment (uses existing dispatch logic).
+ * Response includes city, serviceArea, availability, lastGpsAt, and a cityMatch hint
+ * so admin can make informed geographic assignment decisions.
  */
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
@@ -59,11 +61,18 @@ export async function GET(
         id: true,
         availability: true,
         rating: true,
+        city: true,
+        serviceArea: true,
         profile: { select: { fullName: true, phone: true } },
         vehicle: { select: { model: true, plateNumber: true, color: true, capacity: true } },
         trips: {
           where: { scheduledDate: { gte: dayStart, lt: dayEnd }, status: { notIn: ['CANCELLED'] } },
           select: { id: true },
+        },
+        locations: {
+          orderBy: { recordedAt: 'desc' },
+          take: 1,
+          select: { recordedAt: true },
         },
       },
       orderBy: [{ availability: 'desc' }, { rating: 'desc' }],
@@ -79,16 +88,33 @@ export async function GET(
           driverDayCache,
           config,
         });
+
+        const lastGpsAt = d.locations[0]?.recordedAt ?? null;
+        const lastGpsAgeSeconds = lastGpsAt
+          ? Math.round((Date.now() - new Date(lastGpsAt).getTime()) / 1000)
+          : null;
+
+        // cityMatch is null until subscription city can be derived (future: reverse-geocode pickup coords).
+        // Admin can compare driver.city visually against the subscription pickup area.
+        const cityMatch: boolean | null = null;
+
         return {
           id: d.id,
           fullName: d.profile?.fullName ?? 'Driver',
           phone: d.profile?.phone ?? null,
           availability: d.availability,
           rating: d.rating ? Number(d.rating) : null,
+          city: d.city ?? null,
+          serviceArea: d.serviceArea ?? null,
+          cityMatch,
           vehicle: d.vehicle,
           tripsToday: d.trips.length,
+          lastGpsAt,
+          lastGpsAgeSeconds,
           feasible: decision.assignDriver,
-          conflictReason: decision.dispatchNote,
+          conflictReason: d.availability === false
+            ? 'Driver is marked unavailable'
+            : (decision.dispatchNote ?? null),
         };
       }),
     );

@@ -1,5 +1,7 @@
 /** Pure helpers for Admin Trips UI — formatters, filters, labels (testable). */
 
+import { classifyTripForRole } from '../trips/tripClassification.ts';
+
 export type GenerateTripsResult = {
   generatedCount?: number;
   confirmedCount?: number;
@@ -85,16 +87,44 @@ export function getTripCardBadges(trip: {
   needsDispatch?: boolean;
   dispatchNote?: string | null;
   status?: string;
+  scheduledDate?: string;
+  scheduledPickupTime?: string | null;
   driver?: unknown | null;
   gpsStale?: boolean;
   chatFlagged?: boolean;
   safetyCount?: number;
+  subscription?: { status?: string | null } | null;
 }): TripCardBadge[] {
   const badges: TripCardBadge[] = [];
   if (trip.needsDispatch) {
     badges.push({ key: 'needs-dispatch', label: 'Needs dispatch', variant: 'warning' });
   } else if (!trip.driver && ['SCHEDULED', 'DRIVER_ASSIGNED'].includes(trip.status ?? '')) {
     badges.push({ key: 'unassigned', label: 'Unassigned', variant: 'warning' });
+  }
+  if (
+    trip.subscription?.status
+    && trip.subscription.status !== 'ACTIVE'
+    && !['COMPLETED', 'CANCELLED', 'NO_SHOW'].includes(trip.status ?? '')
+  ) {
+    badges.push({
+      key: 'inactive-sub',
+      label: `Subscription ${trip.subscription.status.toLowerCase().replace(/_/g, ' ')}`,
+      variant: 'gray',
+    });
+  }
+  if (trip.status && trip.scheduledDate) {
+    const c = classifyTripForRole(
+      {
+        status: trip.status,
+        scheduledDate: trip.scheduledDate,
+        scheduledPickupTime: trip.scheduledPickupTime ?? null,
+        needsDispatch: trip.needsDispatch,
+      },
+      { role: 'ADMIN' },
+    );
+    if (c.isStale || c.category === 'missed_pickup' || c.category === 'stale') {
+      badges.push({ key: 'stale', label: 'Stale — needs review', variant: 'warning' });
+    }
   }
   if (trip.gpsStale) badges.push({ key: 'gps', label: 'GPS stale', variant: 'danger' });
   if (trip.chatFlagged) badges.push({ key: 'chat', label: 'Chat flagged', variant: 'danger' });

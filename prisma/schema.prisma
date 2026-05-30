@@ -395,6 +395,10 @@ model Driver {
   rating           Decimal?         @default(5.0) @db.Decimal(2, 1)
   isSuspended      Boolean          @default(false) @map("is_suspended")
   suspensionReason String?          @map("suspension_reason") @db.Text
+  /// City the driver operates in — copied from approved DriverApplication on admin approval.
+  city             String?
+  /// Service area(s) — free-text copied from approved DriverApplication. Used by admin for geographic assignment guidance.
+  serviceArea      String?          @map("service_area")
   createdAt        DateTime         @default(now()) @map("created_at")
   updatedAt        DateTime         @updatedAt @map("updated_at")
   profile               Profile?                       @relation(fields: [profileId], references: [id], onDelete: Cascade)
@@ -411,6 +415,7 @@ model Driver {
 
   @@index([profileId])
   @@index([isSuspended])
+  @@index([city])
   @@map("drivers")
 }
 
@@ -534,6 +539,7 @@ model WalletTransaction {
   @@index([createdAt])
   @@index([tripId])
   @@index([source])
+  @@index([adminUserId])
   @@map("wallet_transactions")
 }
 
@@ -691,6 +697,8 @@ model SystemConfiguration {
   key       String   @id
   value     Json
   updatedAt DateTime @updatedAt @map("updated_at")
+  /// Profile ID of the admin who last changed this setting — for audit purposes.
+  updatedBy String?  @map("updated_by")
 
   @@map("system_configurations")
 }

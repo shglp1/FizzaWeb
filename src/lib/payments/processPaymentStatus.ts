@@ -106,6 +106,7 @@ export async function applyPaymentOutcome(
             paymentId: payment.id,
             amountSar: payment.amountSar as never, // Prisma Decimal
             txType: 'TOP_UP',
+            source: 'TOP_UP',
             description: 'Online top-up via MyFatoorah',
           },
         });

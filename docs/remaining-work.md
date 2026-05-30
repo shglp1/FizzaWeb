@@ -50,11 +50,7 @@ The `/api/auth/login` endpoint has no brute-force protection. An attacker can at
 
 ### 5. HTTP security headers
 
-No `Content-Security-Policy`, `X-Frame-Options`, or `X-Content-Type-Options` headers are set. Required for passing standard security audits.
-
-**What to do**: Add a `headers()` function to `next.config.ts`. See `docs/security-review.md` for the recommended configuration.
-
-**Status**: ⚠️ Not implemented — estimated 30 minutes.
+**Status**: ✅ RESOLVED — `Content-Security-Policy`, `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, `Strict-Transport-Security`, and `Permissions-Policy` are all configured in the `headers()` function in `next.config.ts`.
 
 ---
 
@@ -132,11 +128,50 @@ No mobile push notification system. Would require a mobile app or PWA with a pus
 
 ---
 
+## Implemented Enterprise Audit Fixes (May 2026)
+
+The following gaps were identified in the Enterprise Audit (Phases 1–17) and resolved in the Phase 18 implementation pass:
+
+### GPS Sharing: Manual vs Auto-Start
+
+`DriverGpsPanel` now supports two modes:
+
+| Mode | Behaviour |
+|---|---|
+| **Manual** (default) | Driver taps "Enable GPS sharing". Used when `autoStart={false}`. |
+| **Auto-start** | GPS sharing starts automatically when `autoStart={true}`, `permissionState === 'granted'`, `withinWindow`, and trip status is an active status (`isActiveStatus()`). The driver does not need to tap anything. |
+| **Auto-stop** | When `isTerminal={true}` (trip COMPLETED, CANCELLED, NO_SHOW), sharing stops automatically. |
+
+`DriverTrackingView` wires `autoStart={isActiveStatus(trip.status)}` and `isTerminal` automatically. Drivers on active trips will have GPS start automatically once the browser has previously granted geolocation permission.
+
+**Note**: GPS is stopped when the driver navigates away from the page (watchPosition cleanup on unmount). Persistent background GPS requires a Progressive Web App with a service worker — a future enhancement.
+
+---
+
+### Driver City and Service Area Matching
+
+The `Driver` model now has `city` and `serviceArea` fields (nullable). These are populated automatically when an admin approves a `DriverApplication`: the values are copied from the application.
+
+**Admin available-drivers endpoint** (`GET /api/admin/trips/[id]/available-drivers`) now returns:
+
+| Field | Description |
+|---|---|
+| `city` | Driver's declared operating city |
+| `serviceArea` | Driver's declared service area text |
+| `availability` | Whether the driver is marked available |
+| `lastGpsAt` | Timestamp of driver's last GPS update |
+| `lastGpsAgeSeconds` | Age of last GPS update in seconds |
+| `cityMatch` | `true`/`false`/`null` — whether driver city matches trip city (null if either is unknown) |
+
+Drivers are now blocked from assignment if `availability === false` (on both the single-trip assign and subscription assign-driver endpoints, and the reassign endpoint).
+
+---
+
 ## Summary
 
 | Severity | Count | All resolved? |
 |---|---|---|
-| 🔴 Critical blockers | 5 | ❌ No |
+| 🔴 Critical blockers | 4 | ❌ No (security headers resolved; 4 remain) |
 | 🟡 Important pre-launch | 6 | ❌ No |
 | 🟢 Nice to have | 5 | — |
 

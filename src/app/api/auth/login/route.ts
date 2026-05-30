@@ -23,7 +23,16 @@ export async function POST(req: Request) {
     }
 
     const { email, password } = parsed.data;
-    const user = await prisma.user.findUnique({ where: { email } });
+    const user = await prisma.user.findUnique({
+      where: { email },
+      select: {
+        id: true,
+        email: true,
+        role: true,
+        passwordHash: true,
+        profile: { select: { registrationSource: true } },
+      },
+    });
 
     // Always run bcrypt.compare to prevent timing-based email enumeration
     const passwordHash = user?.passwordHash ?? '$2b$10$invalidhashtopreventtimingattack';
@@ -36,7 +45,8 @@ export async function POST(req: Request) {
       );
     }
 
-    await setSessionCookie(user.id, user.role);
+    const registrationSource = user.profile?.registrationSource ?? undefined;
+    await setSessionCookie(user.id, user.role, registrationSource);
 
     return NextResponse.json({
       data: { user: { id: user.id, email: user.email, role: user.role } },

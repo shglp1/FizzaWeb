@@ -5,6 +5,8 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   getDashboardPathForRole,
   isRouteAllowedForRole,
@@ -99,6 +101,52 @@ describe('getNavigationForRole', () => {
   it('ADMIN nav includes /admin', () => {
     const { main } = getNavigationForRole('ADMIN');
     assert.ok(main.some((i) => i.href === '/admin'));
+  });
+});
+
+describe('Admin financial endpoint role enforcement', () => {
+  it('/api/admin/wallet-adjustments enforces ADMIN role via requireRole', () => {
+    const src = readFileSync(
+      join(process.cwd(), 'src/app/api/admin/wallet-adjustments/route.ts'),
+      'utf8',
+    );
+    assert.ok(
+      src.includes("requireRole(['ADMIN'])"),
+      '/api/admin/wallet-adjustments must call requireRole([ADMIN])',
+    );
+  });
+
+  it('/api/admin/wallet-transactions enforces ADMIN role via requireRole', () => {
+    const src = readFileSync(
+      join(process.cwd(), 'src/app/api/admin/wallet-transactions/route.ts'),
+      'utf8',
+    );
+    assert.ok(
+      src.includes("requireRole(['ADMIN'])"),
+      '/api/admin/wallet-transactions must call requireRole([ADMIN])',
+    );
+  });
+
+  it('/api/admin/trips/[id]/financial-review enforces ADMIN role', () => {
+    const src = readFileSync(
+      join(process.cwd(), 'src/app/api/admin/trips/[id]/financial-review/route.ts'),
+      'utf8',
+    );
+    assert.ok(
+      src.includes("requireRole(['ADMIN'])"),
+      'financial-review route must call requireRole([ADMIN])',
+    );
+  });
+
+  it('/api/admin/trips/[id]/financial-review/credit-preview enforces ADMIN role', () => {
+    const src = readFileSync(
+      join(process.cwd(), 'src/app/api/admin/trips/[id]/financial-review/credit-preview/route.ts'),
+      'utf8',
+    );
+    assert.ok(
+      src.includes("requireRole(['ADMIN'])"),
+      'credit-preview route must call requireRole([ADMIN])',
+    );
   });
 });
 

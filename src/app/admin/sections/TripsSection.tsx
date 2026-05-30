@@ -57,6 +57,7 @@ type AdminTrip = {
   subscription: {
     id: string;
     subscriptionType: string;
+    status?: string;
     user?: { fullName: string } | null;
   } | null;
 };

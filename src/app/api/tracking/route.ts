@@ -8,6 +8,7 @@ import { prisma } from '@/lib/prisma';
 import { requireAuth } from '@/lib/session';
 import { riyadhTodayDateFloor } from '@/lib/trips/tripApiFilters';
 import { filterTripsForRoleApi } from '@/lib/trips/tripApiFilters';
+import { operationalSubscriptionTripFilter } from '@/lib/subscriptions/subscriptionTripLifecycle';
 
 const TRACKABLE_STATUSES = [
   'DRIVER_ASSIGNED', 'PRE_TRIP', 'ON_THE_WAY',
@@ -19,7 +20,9 @@ export async function GET(_req: Request) {
     const auth = await requireAuth();
     if (auth instanceof NextResponse) return auth;
 
-    // Drivers see their own active/upcoming trips
+    const operationalSubFilter = operationalSubscriptionTripFilter();
+
+    // Drivers see their own active/upcoming trips (ACTIVE subscription only)
     if (auth.role === 'DRIVER') {
       const driver = await prisma.driver.findFirst({
         where: { profileId: auth.userId },
@@ -28,10 +31,16 @@ export async function GET(_req: Request) {
       if (!driver) return NextResponse.json({ data: { trips: [] }, error: null });
 
       const trips = await prisma.trip.findMany({
-        where: { driverId: driver.id, status: { in: [...TRACKABLE_STATUSES] } },
+        where: {
+          AND: [
+            { driverId: driver.id, status: { in: [...TRACKABLE_STATUSES] } },
+            operationalSubFilter,
+          ],
+        },
         select: {
           id: true, status: true, scheduledDate: true,
           scheduledPickupTime: true, pickupLocation: true, dropoffLocation: true,
+          legType: true,
           rider: { select: { name: true } },
         },
         orderBy: [{ scheduledDate: 'asc' }, { scheduledPickupTime: 'asc' }],
@@ -39,28 +48,41 @@ export async function GET(_req: Request) {
       return NextResponse.json({ data: { trips, total: trips.length }, error: null });
     }
 
-    // Parents see trips linked to their subscriptions or riders
-    const [subscriptions, riders] = await Promise.all([
-      prisma.userSubscription.findMany({ where: { userId: auth.userId }, select: { id: true } }),
+    // Parents see trips linked to ACTIVE subscriptions or riders without sub link
+    const [activeSubscriptions, riders] = await Promise.all([
+      prisma.userSubscription.findMany({
+        where: { userId: auth.userId, status: 'ACTIVE' },
+        select: { id: true },
+      }),
       prisma.rider.findMany({ where: { parentId: auth.userId }, select: { id: true } }),
     ]);
-    const subscriptionIds = subscriptions.map((s) => s.id);
+    const activeSubIds = activeSubscriptions.map((s) => s.id);
     const riderIds = riders.map((r) => r.id);
+
+    const scopeOr = [
+      ...(activeSubIds.length ? [{ subscriptionId: { in: activeSubIds } }] : []),
+      ...(riderIds.length ? [{ subscriptionId: null, riderId: { in: riderIds } }] : []),
+    ];
+
+    if (scopeOr.length === 0) {
+      return NextResponse.json({ data: { trips: [], total: 0 }, error: null });
+    }
 
     const todayFloor = riyadhTodayDateFloor();
 
     const trips = await prisma.trip.findMany({
       where: {
-        OR: [
-          { subscriptionId: { in: subscriptionIds } },
-          { riderId: { in: riderIds } },
+        AND: [
+          { OR: scopeOr },
+          { status: { in: [...TRACKABLE_STATUSES] } },
+          { scheduledDate: { gte: todayFloor } },
+          operationalSubFilter,
         ],
-        status: { in: [...TRACKABLE_STATUSES] },
-        scheduledDate: { gte: todayFloor },
       },
       select: {
         id: true, status: true, scheduledDate: true,
         scheduledPickupTime: true, pickupLocation: true, dropoffLocation: true,
+        legType: true,
         rider: { select: { name: true } },
         driver: { select: { profile: { select: { fullName: true } } } },
       },

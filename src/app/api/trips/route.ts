@@ -4,6 +4,11 @@ import { requireAuth } from '@/lib/session';
 import type { TripStatus } from '@prisma/client';
 import { getDisplayLabel } from '@/lib/trips/statusCatalog';
 import { filterTripsForRoleApi, riyadhTodayDateFloor, needsClassificationFilter, CLASSIFICATION_FETCH_CAP } from '@/lib/trips/tripApiFilters';
+import {
+  buildParentTripScope,
+  isHistoricalTripListFilter,
+  operationalSubscriptionTripFilter,
+} from '@/lib/subscriptions/subscriptionTripLifecycle';
 
 const TRIP_SELECT = {
   id: true,
@@ -109,25 +114,34 @@ export async function GET(req: Request) {
         ? { status: { in: ['DRIVER_ASSIGNED', 'PRE_TRIP'] as TripStatus[] } }
         : statusWhere;
       where = { driverId: driver.id, ...baseWhere, ...driverStatusWhere };
+      if (!isHistoricalTripListFilter(statusFilter)) {
+        where = { AND: [where, operationalSubscriptionTripFilter()] };
+      }
       if (['upcoming', 'active', 'review'].includes(statusFilter ?? '') && !dateRange) {
         where = { ...where, ...(statusFilter === 'review' ? {} : { scheduledDate: { gte: riyadhTodayDateFloor() } }) };
       }
     } else {
-      const [subscriptions, riders] = await Promise.all([
-        prisma.userSubscription.findMany({ where: { userId: auth.userId }, select: { id: true } }),
+      const [activeSubscriptions, allSubscriptions, riders] = await Promise.all([
+        prisma.userSubscription.findMany({
+          where: { userId: auth.userId, status: 'ACTIVE' },
+          select: { id: true },
+        }),
+        prisma.userSubscription.findMany({
+          where: { userId: auth.userId },
+          select: { id: true },
+        }),
         prisma.rider.findMany({ where: { parentId: auth.userId }, select: { id: true } }),
       ]);
-      const parentWhere: Record<string, unknown> = {
-        OR: [
-          { subscriptionId: { in: subscriptions.map((s) => s.id) } },
-          { riderId: { in: riders.map((r) => r.id) } },
-        ],
-        ...baseWhere,
-      };
+      const parentScope = buildParentTripScope({
+        activeSubscriptionIds: activeSubscriptions.map((s) => s.id),
+        allSubscriptionIds: allSubscriptions.map((s) => s.id),
+        riderIds: riders.map((r) => r.id),
+        statusFilter,
+      });
+      where = { AND: [parentScope, baseWhere] };
       if (['upcoming', 'active'].includes(statusFilter ?? '') && !dateRange) {
-        parentWhere.scheduledDate = { gte: riyadhTodayDateFloor() };
+        where = { AND: [where, { scheduledDate: { gte: riyadhTodayDateFloor() } }] };
       }
-      where = parentWhere;
     }
 
     const useClassification = needsClassificationFilter(auth.role, statusFilter);

@@ -91,6 +91,7 @@ export async function GET(req: Request) {
             select: {
               id: true,
               subscriptionType: true,
+              status: true,
               assignedDriverId: true,
               user: { select: { fullName: true } },
             },

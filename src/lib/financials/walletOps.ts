@@ -32,7 +32,10 @@ export async function applyWalletAdjustment(input: {
     const existing = await input.tx.walletTransaction.findUnique({
       where: { idempotencyKey: input.idempotencyKey },
     });
-    if (existing) return { duplicate: true as const, transaction: existing, newBalanceSar: 0 };
+    if (existing) {
+      const wallet = await input.tx.wallet.findUnique({ where: { userId: input.userId } });
+      return { duplicate: true as const, transaction: existing, newBalanceSar: Number(wallet?.balanceSar ?? 0) };
+    }
   }
 
   const wallet = await input.tx.wallet.upsert({
