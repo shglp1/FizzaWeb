@@ -48,6 +48,13 @@ const addOnsDuration = new Trend('addons_p95', true);
 const gpsDuration = new Trend('gps_update_p95', true);
 const subscriptionDuration = new Trend('subscription_creation_p95', true);
 const adminDuration = new Trend('admin_read_p95', true);
+// ── Performance-audit additions (Phase 1 baseline) ────────────────────────────
+const parentTripsDuration = new Trend('parent_trips_p95', true);
+const walletDuration = new Trend('wallet_p95', true);
+const adminTripsDuration = new Trend('admin_trips_p95', true);
+const adminLiveDuration = new Trend('admin_live_p95', true);
+const adminFinancialsDuration = new Trend('admin_financials_p95', true);
+const adminUsersDuration = new Trend('admin_users_p95', true);
 
 // ── Config ────────────────────────────────────────────────────────────────────
 const BASE_URL = __ENV.BASE_URL || 'http://localhost:3000';
@@ -142,6 +149,14 @@ export const options = {
 
     // Admin — can be slower
     'http_req_duration{scenario:admin_reads}': ['p(95)<800'],
+
+    // ── Performance-audit SLOs (Phase 1 baseline targets) ───────────────────
+    'parent_trips_p95': ['p(95)<500'],
+    'wallet_p95': ['p(95)<400'],
+    'admin_trips_p95': ['p(95)<800'],
+    'admin_live_p95': ['p(95)<1000'],
+    'admin_financials_p95': ['p(95)<1500'],
+    'admin_users_p95': ['p(95)<800'],
   },
 };
 
@@ -252,15 +267,43 @@ export function authenticatedReads() {
   }
 
   group('authenticated reads', () => {
-    const res = http.get(`${BASE_URL}/api/subscriptions`, { headers: riderHeaders() });
+    // Subscriptions list
+    {
+      const res = http.get(`${BASE_URL}/api/subscriptions`, { headers: riderHeaders() });
+      const ok = check(res, {
+        'subscriptions: 200': (r) => r.status === 200,
+        'subscriptions: has data': (r) => {
+          try { return JSON.parse(r.body).data !== undefined; } catch { return false; }
+        },
+      });
+      errorRate.add(!ok);
+    }
 
-    const ok = check(res, {
-      'subscriptions: 200': (r) => r.status === 200,
-      'subscriptions: has data': (r) => {
-        try { return JSON.parse(r.body).data !== undefined; } catch { return false; }
-      },
-    });
-    errorRate.add(!ok);
+    sleep(1 + Math.random() * 2);
+
+    // Parent trips list (paginated, upcoming filter)
+    {
+      const res = http.get(`${BASE_URL}/api/trips?status=upcoming&limit=50`, { headers: riderHeaders() });
+      parentTripsDuration.add(res.timings.duration);
+      const ok = check(res, {
+        'trips: 200': (r) => r.status === 200,
+        'trips: not 500': (r) => r.status !== 500,
+      });
+      errorRate.add(!ok);
+    }
+
+    sleep(1 + Math.random() * 2);
+
+    // Wallet (balance + recent transactions)
+    {
+      const res = http.get(`${BASE_URL}/api/wallet`, { headers: riderHeaders() });
+      walletDuration.add(res.timings.duration);
+      const ok = check(res, {
+        'wallet: 200': (r) => r.status === 200,
+        'wallet: not 500': (r) => r.status !== 500,
+      });
+      errorRate.add(!ok);
+    }
   });
 
   sleep(3 + Math.random() * 4); // 3–7s think time
@@ -357,6 +400,58 @@ export function adminReads() {
       });
       errorRate.add(!ok);
     }
+
+    sleep(2);
+
+    // Admin trips list (paginated)
+    {
+      const res = http.get(`${BASE_URL}/api/admin/trips?limit=50`, { headers: adminHeaders() });
+      adminTripsDuration.add(res.timings.duration);
+      const ok = check(res, {
+        'admin trips: 200': (r) => r.status === 200,
+        'admin trips: not 500': (r) => r.status !== 500,
+      });
+      errorRate.add(!ok);
+    }
+
+    sleep(2);
+
+    // Admin live operations monitor (active trips + GPS freshness)
+    {
+      const res = http.get(`${BASE_URL}/api/admin/trips/live`, { headers: adminHeaders() });
+      adminLiveDuration.add(res.timings.duration);
+      const ok = check(res, {
+        'admin live: 200': (r) => r.status === 200,
+        'admin live: not 500': (r) => r.status !== 500,
+      });
+      errorRate.add(!ok);
+    }
+
+    sleep(2);
+
+    // Admin financial overview (aggregates)
+    {
+      const res = http.get(`${BASE_URL}/api/admin/financials/overview`, { headers: adminHeaders() });
+      adminFinancialsDuration.add(res.timings.duration);
+      const ok = check(res, {
+        'admin financials: 200': (r) => r.status === 200,
+        'admin financials: not 500': (r) => r.status !== 500,
+      });
+      errorRate.add(!ok);
+    }
+
+    sleep(2);
+
+    // Admin users list (paginated + summary counts)
+    {
+      const res = http.get(`${BASE_URL}/api/admin/users?limit=25`, { headers: adminHeaders() });
+      adminUsersDuration.add(res.timings.duration);
+      const ok = check(res, {
+        'admin users: 200': (r) => r.status === 200,
+        'admin users: not 500': (r) => r.status !== 500,
+      });
+      errorRate.add(!ok);
+    }
   });
 
   sleep(5 + Math.random() * 5); // 5–10s think time
@@ -382,6 +477,14 @@ export function handleSummary(data) {
   console.log(`║  p95 GPS updates:            ${p95('gps_update_p95').padEnd(12)} ║`);
   console.log(`║  p95 subscription creation:  ${p95('subscription_creation_p95').padEnd(12)} ║`);
   console.log(`║  p95 admin reads:            ${p95('admin_read_p95').padEnd(12)} ║`);
+  console.log('╠══════════════════════════════════════════╣');
+  console.log(`║  p95 parent trips:           ${p95('parent_trips_p95').padEnd(12)} ║`);
+  console.log(`║  p95 wallet:                 ${p95('wallet_p95').padEnd(12)} ║`);
+  console.log(`║  p95 admin trips:            ${p95('admin_trips_p95').padEnd(12)} ║`);
+  console.log(`║  p95 admin live ops:         ${p95('admin_live_p95').padEnd(12)} ║`);
+  console.log(`║  p95 admin financials:       ${p95('admin_financials_p95').padEnd(12)} ║`);
+  console.log(`║  p95 admin users:            ${p95('admin_users_p95').padEnd(12)} ║`);
+  console.log('╠══════════════════════════════════════════╣');
   console.log(`║  HTTP error rate:            ${rate('http_req_failed').padEnd(12)} ║`);
   console.log(`║  Custom error rate:          ${rate('errors').padEnd(12)} ║`);
   console.log('╚══════════════════════════════════════════╝\n');

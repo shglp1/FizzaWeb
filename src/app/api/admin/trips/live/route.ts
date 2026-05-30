@@ -3,6 +3,7 @@
  * Live operations monitor: active trips with GPS freshness and pickup context.
  */
 import { NextResponse } from 'next/server';
+import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { requireRole } from '@/lib/session';
 import { classifyTripForRole } from '@/lib/trips/tripClassification';
@@ -63,16 +64,34 @@ export async function GET() {
     ]);
 
     const tripIds = trips.map((t) => t.id);
-    const allLocations = tripIds.length
-      ? await prisma.driverLocation.findMany({
-          where: { tripId: { in: tripIds } },
-          orderBy: { recordedAt: 'desc' },
-          select: { tripId: true, lat: true, lng: true, recordedAt: true },
-        })
+
+    // Fetch only the single latest GPS row per active trip in one query, instead of
+    // loading the entire GPS history for every trip and discarding all but the head.
+    // ROW_NUMBER() requires MySQL 8.0+ (already assumed by existing migrations).
+    // Backed by the driver_locations (trip_id, recorded_at) composite index.
+    type LatestLocationRow = { trip_id: string; lat: number; lng: number; recorded_at: Date };
+    const latestLocations: LatestLocationRow[] = tripIds.length
+      ? await prisma.$queryRaw<LatestLocationRow[]>`
+          SELECT trip_id, lat, lng, recorded_at
+          FROM (
+            SELECT trip_id, lat, lng, recorded_at,
+                   ROW_NUMBER() OVER (PARTITION BY trip_id ORDER BY recorded_at DESC) AS rn
+            FROM driver_locations
+            WHERE trip_id IN (${Prisma.join(tripIds)})
+          ) ranked
+          WHERE rn = 1
+        `
       : [];
-    const latestByTrip = new Map<string, (typeof allLocations)[0]>();
-    for (const loc of allLocations) {
-      if (loc.tripId && !latestByTrip.has(loc.tripId)) latestByTrip.set(loc.tripId, loc);
+
+    type LatestLocation = { tripId: string; lat: number; lng: number; recordedAt: Date };
+    const latestByTrip = new Map<string, LatestLocation>();
+    for (const row of latestLocations) {
+      latestByTrip.set(row.trip_id, {
+        tripId: row.trip_id,
+        lat: row.lat,
+        lng: row.lng,
+        recordedAt: new Date(row.recorded_at),
+      });
     }
 
     const sixtySecondsAgo = new Date(Date.now() - 60_000);

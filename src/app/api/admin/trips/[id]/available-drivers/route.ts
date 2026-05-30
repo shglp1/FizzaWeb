@@ -12,7 +12,7 @@ import { decideTripDispatch } from '@/lib/dispatch/generateTrips';
 import type { TimelineTrip } from '@/lib/dispatch/types';
 
 export async function GET(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
@@ -20,6 +20,10 @@ export async function GET(
     if (auth instanceof NextResponse) return auth;
 
     const { id } = await params;
+    const { searchParams } = new URL(req.url);
+    // Default 50 assignable candidates; admin can request more (hard cap 200)
+    // to keep the per-driver dispatch feasibility checks bounded.
+    const limit = Math.min(200, Math.max(1, parseInt(searchParams.get('limit') ?? '50', 10)));
     const trip = await prisma.trip.findUnique({
       where: { id },
       select: {
@@ -55,8 +59,12 @@ export async function GET(
       dropoffLng: trip.dropoffLng,
     };
 
+    // Narrow the candidate pool at the database level to genuinely assignable
+    // drivers: not suspended, available, and with a vehicle. This avoids running
+    // per-driver dispatch feasibility checks over drivers that assign-driver would
+    // reject anyway, and keeps the endpoint scalable as the driver roster grows.
     const drivers = await prisma.driver.findMany({
-      where: { isSuspended: false },
+      where: { isSuspended: false, availability: true, vehicleId: { not: null } },
       select: {
         id: true,
         availability: true,
@@ -75,7 +83,8 @@ export async function GET(
           select: { recordedAt: true },
         },
       },
-      orderBy: [{ availability: 'desc' }, { rating: 'desc' }],
+      orderBy: [{ rating: 'desc' }],
+      take: limit,
     });
 
     const driverDayCache = new Map<string, TimelineTrip[]>();

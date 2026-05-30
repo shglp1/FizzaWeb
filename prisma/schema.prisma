@@ -165,6 +165,8 @@ model Profile {
   tripRatingsGiven      TripRating[]                   @relation("RatingParent")
   walletTransactionsAdmin WalletTransaction[]          @relation("WalletTransactionAdmin")
 
+  @@index([role])
+  @@index([registrationSource])
   @@map("profiles")
 }
 
@@ -485,6 +487,13 @@ model Trip {
   @@index([needsDispatch])
   @@unique([subscriptionId, riderId, scheduledDate, legType], map: "trips_sub_rider_date_leg_unique")
   @@index([createdAt])
+  // Composite indexes for hot-path queries (perf audit):
+  // - dispatch feasibility timeline: where driverId AND scheduledDate range
+  @@index([driverId, scheduledDate])
+  // - live ops / trip lists: where status IN (...) AND scheduledDate range
+  @@index([status, scheduledDate])
+  // - live ops financial review badge: count where financialReviewStatus = PENDING
+  @@index([financialReviewStatus])
   @@map("trips")
 }
 
@@ -501,6 +510,9 @@ model DriverLocation {
   @@index([driverId])
   @@index([tripId])
   @@index([recordedAt])
+  // Composite for "latest location for a trip" (findFirst orderBy recordedAt desc)
+  // and live-ops batch GPS fetch. Avoids scanning all rows for a trip.
+  @@index([tripId, recordedAt])
   @@map("driver_locations")
 }
 
@@ -540,6 +552,8 @@ model WalletTransaction {
   @@index([tripId])
   @@index([source])
   @@index([adminUserId])
+  // Composite for wallet history: where walletId ORDER BY createdAt desc
+  @@index([walletId, createdAt])
   @@map("wallet_transactions")
 }
 

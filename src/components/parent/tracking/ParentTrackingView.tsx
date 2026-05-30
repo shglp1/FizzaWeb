@@ -1,10 +1,16 @@
 'use client';
 
 import { useState } from 'react';
+import dynamic from 'next/dynamic';
 import { Phone, MessageSquare } from 'lucide-react';
 import { Button } from '@/components/ui';
 import { DriverMapFallback, DriverMapPanel } from '@/components/driver/DriverUI';
-import { TripTrackingMap } from '@/components/tracking/TripTrackingMap';
+
+// Map is client-only (Leaflet) and heavy; defer its module until rendered.
+const TripTrackingMap = dynamic(
+  () => import('@/components/tracking/TripTrackingMap').then((m) => m.TripTrackingMap),
+  { ssr: false, loading: () => <div className="h-48 rounded-xl bg-gray-100 animate-pulse" /> },
+);
 import { TripChatDrawer } from '@/components/trips/TripChatDrawer';
 import { ParentTrackingHeader } from './ParentTrackingHeader';
 import { ParentSafetyBanner } from './ParentSafetyBanner';

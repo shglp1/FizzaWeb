@@ -137,6 +137,15 @@ export async function GET(req: Request) {
         dateTo: dateTo || null,
       },
       error: null,
+    }, {
+      headers: {
+        // Admin KPI dashboard: brief private cache to avoid re-running ~14 heavy
+        // aggregates on every tab switch / re-render. Per-URL (date filters keyed
+        // in the query string). Private + short TTL so reported figures stay fresh;
+        // never cached by shared CDNs. Financial mutations are not cached here —
+        // this is a read-only reporting view.
+        'Cache-Control': 'private, max-age=60, stale-while-revalidate=30',
+      },
     });
   } catch {
     return NextResponse.json(

@@ -58,11 +58,13 @@ The `/api/auth/login` endpoint has no brute-force protection. An attacker can at
 
 ### 6. GPS throttle: Redis replacement for multi-replica
 
-The current in-process `Map<driverId, timestamp>` throttle only works on a single Vercel function instance. Under auto-scaling, drivers can bypass the throttle by hitting different replicas.
+A server-side GPS write throttle is implemented in `src/lib/tracking/gpsThrottle.ts` (in-process `Map<tripId, timestamp>`, default 4s cooldown via `GPS_THROTTLE_MS`). It runs in the tracking POST route **after** all auth/ownership/sharing checks, so it never weakens security, and it returns `{ ok: true, throttled: true }` without persisting when within the cooldown window.
 
-**What to do**: Replace with `SET driverId NX PX 5000` in Upstash Redis.
+**Limitation**: This is per-instance. On a multi-instance / serverless deployment (e.g. Vercel auto-scaling), each instance keeps its own map, so the effective window is per-instance, not global. It is still a strict improvement everywhere and is fully correct for single-instance deployments.
 
-**Status**: ⚠️ Not implemented — estimated 1–2 hours.
+**What to do for multi-instance**: Replace with `SET tripId NX PX 4000` in Upstash Redis. The same applies to the in-memory live-ETA cache (`src/lib/tracking/liveEtaCache.ts`).
+
+**Status**: ✅ In-memory throttle implemented (perf audit). ⚠️ Redis upgrade still required before multi-instance deployment — estimated 1–2 hours.
 
 ---
 
